@@ -10,8 +10,8 @@
 // boundary, not an afterthought.
 
 import type {
-  Announcement, Cohort, Course, KeyDate, LibraryDocument, Membership,
-  ModuleTile, School, Section, Student, User,
+  Announcement, Cohort, CommandCentre, Course, KeyDate, LibraryDocument,
+  Membership, ModuleTile, School, Section, Student, User, WorkItem,
 } from '../types'
 
 export interface Repository {
@@ -32,4 +32,8 @@ export interface Repository {
   listKeyDates(schoolId: string, cohortId: string | null): Promise<KeyDate[]>
   listDocuments(schoolId: string, forUserId: string): Promise<LibraryDocument[]>
   listModuleTiles(schoolId: string, forUserId: string): Promise<ModuleTile[]>
+
+  // Role-specific main content
+  getCommandCentre(schoolId: string): Promise<CommandCentre>
+  listMyWork(schoolId: string, forUserId: string): Promise<WorkItem[]>
 }

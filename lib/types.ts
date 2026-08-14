@@ -157,3 +157,64 @@ export type PresetKey =
   | 'observer'
   | 'teacher'
   | 'student'
+
+// ---------------------------------------------------------------------------
+// Command centre — the IB Coordinator's home. Not a variant of a generic page:
+// this IS their dashboard, as designed in the coordinator mockup.
+// ---------------------------------------------------------------------------
+
+export interface SessionDeadline {
+  label: string
+  date: string
+  urgent: boolean
+}
+
+export interface SessionBanner {
+  sessionLabel: string
+  cohortLabel: string
+  candidates: number
+  ibSchoolCode: string
+  deadlines: SessionDeadline[]
+}
+
+export interface ReadinessTile {
+  label: string
+  done: number
+  total: number
+  unit: string
+  state: 'ok' | 'warn' | 'bad'
+}
+
+export interface AttentionItem {
+  id: Id
+  tag: string
+  tone: 'ib' | 'ee' | 'tok' | 'cas' | 'ia' | 'staff'
+  title: string
+  detail: string
+  action: string
+}
+
+export interface StaffOutstanding {
+  name: string
+  role: string
+  detail: string
+  count: number
+}
+
+export interface CommandCentre {
+  banner: SessionBanner
+  readiness: ReadinessTile[]
+  attention: AttentionItem[]
+  staff: StaffOutstanding[]
+}
+
+/** A teacher's or student's queue of things waiting on them personally. */
+export interface WorkItem {
+  id: Id
+  title: string
+  detail: string
+  due: string | null
+  overdueDays: number | null
+  href: string
+  tone: 'ok' | 'attention' | 'overdue'
+}
