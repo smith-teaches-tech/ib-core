@@ -1,7 +1,9 @@
 import Link from 'next/link'
+import CohortBar from '@/components/CohortBar'
 import Shell from '@/components/Shell'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
+import { cohortTitle, sortCohorts } from '@/lib/cohorts'
 
 // View all courses — the catalogue as it actually stands, grouped as the IB
 // groups it. Read-only on purpose: changing any of it happens in Add & assign,
@@ -9,11 +11,16 @@ import { getSession } from '@/lib/session'
 
 export const dynamic = 'force-dynamic'
 
-export default async function AllCourses() {
+export default async function AllCourses({
+  searchParams,
+}: {
+  searchParams: Promise<{ cohort?: string }>
+}) {
+  const wanted = (await searchParams).cohort
   const session = await getSession()
   const { school } = session
-  const cohorts = await repo.setup.listCohorts(school.id)
-  const cohort = cohorts.find((c) => !c.archived) ?? cohorts[0]
+  const cohorts = sortCohorts(await repo.setup.listCohorts(school.id))
+  const cohort = cohorts.find((c) => c.id === wanted) ?? cohorts[0]
   const rows = await repo.setup.listCourseRows(school.id, cohort?.id ?? 'c15')
 
   const groups = [...new Set(rows.map((r) => r.course.subjectGroup))]
@@ -22,9 +29,15 @@ export default async function AllCourses() {
     <Shell session={session} spaces={[]} current="/courses">
       <h1>All courses</h1>
       <p className="sub">
-        {school.name} · {cohort?.label ?? ''} — {rows.filter((r) => r.sections.length > 0).length} of{' '}
-        {rows.length} in the catalogue are running this year.
+        {school.name} · {cohort ? cohortTitle(cohort) : ''} —{' '}
+        {rows.filter((r) => r.sections.length > 0).length} of {rows.length} in the catalogue are
+        running for this year group.
       </p>
+      <CohortBar
+        cohorts={cohorts}
+        current={cohort?.id ?? ''}
+        href={(id) => `/courses?cohort=${id}`}
+      />
 
       {groups.map((g) => (
         <div className="panel" key={g}>

@@ -26,6 +26,11 @@ import type {
 } from '../setup/types'
 import type { CapabilityKey, Cohort } from '../types'
 
+export interface CohortSpaces {
+  cohort: Cohort
+  courses: Course[]
+}
+
 export interface Repository {
   // Identity & scope
   getUser(userId: string): Promise<User | null>
@@ -40,6 +45,13 @@ export interface Repository {
   coursesOfStudent(studentId: string): Promise<Course[]>
   /** The courses a staff member is actually assigned to teach. */
   myCourses(schoolId: string, userId: string): Promise<Course[]>
+  /**
+   * "My spaces", GROUPED BY COHORT — because two year groups run at once and a
+   * teacher may take both. Same derivation for everyone: a student's spaces come
+   * from their enrolments, a teacher's from their assignments, and both resolve
+   * through Section, which is what carries the cohort.
+   */
+  mySpaces(schoolId: string, userId: string): Promise<CohortSpaces[]>
 
   // The two views over the spine — same data, different zoom
   getTrack(schoolId: string, studentUserId: string): Promise<StudentTrack | null>
@@ -87,6 +99,18 @@ export interface SetupRepository {
   // ---- students ----
   /** Commits only the rows the preview marked `new`. Returns how many landed. */
   importStudents(schoolId: string, cohortId: string, rows: ImportRow[]): Promise<number>
+
+  /**
+   * The cohort behind whatever you are about to write to — a section, a
+   * student, or a cohort named directly.
+   *
+   * Exists so the actions can refuse writes to an archived year. Hiding the
+   * buttons is courtesy; this is the rule.
+   */
+  cohortOf(
+    schoolId: string,
+    ref: { cohortId?: string; sectionId?: string; studentId?: string },
+  ): Promise<Cohort | null>
 
   // ---- IB identifiers ----
   /**

@@ -540,3 +540,18 @@ input.cell:hover { border-color: var(--line); background: #fff; }
 input.cell:focus { border-color: var(--brand); background: #fff; outline: none; }
 details.cob summary { list-style: revert; }
 details.cob > summary::marker { color: var(--muted); }
+
+/* ---- archived years: present, but not competing for attention ---------- */
+details.archived { margin-top: 22px; border-top: 1px solid var(--line); padding-top: 10px; }
+details.archived > summary {
+  cursor: pointer; font-size: 11.5px; color: var(--muted); padding: 4px 9px;
+  list-style: none; font-weight: 600;
+}
+details.archived > summary::before { content: '▸ '; }
+details.archived[open] > summary::before { content: '▾ '; }
+details.archived > summary:hover { color: var(--ink); }
+details.archived h3 { margin: 10px 0 4px; }
+details.archived .navrow { opacity: .75; }
+
+/* ---- cohort chips ------------------------------------------------------ */
+.cohortbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }

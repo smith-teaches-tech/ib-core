@@ -1,8 +1,10 @@
+import CohortBar from '@/components/CohortBar'
 import Shell from '@/components/Shell'
 import Track from '@/components/Track'
 import BoardView from '@/components/BoardView'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
+import { cohortTitle, sortCohorts } from '@/lib/cohorts'
 
 // Home routes by role, but both views are the SAME data at different zooms:
 //   student      → their track  (one student, full detail)
@@ -16,7 +18,7 @@ export const dynamic = 'force-dynamic'
 export default async function HomePage({
   searchParams,
 }: {
-  searchParams: Promise<{ export?: string }>
+  searchParams: Promise<{ export?: string; cohort?: string }>
 }) {
   const session = await getSession()
   const { user, school, memberships } = session
@@ -27,13 +29,10 @@ export default async function HomePage({
   const isCoordinator =
     roles.includes('school_coordinator') || roles.includes('district_coordinator')
 
-  // "My spaces" is uniform: the things you are attached to. A coordinator is
-  // attached to the whole programme; everyone else to what they teach or take.
-  const spaces = isStudent
-    ? await repo.coursesOfStudent(user.id)
-    : isCoordinator
-      ? await repo.listCourses(school.id)
-      : await repo.myCourses(school.id, user.id)
+  // "My spaces" is uniform: the things you are attached to, grouped by the year
+  // group they belong to. A coordinator gets a page list instead (lib/nav.ts),
+  // so there is nothing to compute for them.
+  const spaces = isCoordinator ? [] : await repo.mySpaces(school.id, user.id)
 
   let body: React.ReactNode
 
@@ -52,14 +51,28 @@ export default async function HomePage({
       <p className="mut">No student record.</p>
     )
   } else {
-    const board = await repo.getBoard(school.id, 'c15', exportOnly)
+    // The board shows one cohort at a time; default to the Year 2 group, since
+    // that is the one with an exam session bearing down on it.
+    const cohorts = sortCohorts(await repo.setup.listCohorts(school.id))
+    const wanted = (await searchParams).cohort
+    const cohort = cohorts.find((c) => c.id === wanted) ?? cohorts[0]
+    const board = await repo.getBoard(school.id, cohort?.id ?? 'c15', exportOnly)
     body = (
       <>
         <h1>Completeness</h1>
         <p className="sub">
           What is recorded and what isn&rsquo;t — every candidate&rsquo;s track, compressed to one row.
         </p>
-        <BoardView board={board} cohortLabel="Class of 2027" exportOnly={exportOnly} />
+        <CohortBar
+          cohorts={cohorts}
+          current={cohort?.id ?? ''}
+          href={(id) => `/?cohort=${id}${exportOnly ? '&export=1' : ''}`}
+        />
+        <BoardView
+          board={board}
+          cohortLabel={cohort ? cohortTitle(cohort) : ''}
+          exportOnly={exportOnly}
+        />
       </>
     )
   }

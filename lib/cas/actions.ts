@@ -13,6 +13,7 @@ import { repo } from '../data'
 import { getSession } from '../session'
 import { storage } from '../storage'
 import type { ExperienceStatus, IndicatorValue, InterviewKind, LoKey, Strand } from './types'
+import { isArchived } from '../cohorts'
 
 function refresh() {
   revalidatePath('/', 'layout')
@@ -23,6 +24,14 @@ async function asStaff() {
   const session = await getSession()
   if (!session.can('cas.manage')) throw new Error('You do not have permission to manage CAS.')
   return session
+}
+
+/** An archived year group is a record, not a workspace. See lib/setup/actions.ts. */
+async function live(schoolId: string, studentId: string) {
+  const cohort = await repo.setup.cohortOf(schoolId, { studentId })
+  if (cohort && isArchived(cohort)) {
+    throw new Error(`${cohort.label} is archived — it is a record and cannot be changed.`)
+  }
 }
 
 /** Student actions: you may only ever write to your own record. */
@@ -171,6 +180,7 @@ export async function saveInterview(
   conductedOn: string,
 ) {
   const session = await asStaff()
+  await live(session.school.id, studentId)
   if (!notes.trim()) throw new Error('An interview record needs notes.')
   await repo.cas.saveInterview(
     session.school.id, studentId, kind, notes.trim(), conductedOn, session.user.name,
@@ -190,18 +200,21 @@ export async function unlockInterview(interviewId: string, reason: string) {
 
 export async function setIndicator(studentId: string, value: IndicatorValue | null) {
   const session = await asStaff()
+  await live(session.school.id, studentId)
   await repo.cas.setIndicator(session.school.id, studentId, value, session.user.name)
   refresh()
 }
 
 export async function addNote(studentId: string, body: string) {
   const session = await asStaff()
+  await live(session.school.id, studentId)
   await repo.cas.addNote(session.school.id, studentId, body.trim(), session.user.name)
   refresh()
 }
 
 export async function setCasComplete(studentId: string, complete: boolean) {
   const session = await asStaff()
+  await live(session.school.id, studentId)
   await repo.cas.setCasComplete(session.school.id, studentId, complete, session.user.name)
   refresh()
 }

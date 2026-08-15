@@ -316,7 +316,10 @@ function RosterRow({
                     />
                   ))}
 
-                  {/* cas.complete — the one CAS requirement recorded, not derived */}
+                  {/* cas.complete — the one CAS requirement recorded, not derived.
+                      Hidden entirely when there is nothing to say and nothing to
+                      do: on an archived year a row of dead controls is just noise. */}
+                  {(canManage || s.complete) && (
                   <div className="actionbar">
                     <span className="lbl">CAS complete</span>
                     {s.complete ? (
@@ -349,6 +352,7 @@ function RosterRow({
                       </>
                     )}
                   </div>
+                  )}
                 </>
               )}
 

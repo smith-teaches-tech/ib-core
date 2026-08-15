@@ -6,7 +6,8 @@
 //
 // Run: npm run checkpoint
 
-import { REQUIREMENT_DEFS, REQUIREMENT_STATES, fixtureRepository as repo } from '../lib/data/fixtures'
+import { COHORTS, REQUIREMENT_DEFS, REQUIREMENT_STATES, fixtureRepository as repo } from '../lib/data/fixtures'
+import { stageOf } from '../lib/cohorts'
 import { CAS_DATA } from '../lib/data/cas-fixtures'
 import { summarise } from '../lib/cas/derive'
 
@@ -21,8 +22,17 @@ async function main() {
 
   // 1 — nothing derived is stored (spine invariant #2)
   console.log('\n1. Invariant: nothing derived is stored')
-  const casDefIds = new Set(REQUIREMENT_DEFS.filter((d) => d.lane === 'CAS').map((d) => d.id))
-  check(casDefIds.size === 12, `12 CAS requirement definitions (got ${casDefIds.size})`)
+  const casDefs = REQUIREMENT_DEFS.filter((d) => d.lane === 'CAS')
+  const casDefIds = new Set(casDefs.map((d) => d.id))
+  const cohortsWithCas = new Set(casDefs.map((d) => d.cohortId))
+  check(
+    [...cohortsWithCas].every((c) => casDefs.filter((d) => d.cohortId === c).length === 12),
+    `12 CAS requirement definitions per cohort, across ${cohortsWithCas.size} cohorts`,
+  )
+  check(
+    casDefIds.size === casDefs.length,
+    'every CAS definition id is unique across cohorts — two live years share keys, not ids',
+  )
   check(
     REQUIREMENT_STATES.every((s) => !casDefIds.has(s.requirementDefId)),
     'no CAS RequirementState is stored in the fixtures',
@@ -117,6 +127,28 @@ async function main() {
   console.log(
     `\n     cohort: ${totals.students} students · ${totals.atRisk} at risk · ` +
       `avg ${totals.avgOutcomes}/7 outcomes · ${totals.projectsComplete} projects complete`,
+  )
+
+  // 6 — two live cohorts, derived not stored
+  console.log('\n6. Cohorts derive their own stage')
+  for (const c of COHORTS.filter((x) => x.schoolId === 'dhahran')) {
+    console.log(`     ${c.label.padEnd(16)} gradYear ${c.gradYear}  →  ${stageOf(c)}`)
+  }
+  const dhahran = COHORTS.filter((c) => c.schoolId === 'dhahran')
+  check(dhahran.filter((c) => stageOf(c) === 'year_2').length === 1, 'exactly one Year 2 cohort')
+  check(dhahran.filter((c) => stageOf(c) === 'year_1').length === 1, 'exactly one Year 1 cohort')
+  check(dhahran.filter((c) => stageOf(c) === 'archived').length === 1, 'one cohort has archived itself')
+  check(
+    dhahran.every((c) => !c.archived),
+    'and NOT ONE of them has a stored archived flag — the stage is derived',
+  )
+
+  const y1 = dhahran.find((c) => stageOf(c) === 'year_1')!
+  const y1Board = await repo.getBoard('dhahran', y1.id)
+  check(y1Board.rows.length > 0, `the Year 1 cohort has its own board (${y1Board.rows.length} candidates)`)
+  check(
+    y1Board.columns.every((col) => col.cohortId === y1.id),
+    'and its columns are its OWN definitions, not Year 2\'s',
   )
 
   console.log('\n' + '='.repeat(60))

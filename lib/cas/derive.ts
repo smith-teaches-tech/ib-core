@@ -193,8 +193,17 @@ export function deriveCasStates(
   defs: RequirementDef[],
   data: CasData,
 ): RequirementState[] {
-  const byKey = new Map(defs.filter((d) => d.lane === 'CAS').map((d) => [d.key, d]))
-  if (byKey.size === 0) return []
+  // Keyed BY COHORT, not just by key. Two live cohorts each carry a definition
+  // called `cas.lo1`, and a flat key→def map would silently keep one of them —
+  // which would attach Year 1's states to Year 2's definitions.
+  const byCohort = new Map<string, Map<string, RequirementDef>>()
+  for (const d of defs) {
+    if (d.lane !== 'CAS') continue
+    let m = byCohort.get(d.cohortId)
+    if (!m) byCohort.set(d.cohortId, (m = new Map()))
+    m.set(d.key, d)
+  }
+  if (byCohort.size === 0) return []
 
   const out: RequirementState[] = []
 
@@ -205,7 +214,7 @@ export function deriveCasStates(
     recordedAt?: string,
     recordedBy?: string,
   ) => {
-    const def = byKey.get(key)
+    const def = byCohort.get(student.cohortId)?.get(key)
     if (!def) return
     out.push({
       studentId: student.userId,

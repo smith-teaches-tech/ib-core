@@ -12,6 +12,7 @@ import { repo } from '../data'
 import { getSession } from '../session'
 import { canGrant } from '../capabilities'
 import type { CapabilityKey } from '../types'
+import { isArchived } from '../cohorts'
 import type { ImportRow } from './types'
 
 function refresh() {
@@ -26,6 +27,23 @@ async function need(capability: CapabilityKey) {
   return session
 }
 
+/**
+ * An archived year group is a record, not a workspace.
+ *
+ * The screens already withdraw every write capability for an archived cohort,
+ * but a screen is a suggestion. This is where it is true: any write that
+ * resolves to a finished year is refused, whoever asks and however they got here.
+ */
+async function live(
+  schoolId: string,
+  ref: { cohortId?: string; sectionId?: string; studentId?: string },
+) {
+  const cohort = await repo.setup.cohortOf(schoolId, ref)
+  if (cohort && isArchived(cohort)) {
+    throw new Error(`${cohort.label} is archived — it is a record and cannot be changed.`)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Students
 // ---------------------------------------------------------------------------
@@ -37,6 +55,7 @@ export async function previewImport(text: string) {
 
 export async function importStudents(cohortId: string, rows: ImportRow[]) {
   const session = await need('students.add')
+  await live(session.school.id, { cohortId })
   // Re-check the verdicts server-side. The client sends back what it previewed,
   // and a client is not a source of truth about who is already in the school.
   const fresh = await repo.setup.previewImport(
@@ -58,6 +77,7 @@ export async function addCourse(
 ) {
   const session = await need('catalogue.manage')
   if (!input.name.trim()) throw new Error('A course needs a name.')
+  await live(session.school.id, { cohortId })
   const id = await repo.setup.addCourse(session.school.id, input, cohortId)
   refresh()
   return id
@@ -65,6 +85,7 @@ export async function addCourse(
 
 export async function addSection(courseId: string, cohortId: string, label: string) {
   const session = await need('sections.manage')
+  await live(session.school.id, { cohortId })
   const id = await repo.setup.addSection(session.school.id, courseId, cohortId, label)
   refresh()
   return id
@@ -72,12 +93,14 @@ export async function addSection(courseId: string, cohortId: string, label: stri
 
 export async function enrolStudent(studentId: string, sectionId: string) {
   const session = await need('enrolment.manage')
+  await live(session.school.id, { sectionId })
   await repo.setup.enrolStudent(session.school.id, studentId, sectionId)
   refresh()
 }
 
 export async function unenrolStudent(studentId: string, sectionId: string) {
   const session = await need('enrolment.manage')
+  await live(session.school.id, { sectionId })
   await repo.setup.unenrolStudent(session.school.id, studentId, sectionId)
   refresh()
 }
@@ -97,18 +120,21 @@ export async function inviteTeacher(name: string, email: string) {
 
 export async function assignTeacher(teacherId: string, sectionId: string) {
   const session = await need('sections.manage')
+  await live(session.school.id, { sectionId })
   await repo.setup.assignTeacher(session.school.id, teacherId, sectionId)
   refresh()
 }
 
 export async function unassignTeacher(teacherId: string, sectionId: string) {
   const session = await need('sections.manage')
+  await live(session.school.id, { sectionId })
   await repo.setup.unassignTeacher(session.school.id, teacherId, sectionId)
   refresh()
 }
 
 export async function setDesignatedMarker(teacherId: string, sectionId: string, on: boolean) {
   const session = await need('sections.manage')
+  await live(session.school.id, { sectionId })
   await repo.setup.setDesignatedMarker(session.school.id, teacherId, sectionId, on)
   refresh()
 }
@@ -150,6 +176,7 @@ export async function setIdentifiers(
   input: { sessionNumber?: string; personalCode?: string; resultsPin?: string; confirmed?: boolean },
 ) {
   const session = await need('identifiers.manage')
+  await live(session.school.id, { studentId })
   await repo.setup.setIdentifiers(session.school.id, studentId, input)
   refresh()
 }

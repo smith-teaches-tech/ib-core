@@ -19,16 +19,33 @@ import { makeCasRepository } from './cas-repo'
 import { makeSetupRepository } from './setup-repo'
 import { GROUP_CHOICES, GROUP_KEYS, SIXTH_SUBJECT, catalogueFor } from './catalogue'
 import { pinned } from './pin'
+import { sortCohorts } from '../cohorts'
 
 export const SCHOOLS: School[] = [
   { id: 'dhahran', name: 'ISG Dhahran', ibSchoolCode: '001234' },
   { id: 'jubail', name: 'ISG Jubail', ibSchoolCode: '004417' },
 ]
 
+/**
+ * THREE cohorts, because two are live at once and one is over.
+ *
+ * Nothing here says "Year 1" or "Year 2" — that is derived from gradYear and
+ * today's date (lib/cohorts.ts). Today, 2026-08-15, this reads as:
+ *
+ *   Class of 2026 → archived   Class of 2027 → Year 2   Class of 2028 → Year 1
+ *
+ * and in August 2027 the same three rows read one year further on, with nobody
+ * having edited anything.
+ */
 export const COHORTS: Cohort[] = [
+  { id: 'c14', schoolId: 'dhahran', label: 'Class of 2026', gradYear: 2026, archived: false },
   { id: 'c15', schoolId: 'dhahran', label: 'Class of 2027', gradYear: 2027, archived: false },
+  { id: 'c16', schoolId: 'dhahran', label: 'Class of 2028', gradYear: 2028, archived: false },
   { id: 'j09', schoolId: 'jubail', label: 'Class of 2027', gradYear: 2027, archived: false },
 ]
+
+/** The cohorts at Dhahran, oldest first — used to build sections and defs. */
+const DHAHRAN_COHORTS = ['c14', 'c15', 'c16'] as const
 
 // ---------------------------------------------------------------------------
 // Courses — CAS, EE and TOK sit here alongside Biology. Same container.
@@ -54,14 +71,22 @@ const NOT_RUNNING = new Set(['germ_a_sl', 'fr_b_hl', 'econ_hl'])
  * the only reason Section exists as its own object. A course with a single
  * section shows its label nowhere in the UI.
  */
+/**
+ * A section belongs to ONE cohort. Two live cohorts therefore mean two sets of
+ * sections over the same catalogue — which is what makes "Biology SL, Year 1"
+ * and "Biology SL, Year 2" different groups with different students and,
+ * potentially, different teachers.
+ */
 export const SECTIONS: Section[] = pinned('ibSections', () =>
-  COURSES.filter((c) => !NOT_RUNNING.has(c.id)).flatMap((c) =>
-    c.id === 'eng_hl' || c.id === 'bio_sl'
-      ? [
-          { id: c.id + '_a', schoolId: 'dhahran', courseId: c.id, cohortId: 'c15', label: 'A' },
-          { id: c.id + '_b', schoolId: 'dhahran', courseId: c.id, cohortId: 'c15', label: 'B' },
-        ]
-      : [{ id: c.id + '_a', schoolId: 'dhahran', courseId: c.id, cohortId: 'c15', label: 'A' }],
+  DHAHRAN_COHORTS.flatMap((cohortId) =>
+    COURSES.filter((c) => !NOT_RUNNING.has(c.id)).flatMap((c) =>
+      c.id === 'eng_hl' || c.id === 'bio_sl'
+        ? [
+            { id: `${c.id}_${cohortId}_a`, schoolId: 'dhahran', courseId: c.id, cohortId, label: 'A' },
+            { id: `${c.id}_${cohortId}_b`, schoolId: 'dhahran', courseId: c.id, cohortId, label: 'B' },
+          ]
+        : [{ id: `${c.id}_${cohortId}_a`, schoolId: 'dhahran', courseId: c.id, cohortId, label: 'A' }],
+    ),
   ),
 )
 
@@ -69,13 +94,40 @@ export const SECTIONS: Section[] = pinned('ibSections', () =>
 // People
 // ---------------------------------------------------------------------------
 
-const NAMES = [
+/** Class of 2027 — the Year 2 cohort, and the one with real CAS data. */
+const NAMES_C15 = [
   'Ahmed, Layla', 'Al-Rashid, Noor', 'Baptiste, Elie', 'Chen, Marcus', 'Diallo, Aminata',
   'Erdem, Kaan', 'Fernandes, Sofia', 'Gupta, Ishaan', 'Haddad, Rami', 'Ibrahim, Yasmin',
   'Jansen, Pieter', 'Kimura, Sora', 'Lopez, Mateo', 'Mensah, Kofi', 'Novak, Petra',
   'Okoro, Sara', 'Petrov, Dmitri', 'Quintero, Ana', 'Rahman, Yusuf', 'Silva, Bruno',
   'Tan, Wei Ling', 'Uddin, Zara', 'Vasquez, Diego', 'Yildiz, Deniz',
 ]
+
+/** Class of 2028 — Year 1, two weeks in. Almost nothing recorded yet, correctly. */
+const NAMES_C16 = [
+  'Abadi, Sami', 'Bergman, Elsa', 'Cardoso, Tiago', 'Devi, Anaya', 'Eriksen, Mads',
+  'Farah, Idil', 'Ghosh, Rian', 'Hassan, Mariam', 'Iqbal, Bilal', 'Jung, Minseo',
+  'Kowalski, Ola', 'Lim, Jia Hui', 'Moreau, Colette', 'Nasser, Dana', "O'Brien, Cian",
+  'Park, Sunwoo', 'Rossi, Giulia', 'Sattar, Hana', 'Thabet, Karim', 'Weber, Jonas',
+]
+
+/** Class of 2026 — finished. Sits in the archive to prove the archive works. */
+const NAMES_C14 = [
+  'Adeyinka, Tolu', 'Bianchi, Marco', 'Choudhury, Nadia', 'Dumont, Luc', 'Eze, Chidi',
+  'Fischer, Lena', 'Gomez, Paula', 'Hakim, Omar', 'Ivanov, Sergei', 'Joshi, Meera',
+]
+
+/** Which cohort a student id belongs to, encoded in the prefix. */
+const COHORT_NAMES: Record<string, string[]> = {
+  c14: NAMES_C14,
+  c15: NAMES_C15,
+  c16: NAMES_C16,
+}
+const ID_PREFIX: Record<string, string> = { c14: 'ar', c15: 'st', c16: 'y1' }
+
+const studentIds = (cohortId: string) =>
+  COHORT_NAMES[cohortId].map((_, i) => ID_PREFIX[cohortId] + String(i + 1).padStart(2, '0'))
+
 
 const STAFF: User[] = [
   { id: 'u_michael', name: 'Michael', email: 'shmikie@isg.edu.sa', status: 'active' },
@@ -88,26 +140,43 @@ const STAFF: User[] = [
 
 export const USERS: User[] = pinned('ibUsers', () => [
   ...STAFF,
-  ...NAMES.map((n, i) => ({
-    id: 'st' + String(i + 1).padStart(2, '0'),
-    name: n,
-    email: n.split(',')[0].toLowerCase() + (i + 1) + '@isg.edu.sa',
-    status: 'active' as const,
-  })),
+  ...DHAHRAN_COHORTS.flatMap((cohortId) =>
+    COHORT_NAMES[cohortId].map((n, i) => ({
+      id: studentIds(cohortId)[i],
+      name: n,
+      email:
+        n.split(',')[0].toLowerCase().replace(/[^a-z]/g, '') +
+        COHORTS.find((c) => c.id === cohortId)!.gradYear +
+        (i + 1) +
+        '@isg.edu.sa',
+      status: 'active' as const,
+    })),
+  ),
 ])
 
+
 export const STUDENTS: Student[] = pinned('ibStudents', () =>
-  NAMES.map((_, i) => ({
-    userId: 'st' + String(i + 1).padStart(2, '0'),
-    schoolId: 'dhahran',
-    cohortId: 'c15',
-    studentNumber: String(204_100 + i * 3),
-    sessionNumber: i < 21 ? String(i + 1).padStart(4, '0') : null,
-    personalCode: i < 21 ? 'p' + (100 + i * 7) : null,
-    resultsPin: i < 18 ? String(48_120_000 + i * 977) : null,
-    identifiersState: i < 18 ? 'confirmed' : i < 21 ? 'unconfirmed' : 'missing',
-  })),
+  DHAHRAN_COHORTS.flatMap((cohortId) =>
+    COHORT_NAMES[cohortId].map((_, i) => {
+      // The Year 2 cohort is registered and mostly confirmed. Year 1 has no IB
+      // identifiers at all — they are not issued until exams are ordered, and
+      // that is the honest state for a cohort two weeks into DP1.
+      const registered = cohortId !== 'c16' && i < 21
+      const confirmed = cohortId !== 'c16' && i < 18
+      return {
+        userId: studentIds(cohortId)[i],
+        schoolId: 'dhahran',
+        cohortId,
+        studentNumber: String(204_100 + i * 3 + DHAHRAN_COHORTS.indexOf(cohortId as never) * 1_000),
+        sessionNumber: registered ? String(i + 1).padStart(4, '0') : null,
+        personalCode: registered ? 'p' + (100 + i * 7) : null,
+        resultsPin: confirmed ? String(48_120_000 + i * 977) : null,
+        identifiersState: confirmed ? 'confirmed' : registered ? 'unconfirmed' : 'missing',
+      }
+    }),
+  ),
 )
+
 
 export const MEMBERSHIPS: Membership[] = pinned('ibMemberships', () => [
   { userId: 'u_michael', schoolId: 'dhahran', roles: ['district_coordinator'], presetKey: 'district', addedCapabilities: [], removedCapabilities: [] },
@@ -127,15 +196,36 @@ export const MEMBERSHIPS: Membership[] = pinned('ibMemberships', () => [
   })),
 ])
 
+
+/**
+ * Note who teaches ACROSS cohorts — Adeyemi runs Core for both live years and
+ * Farouk takes Biology in both. That is the case Michael raised: a teacher who
+ * needs to move between Year 1 and Year 2 without switching anything.
+ *
+ * And note what an assignment is: teacher ↔ SECTION. Never teacher ↔ student.
+ * Which is why reassigning a teacher moves no student records at all.
+ */
 export const TEACHING_ASSIGNMENTS: TeachingAssignment[] = pinned('ibAssignments', () => [
-  { teacherId: 'u_farouk', sectionId: 'bio_sl_a', isDesignatedMarker: true },
-  { teacherId: 'u_farouk', sectionId: 'bio_sl_b', isDesignatedMarker: true },
-  { teacherId: 'u_silva', sectionId: 'bio_sl_b', isDesignatedMarker: false }, // co-taught
-  { teacherId: 'u_silva', sectionId: 'busman_sl_a', isDesignatedMarker: true },
-  { teacherId: 'u_adeyemi', sectionId: 'tok_a', isDesignatedMarker: true },
-  { teacherId: 'u_adeyemi', sectionId: 'cas_a', isDesignatedMarker: true },
-  { teacherId: 'u_adeyemi', sectionId: 'ee_a', isDesignatedMarker: true },
+  // Class of 2027 — Year 2
+  { teacherId: 'u_farouk', sectionId: 'bio_sl_c15_a', isDesignatedMarker: true },
+  { teacherId: 'u_farouk', sectionId: 'bio_sl_c15_b', isDesignatedMarker: true },
+  { teacherId: 'u_silva', sectionId: 'bio_sl_c15_b', isDesignatedMarker: false }, // co-taught
+  { teacherId: 'u_silva', sectionId: 'busman_sl_c15_a', isDesignatedMarker: true },
+  { teacherId: 'u_adeyemi', sectionId: 'tok_c15_a', isDesignatedMarker: true },
+  { teacherId: 'u_adeyemi', sectionId: 'cas_c15_a', isDesignatedMarker: true },
+  { teacherId: 'u_adeyemi', sectionId: 'ee_c15_a', isDesignatedMarker: true },
+
+  // Class of 2028 — Year 1, same people
+  { teacherId: 'u_farouk', sectionId: 'bio_sl_c16_a', isDesignatedMarker: true },
+  { teacherId: 'u_adeyemi', sectionId: 'tok_c16_a', isDesignatedMarker: true },
+  { teacherId: 'u_adeyemi', sectionId: 'cas_c16_a', isDesignatedMarker: true },
+  { teacherId: 'u_adeyemi', sectionId: 'ee_c16_a', isDesignatedMarker: true },
+
+  // Class of 2026 — archived, but the record of who taught it survives
+  { teacherId: 'u_farouk', sectionId: 'bio_sl_c14_a', isDesignatedMarker: true },
+  { teacherId: 'u_adeyemi', sectionId: 'cas_c14_a', isDesignatedMarker: true },
 ])
+
 
 /** Deterministic pseudo-randomness — no Math.random, so the data never shifts. */
 function rng(seed: number) {
@@ -154,8 +244,8 @@ export const ENROLLMENTS: Enrollment[] = pinned('ibEnrollments', () => {
   const out: Enrollment[] = []
   const r = rng(42)
 
-  const enrol = (studentId: string, courseId: string, i: number) => {
-    const options = SECTIONS.filter((x) => x.courseId === courseId)
+  const enrol = (studentId: string, cohortId: string, courseId: string, i: number) => {
+    const options = SECTIONS.filter((x) => x.courseId === courseId && x.cohortId === cohortId)
     if (options.length === 0) return
     const section = options[i % options.length]
     if (!out.some((e) => e.studentId === studentId && e.sectionId === section.id)) {
@@ -165,110 +255,129 @@ export const ENROLLMENTS: Enrollment[] = pinned('ibEnrollments', () => {
 
   // Weighted toward the front of each list, so the catalogue ends up with
   // popular courses and thin ones rather than an unrealistically even spread.
-  // Filtered to what is actually running, so a dormant course stays dormant.
-  const running = (ids: string[]) => ids.filter((id) => SECTIONS.some((x) => x.courseId === id))
-  const weighted = (list: string[]) => {
-    const options = running(list)
+  const running = (cohortId: string, ids: string[]) =>
+    ids.filter((id) => SECTIONS.some((x) => x.courseId === id && x.cohortId === cohortId))
+  const weighted = (cohortId: string, list: string[]) => {
+    const options = running(cohortId, list)
     return options[Math.floor(options.length * r() * r())]
   }
 
-  STUDENTS.forEach((s, i) => {
-    for (const core of ['cas', 'ee', 'tok']) enrol(s.userId, core, i)
-    for (const group of GROUP_KEYS) enrol(s.userId, weighted(GROUP_CHOICES[group]), i)
+  for (const student of STUDENTS) {
+    const i = STUDENTS.indexOf(student)
+    const cohortId = student.cohortId
+    for (const core of ['cas', 'ee', 'tok']) enrol(student.userId, cohortId, core, i)
+    for (const group of GROUP_KEYS) {
+      enrol(student.userId, cohortId, weighted(cohortId, GROUP_CHOICES[group]), i)
+    }
     // The sixth: a Group 6 arts course, or a second from Individuals & Societies
     // or Sciences. That is the actual IB rule, and it is the reason the
     // completeness board has hatched cells rather than gaps.
-    enrol(s.userId, weighted(SIXTH_SUBJECT), i)
-  })
+    enrol(student.userId, cohortId, weighted(cohortId, SIXTH_SUBJECT), i)
+  }
   return out
 })
+
 
 // ---------------------------------------------------------------------------
 // Requirement definitions — defined ONCE per course, never per student
 // ---------------------------------------------------------------------------
 
-let order = 0
-const def = (
-  d: Omit<RequirementDef, 'id' | 'schoolId' | 'cohortId' | 'order'>,
-): RequirementDef => ({
-  ...d,
-  id: d.key,
-  schoolId: 'dhahran',
-  cohortId: 'c15',
-  order: order++,
-})
-
 /**
- * CAS — twelve definitions, and NOT ONE OF THE FIRST EIGHT IS EVER WRITTEN TO.
+ * Requirement definitions are VERSIONED PER COHORT (spine architecture §2), so
+ * this is a factory rather than a list: the EE model changed for 2027, and a
+ * cohort's definitions must not shift under work already filed.
  *
- * The seven outcomes and the project are derived from the student's experiences
- * (lib/cas/derive.ts); the three interviews from Interview records. Only
- * `cas.complete` is recorded directly, by the coordinator.
- *
- * `recordedBy` on a derived def names who does the underlying work, since the
- * spine has no third answer — the honest one is in the comment above.
- *
- * Note the absent field: no `exportTarget` anywhere in CAS. CAS is not assessed
- * and nothing goes to eCoursework; completion is confirmed by the coordinator.
- * [VERIFY] exactly how that reaches IBIS — question for the coordinator.
+ * Ids carry the cohort — `c15:cas.lo1` — because two live cohorts otherwise
+ * produce two definitions sharing a key, and anything mapping key → def would
+ * silently keep only one of them.
  */
-const CAS_COURSE = { kind: 'course', courseId: 'cas' } as const
+function buildDefs(cohortId: string): RequirementDef[] {
+  let order = 0
+  const def = (
+    d: Omit<RequirementDef, 'id' | 'schoolId' | 'cohortId' | 'order'>,
+  ): RequirementDef => ({
+    ...d,
+    id: `${cohortId}:${d.key}`,
+    schoolId: 'dhahran',
+    cohortId,
+    order: order++,
+  })
 
-const casDefs: RequirementDef[] = [
-  ...LEARNING_OUTCOMES.map((lo, i) =>
-    def({
-      scope: CAS_COURSE,
-      key: 'cas.' + lo.key,
-      label: `LO${i + 1} ${lo.short}`,
-      lane: 'CAS',
-      recordedBy: 'student',
-      artifact: 'none',
-    }),
-  ),
-  def({ scope: CAS_COURSE, key: 'cas.project', label: 'CAS project', lane: 'CAS', recordedBy: 'student', artifact: 'none' }),
-  def({ scope: CAS_COURSE, key: 'cas.interview1', label: 'Initial interview', lane: 'CAS', recordedBy: 'staff', artifact: 'text' }),
-  def({ scope: CAS_COURSE, key: 'cas.interview2', label: 'Interim interview', lane: 'CAS', recordedBy: 'staff', artifact: 'text' }),
-  def({ scope: CAS_COURSE, key: 'cas.interview3', label: 'Final interview', lane: 'CAS', recordedBy: 'staff', artifact: 'text' }),
-  def({ scope: CAS_COURSE, key: 'cas.complete', label: 'CAS complete', lane: 'CAS', recordedBy: 'coordinator', artifact: 'none' }),
-]
 
-const eeDefs: RequirementDef[] = [
-  def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.rq', label: 'Subject & research question', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text' }),
-  def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r1', label: 'Reflection 1', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text' }),
-  def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r2', label: 'Reflection 2', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text' }),
-  def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.final', label: 'Final essay', lane: 'Extended Essay', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
-  def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.viva', label: 'Viva voce', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
-  // The fix for the endless student list: the RPF cannot be actionable before the viva.
-  def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.rpf', label: 'RPF', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text', exportTarget: 'ecoursework', opensAfter: 'ee.viva' }),
-  def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.attest', label: 'Supervisor attestation', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'none' }),
-]
+  /**
+   * CAS — twelve definitions, and NOT ONE OF THE FIRST EIGHT IS EVER WRITTEN TO.
+   *
+   * The seven outcomes and the project are derived from the student's experiences
+   * (lib/cas/derive.ts); the three interviews from Interview records. Only
+   * `cas.complete` is recorded directly, by the coordinator.
+   *
+   * `recordedBy` on a derived def names who does the underlying work, since the
+   * spine has no third answer — the honest one is in the comment above.
+   *
+   * Note the absent field: no `exportTarget` anywhere in CAS. CAS is not assessed
+   * and nothing goes to eCoursework; completion is confirmed by the coordinator.
+   * [VERIFY] exactly how that reaches IBIS — question for the coordinator.
+   */
+  const CAS_COURSE = { kind: 'course', courseId: 'cas' } as const
 
-const tokDefs: RequirementDef[] = [
-  def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.exh', label: 'Exhibition', lane: 'TOK', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
-  def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.exhmark', label: 'Exhibition mark', lane: 'TOK', recordedBy: 'staff', artifact: 'mark', markMax: 10 }),
-  def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.title', label: 'Title chosen', lane: 'TOK', recordedBy: 'student', artifact: 'text' }),
-  def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf1', label: 'TK/PPF 1', lane: 'TOK', recordedBy: 'student', artifact: 'text' }),
-  def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf2', label: 'TK/PPF 2', lane: 'TOK', recordedBy: 'student', artifact: 'text', opensAfter: 'tok.ppf1' }),
-  def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf3', label: 'TK/PPF 3', lane: 'TOK', recordedBy: 'student', artifact: 'text', opensAfter: 'tok.ppf2' }),
-  def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.essay', label: 'Final essay', lane: 'TOK', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
-]
+  const casDefs: RequirementDef[] = [
+    ...LEARNING_OUTCOMES.map((lo, i) =>
+      def({
+        scope: CAS_COURSE,
+        key: 'cas.' + lo.key,
+        label: `LO${i + 1} ${lo.short}`,
+        lane: 'CAS',
+        recordedBy: 'student',
+        artifact: 'none',
+      }),
+    ),
+    def({ scope: CAS_COURSE, key: 'cas.project', label: 'CAS project', lane: 'CAS', recordedBy: 'student', artifact: 'none' }),
+    def({ scope: CAS_COURSE, key: 'cas.interview1', label: 'Initial interview', lane: 'CAS', recordedBy: 'staff', artifact: 'text' }),
+    def({ scope: CAS_COURSE, key: 'cas.interview2', label: 'Interim interview', lane: 'CAS', recordedBy: 'staff', artifact: 'text' }),
+    def({ scope: CAS_COURSE, key: 'cas.interview3', label: 'Final interview', lane: 'CAS', recordedBy: 'staff', artifact: 'text' }),
+    def({ scope: CAS_COURSE, key: 'cas.complete', label: 'CAS complete', lane: 'CAS', recordedBy: 'coordinator', artifact: 'none' }),
+  ]
 
-/** The MVP shortcut: every subject gets the SAME generic IA set. */
-const subjectDefs: RequirementDef[] = COURSES.filter((c) => c.type === 'subject').flatMap((c) => [
-  def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.file', label: c.name + ' — IA', lane: 'Internal assessment', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
-  def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.mark', label: c.name + ' — mark', lane: 'Internal assessment', recordedBy: 'staff', artifact: 'mark', markMax: 25, exportTarget: 'ibis_ia_marks' }),
-])
+  const eeDefs: RequirementDef[] = [
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.rq', label: 'Subject & research question', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text' }),
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r1', label: 'Reflection 1', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text' }),
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r2', label: 'Reflection 2', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text' }),
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.final', label: 'Final essay', lane: 'Extended Essay', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.viva', label: 'Viva voce', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
+    // The fix for the endless student list: the RPF cannot be actionable before the viva.
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.rpf', label: 'RPF', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text', exportTarget: 'ecoursework', opensAfter: 'ee.viva' }),
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.attest', label: 'Supervisor attestation', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'none' }),
+  ]
 
-const programmeDefs: RequirementDef[] = [
-  def({ scope: { kind: 'programme' }, key: 'ib.reg', label: 'Registered with the IB', lane: 'IB admin', recordedBy: 'coordinator', artifact: 'none' }),
-  def({ scope: { kind: 'programme' }, key: 'ib.code', label: 'Candidate code', lane: 'IB admin', recordedBy: 'coordinator', artifact: 'text' }),
-  def({ scope: { kind: 'programme' }, key: 'ib.auth', label: 'Coursework authenticated', lane: 'IB admin', recordedBy: 'student', artifact: 'none', opensAfter: 'ib.code' }),
-  def({ scope: { kind: 'programme' }, key: 'ib.pg', label: 'Predicted grades', lane: 'IB admin', recordedBy: 'coordinator', artifact: 'mark', exportTarget: 'ibis_predicted' }),
-]
+  const tokDefs: RequirementDef[] = [
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.exh', label: 'Exhibition', lane: 'TOK', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.exhmark', label: 'Exhibition mark', lane: 'TOK', recordedBy: 'staff', artifact: 'mark', markMax: 10 }),
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.title', label: 'Title chosen', lane: 'TOK', recordedBy: 'student', artifact: 'text' }),
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf1', label: 'TK/PPF 1', lane: 'TOK', recordedBy: 'student', artifact: 'text' }),
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf2', label: 'TK/PPF 2', lane: 'TOK', recordedBy: 'student', artifact: 'text', opensAfter: 'tok.ppf1' }),
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf3', label: 'TK/PPF 3', lane: 'TOK', recordedBy: 'student', artifact: 'text', opensAfter: 'tok.ppf2' }),
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.essay', label: 'Final essay', lane: 'TOK', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
+  ]
 
-export const REQUIREMENT_DEFS: RequirementDef[] = pinned('ibRequirementDefs', () => [
-  ...casDefs, ...eeDefs, ...tokDefs, ...subjectDefs, ...programmeDefs,
-])
+  /** The MVP shortcut: every subject gets the SAME generic IA set. */
+  const subjectDefs: RequirementDef[] = COURSES.filter((c) => c.type === 'subject').flatMap((c) => [
+    def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.file', label: c.name + ' — IA', lane: 'Internal assessment', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
+    def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.mark', label: c.name + ' — mark', lane: 'Internal assessment', recordedBy: 'staff', artifact: 'mark', markMax: 25, exportTarget: 'ibis_ia_marks' }),
+  ])
+
+  const programmeDefs: RequirementDef[] = [
+    def({ scope: { kind: 'programme' }, key: 'ib.reg', label: 'Registered with the IB', lane: 'IB admin', recordedBy: 'coordinator', artifact: 'none' }),
+    def({ scope: { kind: 'programme' }, key: 'ib.code', label: 'Candidate code', lane: 'IB admin', recordedBy: 'coordinator', artifact: 'text' }),
+    def({ scope: { kind: 'programme' }, key: 'ib.auth', label: 'Coursework authenticated', lane: 'IB admin', recordedBy: 'student', artifact: 'none', opensAfter: 'ib.code' }),
+    def({ scope: { kind: 'programme' }, key: 'ib.pg', label: 'Predicted grades', lane: 'IB admin', recordedBy: 'coordinator', artifact: 'mark', exportTarget: 'ibis_predicted' }),
+  ]
+
+  return [...casDefs, ...eeDefs, ...tokDefs, ...subjectDefs, ...programmeDefs]
+}
+
+export const REQUIREMENT_DEFS: RequirementDef[] = pinned('ibRequirementDefs', () =>
+  DHAHRAN_COHORTS.flatMap((cohortId) => buildDefs(cohortId)),
+)
 
 // ---------------------------------------------------------------------------
 // Recorded states — deliberately partial, like a real cohort mid-year
@@ -408,6 +517,24 @@ export const fixtureRepository: Repository = {
     const sectionIds = TEACHING_ASSIGNMENTS.filter((t) => t.teacherId === userId).map((t) => t.sectionId)
     const courseIds = new Set(SECTIONS.filter((s) => sectionIds.includes(s.id)).map((s) => s.courseId))
     return COURSES.filter((c) => c.schoolId === schoolId && courseIds.has(c.id))
+  },
+
+  async mySpaces(schoolId, userId) {
+    // Sections reached either way — enrolled in, or assigned to teach.
+    const sectionIds = new Set([
+      ...ENROLLMENTS.filter((e) => e.studentId === userId).map((e) => e.sectionId),
+      ...TEACHING_ASSIGNMENTS.filter((t) => t.teacherId === userId).map((t) => t.sectionId),
+    ])
+    const mine = SECTIONS.filter((s) => sectionIds.has(s.id) && s.schoolId === schoolId)
+
+    return sortCohorts(COHORTS.filter((c) => mine.some((s) => s.cohortId === c.id)))
+      .map((cohort) => ({
+        cohort,
+        courses: COURSES.filter((c) =>
+          mine.some((s) => s.cohortId === cohort.id && s.courseId === c.id),
+        ),
+      }))
+      .filter((g) => g.courses.length > 0)
   },
 
   async getTrack(schoolId, studentUserId) {

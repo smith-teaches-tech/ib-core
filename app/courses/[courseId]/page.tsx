@@ -1,9 +1,11 @@
 import { notFound } from 'next/navigation'
 import Shell from '@/components/Shell'
 import CasRoster from '@/components/cas/CasRoster'
+import CohortBar from '@/components/CohortBar'
 import StudentCas from '@/components/cas/StudentCas'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
+import { cohortTitle, isArchived, sortCohorts } from '@/lib/cohorts'
 
 // A course page, dispatched by course TYPE.
 //
@@ -16,10 +18,13 @@ export const dynamic = 'force-dynamic'
 
 export default async function CoursePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ courseId: string }>
+  searchParams: Promise<{ cohort?: string }>
 }) {
   const { courseId } = await params
+  const wantedCohort = (await searchParams).cohort
   const session = await getSession()
   const { user, school, memberships } = session
   const roles = memberships.find((m) => m.schoolId === school.id)?.roles ?? []
@@ -31,16 +36,24 @@ export default async function CoursePage({
   const course = courses.find((c) => c.id === courseId)
   if (!course) notFound()
 
-  const spaces = isStudent
-    ? await repo.coursesOfStudent(user.id)
-    : isCoordinator
-      ? courses
-      : await repo.myCourses(school.id, user.id)
+  const spaces = isCoordinator ? [] : await repo.mySpaces(school.id, user.id)
+
+  // Which year group of this course — the one asked for, else the first live
+  // one this person is attached to.
+  const cohorts = sortCohorts(await repo.setup.listCohorts(school.id))
+  const attached = spaces.filter((g) => g.courses.some((c) => c.id === course.id))
+  const cohort =
+    cohorts.find((c) => c.id === wantedCohort) ??
+    attached.find((g) => !isArchived(g.cohort))?.cohort ??
+    attached[0]?.cohort ??
+    cohorts[0]
+  const current = course.id + '@' + (cohort?.id ?? '')
+  const readOnly = cohort ? isArchived(cohort) : false
 
   // You can only open a course you are actually attached to.
-  if (!spaces.some((c) => c.id === course.id)) {
+  if (!isCoordinator && attached.length === 0) {
     return (
-      <Shell session={session} spaces={spaces} current={course.id}>
+      <Shell session={session} spaces={spaces} current={current}>
         <h1>{course.name}</h1>
         <div className="note warn">You are not attached to this course.</div>
       </Shell>
@@ -54,20 +67,27 @@ export default async function CoursePage({
       const view = await repo.cas.getStudentView(school.id, user.id)
       body = view ? <StudentCas view={view} /> : <p className="mut">No CAS record.</p>
     } else if (session.can('cas.manage')) {
-      const student = await repo.getStudent(user.id)
-      const cohortId = student?.cohortId ?? 'c15'
+      const cohortId = cohort?.id ?? 'c15'
       const [rows, totals] = await Promise.all([
         repo.cas.getRoster(school.id, cohortId),
         repo.cas.getTotals(school.id, cohortId),
       ])
       body = (
-        <CasRoster
-          rows={rows}
-          totals={totals}
-          cohortLabel="Class of 2027"
-          canManage={session.can('cas.manage')}
-          canUnlock={session.can('items.unlock')}
-        />
+        <>
+          <CohortBar
+            cohorts={isCoordinator ? cohorts : attached.map((g) => g.cohort)}
+            current={cohortId}
+            href={(id) => `/courses/${course.id}?cohort=${id}`}
+          />
+          <CasRoster
+            rows={rows}
+            totals={totals}
+            cohortLabel={cohort ? cohortTitle(cohort) : ''}
+            // An archived year is a record, not a workspace.
+            canManage={session.can('cas.manage') && !readOnly}
+            canUnlock={session.can('items.unlock') && !readOnly}
+          />
+        </>
       )
     } else {
       body = (
@@ -98,7 +118,13 @@ export default async function CoursePage({
   }
 
   return (
-    <Shell session={session} spaces={spaces} current={course.id}>
+    <Shell session={session} spaces={spaces} current={current}>
+      {readOnly && (
+        <div className="note gold" style={{ marginBottom: 14 }}>
+          <b>{cohort?.label} is archived.</b> This is a read-only record of a finished year —
+          nothing here can be changed.
+        </div>
+      )}
       {body}
     </Shell>
   )

@@ -32,9 +32,13 @@ import type {
 } from '../cas/types'
 
 const SCHOOL = 'dhahran'
-const COHORT = 'c15'
+
+/** Set before each generation block; every experience records the cohort it belongs to. */
+let COHORT = 'c15'
 
 const sid = (i: number) => 'st' + String(i).padStart(2, '0')
+/** Class of 2028 — Year 1, a fortnight in. */
+const y1 = (i: number) => 'y1' + String(i).padStart(2, '0')
 
 /** Deterministic pseudo-randomness — no Math.random, so the data never shifts. */
 function rng(seed: number) {
@@ -682,6 +686,63 @@ for (let i = 1; i <= 24; i += 1) {
   }
 }
 
+// ===========================================================================
+// Class of 2028 — Year 1, two weeks into DP1.
+//
+// Deliberately almost empty. A Year 1 cohort in mid-August has had the initial
+// interview at most and a few keen students have logged something. Fixtures that
+// showed them half-finished would make every screen lie about what the start of
+// the programme looks like.
+// ===========================================================================
+
+COHORT = 'c16'
+const ry1 = rng(3105)
+
+for (let i = 1; i <= 20; i += 1) {
+  const student = y1(i)
+  const roll = ry1()
+  const count = roll > 0.75 ? 2 : roll > 0.4 ? 1 : 0
+
+  for (let j = 0; j < count; j += 1) {
+    const pick = POOL[Math.floor(ry1() * POOL.length)]
+    const status: ExperienceStatus = ry1() > 0.55 ? 'submitted' : 'draft'
+    const e = exp({
+      studentId: student,
+      title: pick.title,
+      description: `${pick.title} — just getting started.`,
+      strands: pick.strands,
+      isProject: false,
+      claimedOutcomes: pick.los.slice(0, 2),
+      status,
+      createdAt: '2026-08-1' + (1 + (j % 4)),
+    })
+    if (status === 'submitted') {
+      entry({
+        experienceId: e.id,
+        kind: 'reflection',
+        body: 'Signing up for this because I want to find out whether I am any good at it.',
+        authorType: 'student',
+        authorName: student,
+        createdAt: '2026-08-1' + (2 + (j % 3)),
+      })
+    }
+  }
+
+  // The initial interview is the one thing a coordinator does get done early.
+  if (ry1() > 0.45) {
+    INTERVIEWS.push({
+      id: `iv_y1_${i}`,
+      schoolId: SCHOOL,
+      studentId: student,
+      kind: 'initial',
+      notes: 'First conversation of DP1 — talked through what a balanced portfolio looks like and what the three strands actually mean.',
+      conductedOn: '2026-08-12',
+      lockedAt: '2026-08-12',
+      conductedBy: 'H. Adeyemi',
+    })
+  }
+}
+
 // ---------------------------------------------------------------------------
 // One store, shared across module instances
 // ---------------------------------------------------------------------------
@@ -714,11 +775,17 @@ export const CAS_DATA: CasData = pinned('ibCasData', () => built)
  *
  * Plenty stay unset. Most students, most of the time, are simply fine.
  */
+const ALL_STUDENTS = [
+  ...Array.from({ length: 24 }, (_, i) => sid(i + 1)),
+  ...Array.from({ length: 20 }, (_, i) => y1(i + 1)),
+]
+
 const ri = rng(88)
-for (let i = 1; i <= 24; i += 1) {
-  const student = sid(i)
+for (const student of ALL_STUDENTS) {
   if (CAS_DATA.indicators.some((x) => x.studentId === student)) continue
-  if (ri() < 0.35) continue // never assessed — a real and common state
+  // Year 1 has barely started; forming a judgement about them now would be
+  // theatre, so almost none of them carry one.
+  if (ri() < (student.startsWith('y1') ? 0.85 : 0.35)) continue
   const s = summarise(student, CAS_DATA)
   const weight =
     s.outcomes.length +
@@ -739,8 +806,7 @@ for (let i = 1; i <= 24; i += 1) {
 // product exists to get right. So: only where the gate actually passes, and
 // only for some of those, because confirming it is a job someone has to do.
 let confirmedSoFar = 0
-for (let i = 1; i <= 24; i += 1) {
-  const student = sid(i)
+for (const student of ALL_STUDENTS) {
   if (CAS_DATA.completions.some((c) => c.studentId === student)) continue
   if (!completionGate(summarise(student, CAS_DATA)).ready) continue
   confirmedSoFar += 1

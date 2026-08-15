@@ -9,7 +9,7 @@
 
 import type { SetupRepository } from './repository'
 import type {
-  Course, Enrollment, Membership, RequirementDef, Section, Student,
+  Cohort, Course, Enrollment, Membership, RequirementDef, Section, Student,
   TeachingAssignment, User,
 } from '../types'
 import { resolveCapabilities } from '../capabilities'
@@ -28,7 +28,7 @@ export function makeSetupRepository(deps: {
   memberships: Membership[]
   assignments: TeachingAssignment[]
   defs: RequirementDef[]
-  cohorts: { id: string; schoolId: string; label: string; gradYear: number; archived: boolean }[]
+  cohorts: Cohort[]
 }): SetupRepository {
   const {
     courses, sections, enrollments, users, students, memberships, assignments, defs, cohorts,
@@ -250,6 +250,18 @@ export function makeSetupRepository(deps: {
         if (a.teacherId === teacherId) a.isDesignatedMarker = on
         else if (on) a.isDesignatedMarker = false
       }
+    },
+
+    async cohortOf(schoolId, ref) {
+      const id =
+        ref.cohortId ??
+        (ref.sectionId
+          ? sections.find((x) => x.id === ref.sectionId && x.schoolId === schoolId)?.cohortId
+          : undefined) ??
+        (ref.studentId
+          ? students.find((x) => x.userId === ref.studentId && x.schoolId === schoolId)?.cohortId
+          : undefined)
+      return cohorts.find((c) => c.id === id && c.schoolId === schoolId) ?? null
     },
 
     // ------------------------------------------------- IB identifiers
