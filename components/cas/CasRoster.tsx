@@ -173,10 +173,19 @@ function RosterRow({
 }) {
   const [tab, setTab] = useState<'experiences' | 'interviews' | 'notes'>('experiences')
   const [note, setNote] = useState('')
+  const [focus, setFocus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
   const s = row.summary
   const gate = completionGate(s)
+  const projectId = row.experiences.find((v) => v.experience.isProject)?.experience.id ?? null
+
+  const jumpTo = (id: string) => {
+    setFocus(id)
+    requestAnimationFrame(() =>
+      document.getElementById('exp-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+    )
+  }
 
   const run = (fn: () => Promise<unknown>) => {
     setError(null)
@@ -268,6 +277,25 @@ function RosterRow({
 
               {tab === 'experiences' && (
                 <>
+                  <div className="row exptools">
+                    <button
+                      className="btn sm"
+                      disabled={!projectId}
+                      title={
+                        projectId
+                          ? `Jump to ${row.studentName}'s CAS project`
+                          : 'This student has not flagged a CAS project yet'
+                      }
+                      onClick={() => projectId && jumpTo(projectId)}
+                    >
+                      🏆 {projectId ? 'CAS project' : 'No CAS project yet'}
+                    </button>
+                    <span className="mut" style={{ fontSize: 12 }}>
+                      Anything waiting on a decision is at the top; finished experiences are at the
+                      bottom, oldest last.
+                    </span>
+                  </div>
+
                   {s.awaiting > 0 && (
                     <div className="note warn" style={{ marginBottom: 12 }}>
                       {s.awaiting} experience{s.awaiting === 1 ? ' is' : 's are'} awaiting
@@ -280,10 +308,11 @@ function RosterRow({
                   )}
                   {row.experiences.map((v) => (
                     <ExperienceCard
-                      key={v.experience.id}
+                      key={v.experience.id + (focus === v.experience.id ? ':open' : '')}
                       view={v}
                       mode="coordinator"
                       canManage={canManage}
+                      defaultOpen={focus === v.experience.id}
                     />
                   ))}
 

@@ -25,6 +25,7 @@ const STRANDS: { key: Strand; label: string }[] = [
 export default function StudentCas({ view }: { view: CasStudentView }) {
   const { summary, experiences, notes } = view
   const [adding, setAdding] = useState(false)
+  const [focus, setFocus] = useState<string | null>(null)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [strands, setStrands] = useState<Strand[]>([])
@@ -63,6 +64,17 @@ export default function StudentCas({ view }: { view: CasStudentView }) {
   }
 
   const indicator = summary.indicator ? INDICATOR_META[summary.indicator] : null
+
+  // The project is one experience among many and sinks with the rest once it is
+  // finished, so it gets a way back to it that does not involve scrolling.
+  const projectId = experiences.find((v) => v.experience.isProject)?.experience.id ?? null
+
+  const jumpTo = (id: string) => {
+    setFocus(id)
+    requestAnimationFrame(() =>
+      document.getElementById('exp-' + id)?.scrollIntoView({ behavior: 'smooth', block: 'center' }),
+    )
+  }
 
   return (
     <>
@@ -149,25 +161,27 @@ export default function StudentCas({ view }: { view: CasStudentView }) {
         </div>
       )}
 
-      <div className="panel">
-        <div className="panel-h">
-          <h2>My experiences</h2>
-          <span className="spacer" />
-          <button className="btn pri sm" onClick={() => setAdding(!adding)}>
-            {adding ? 'Close' : '+ Add experience'}
-          </button>
-        </div>
-        <div className="panel-b">
-          {experiences.length === 0 && (
-            <p className="mut">
-              Nothing recorded yet. Add your first experience — you can save it as a draft and
-              come back to it.
-            </p>
-          )}
-          {experiences.map((v) => (
-            <ExperienceCard key={v.experience.id} view={v} mode="student" />
-          ))}
-        </div>
+      {/* Above the list on purpose: a student with thirty experiences should never
+          scroll to reach the button that adds the thirty-first. */}
+      <div className="row exptools">
+        <button className="btn pri" onClick={() => setAdding(!adding)}>
+          {adding ? 'Close' : '+ Add experience'}
+        </button>
+        <button
+          className="btn"
+          disabled={!projectId}
+          title={
+            projectId
+              ? 'Jump to your CAS project'
+              : 'Nothing is flagged as your CAS project yet — tick the box when you add one'
+          }
+          onClick={() => projectId && jumpTo(projectId)}
+        >
+          🏆 {projectId ? 'My CAS project' : 'No CAS project yet'}
+        </button>
+        <span className="mut" style={{ marginLeft: 'auto', fontSize: 12 }}>
+          Live experiences first, finished ones at the bottom.
+        </span>
       </div>
 
       {adding && (
@@ -256,6 +270,32 @@ export default function StudentCas({ view }: { view: CasStudentView }) {
           </div>
         </div>
       )}
+
+      <div className="panel">
+        <div className="panel-h">
+          <h2>My experiences</h2>
+          <span className="mut" style={{ fontSize: 12 }}>
+            {experiences.length} recorded
+          </span>
+        </div>
+        <div className="panel-b">
+          {experiences.length === 0 && (
+            <p className="mut">
+              Nothing recorded yet. Add your first experience — you can save it as a draft and
+              come back to it.
+            </p>
+          )}
+          {experiences.map((v) => (
+            <ExperienceCard
+              // Remounting on focus is what forces the card open when you jump to it.
+              key={v.experience.id + (focus === v.experience.id ? ':open' : '')}
+              view={v}
+              mode="student"
+              defaultOpen={focus === v.experience.id}
+            />
+          ))}
+        </div>
+      </div>
     </>
   )
 }

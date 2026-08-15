@@ -1,8 +1,12 @@
-// Small shared pieces of the CAS UI. No state, no actions — just the vocabulary
-// of the mockup expressed once so the student, the coordinator and the
-// supervisor all see the same experience described the same way.
+'use client'
 
+// Small shared pieces of the CAS UI — the vocabulary of the mockup expressed
+// once, so the student, the coordinator and the supervisor all see the same
+// experience described the same way.
+
+import { useState } from 'react'
 import { kindOf, thumbLabel, type StoredRef } from '@/lib/storage'
+import MediaViewer from './MediaViewer'
 import {
   INDICATOR_META, LO_LABEL, STRAND_LABEL,
   type ExperienceStatus, type IndicatorValue, type LoKey, type Strand, type ThreadEntry,
@@ -64,16 +68,60 @@ export function LoChips({ los, claimed = false }: { los: LoKey[]; claimed?: bool
   )
 }
 
-export function Thumbs({ media }: { media: StoredRef[] }) {
+/** Click a tile, play it here. See MediaViewer for why this needs no player. */
+export function Thumbs({
+  media,
+  canDownload = false,
+}: {
+  media: StoredRef[]
+  canDownload?: boolean
+}) {
+  const [at, setAt] = useState<number | null>(null)
   if (media.length === 0) return null
   return (
-    <div className="thumbs">
-      {media.map((m) => (
-        <div key={m.id} className="thumb" title={`${m.name} · ${Math.round(m.bytes / 1024)} KB`}>
-          {kindOf(m) === 'video' ? '▶ VID' : thumbLabel(m)}
-        </div>
-      ))}
-    </div>
+    <>
+      <div className="thumbs">
+        {media.map((m, i) => (
+          <button
+            key={m.id}
+            className="thumb"
+            title={`${m.name} · ${Math.round(m.bytes / 1024)} KB — click to view`}
+            onClick={() => setAt(i)}
+          >
+            {kindOf(m) === 'video' ? '▶ VID' : thumbLabel(m)}
+          </button>
+        ))}
+      </div>
+      {at != null && (
+        <MediaViewer media={media} startAt={at} canDownload={canDownload} onClose={() => setAt(null)} />
+      )}
+    </>
+  )
+}
+
+const URL_RE = /(https?:\/\/[^\s<>"']*[^\s<>"'.,;:!?)\]])/g
+
+/**
+ * URLs in any entry become links.
+ *
+ * This is the whole of "students can add a link as evidence" — a link pasted
+ * into the note on an evidence entry IS the evidence, and giving it a field of
+ * its own would only mean two places to look for the same thing.
+ */
+export function Linkify({ text }: { text?: string }) {
+  if (!text) return null
+  return (
+    <>
+      {text.split(URL_RE).map((part, i) =>
+        /^https?:\/\//.test(part) ? (
+          <a key={i} href={part} target="_blank" rel="noreferrer noopener">
+            {part}
+          </a>
+        ) : (
+          <span key={i}>{part}</span>
+        ),
+      )}
+    </>
   )
 }
 
@@ -99,9 +147,12 @@ export const prettyDate = (iso: string) =>
 export function Thread({
   entries,
   showSystem = false,
+  canDownload = false,
 }: {
   entries: ThreadEntry[]
   showSystem?: boolean
+  /** Staff and the owning student may download; a supervisor on a token may not. */
+  canDownload?: boolean
 }) {
   const shown = showSystem ? entries : entries.filter((e) => e.kind !== 'system')
   if (shown.length === 0) {
@@ -117,13 +168,13 @@ export function Thread({
             <span className={`ttype ${ui.cls}`}>{ui.label}</span>
             {e.editedFrom && <span className="ttype sys">Edited</span>}
             <div className="tbody">
-              {e.body}
+              <Linkify text={e.body} />
               {e.confirmedOutcomes && e.confirmedOutcomes.length > 0 && (
                 <div style={{ marginTop: 4 }}>
                   <LoChips los={e.confirmedOutcomes} />
                 </div>
               )}
-              <Thumbs media={e.media ?? []} />
+              <Thumbs media={e.media ?? []} canDownload={canDownload} />
               <div className="who">
                 {e.authorName}
                 {e.authorType === 'supervisor' && ' · supervisor'}

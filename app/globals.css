@@ -468,3 +468,25 @@ tr.srow.open .chev { transform: rotate(90deg); }
   body { background: #fff; }
   .panel { box-shadow: none; }
 }
+
+/* ---- experience toolbar (add / jump to project) ------------------------ */
+.exptools {
+  background: #fff; border: 1px solid var(--line); border-radius: 10px;
+  padding: 10px 12px; margin-bottom: 12px;
+}
+
+/* ---- media viewer ------------------------------------------------------ */
+.thumb {
+  border: 1px solid #cfd7de; cursor: pointer; font-family: inherit;
+  transition: border-color .12s, transform .12s;
+}
+.thumb:hover { border-color: var(--brand); transform: translateY(-1px); }
+
+.modal.viewer { max-width: 920px; }
+.viewer-b { display: flex; flex-direction: column; gap: 10px; }
+.viewer-media {
+  width: 100%; max-height: 66vh; border-radius: 8px; background: #12181f;
+  border: 1px solid var(--line); display: block;
+}
+iframe.viewer-media { height: 66vh; background: #fff; }
+img.viewer-media { object-fit: contain; }

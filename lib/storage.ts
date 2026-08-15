@@ -49,6 +49,25 @@ export const stubStorage: StorageAdapter = {
 
 export const storage: StorageAdapter = stubStorage
 
+/**
+ * True while the bytes go nowhere. The viewer reads this to say so out loud
+ * rather than showing a broken <img> and letting people guess.
+ *
+ * Flip to false when a real adapter lands in this file; nothing else changes.
+ */
+export const STORAGE_IS_STUB = true
+
+/**
+ * Where a browser should point to play this. Safe to call on the client, which
+ * is the point — the viewer is an ordinary <img>/<video>/<audio>/<iframe> and
+ * needs no player library, no plugin and no server round trip.
+ *
+ * Returns null while storage is stubbed.
+ */
+export function mediaUrl(ref: StoredRef): string | null {
+  return STORAGE_IS_STUB ? null : '/media/' + encodeURIComponent(ref.key)
+}
+
 export type MediaKind = 'image' | 'video' | 'pdf' | 'file'
 
 export function kindOf(ref: StoredRef): MediaKind {

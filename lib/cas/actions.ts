@@ -79,6 +79,11 @@ export async function editReflection(entryId: string, experienceId: string, body
  *
  * When cloud storage arrives this becomes a FormData upload and lib/storage.ts
  * changes; this signature and every screen above it stay as they are.
+ *
+ * FILES ARE OPTIONAL. A note on its own is a valid evidence entry, because a
+ * link to a video, a news article or a shared album is evidence — and a link
+ * pasted in the note is the same thing as a link in a field of its own, with
+ * one fewer place to look for it.
  */
 export async function addEvidence(
   experienceId: string,
@@ -86,7 +91,7 @@ export async function addEvidence(
   note: string,
 ) {
   const session = await asOwner(experienceId)
-  if (files.length === 0) return
+  if (files.length === 0 && !note.trim()) return
   const refs = []
   for (const f of files) {
     refs.push(await storage.put(f, { schoolId: session.school.id, studentId: session.user.id }))

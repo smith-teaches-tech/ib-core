@@ -15,6 +15,7 @@ import {
   type CasData,
   type CasSummary,
   type Experience,
+  type ExperienceStatus,
   type ExperienceView,
   type InterviewKind,
   type LoKey,
@@ -66,11 +67,51 @@ export function confirmedOutcomesOf(
   return LEARNING_OUTCOMES.map((l) => l.key).filter((k) => set.has(k))
 }
 
+/**
+ * Reading order for a portfolio that may run to dozens of experiences.
+ *
+ * Three bands, because a flat date sort buries the wrong things: something
+ * waiting on a decision must not sink under six finished experiences just
+ * because it was started first, and finished work should not compete for
+ * attention with live work at all.
+ *
+ *   0  waiting on somebody   submitted · returned · awaiting sign-off
+ *   1  live                  draft · approved
+ *   2  finished              complete
+ *   3  ruled out             rejected  (hidden from the student entirely)
+ *
+ * Newest first inside each band, dated by when the band was entered — so a
+ * completed experience is ordered by when it completed, and the oldest finished
+ * work ends up at the very bottom where it belongs.
+ */
+const BAND: Record<ExperienceStatus, number> = {
+  submitted: 0,
+  returned: 0,
+  awaiting_signoff: 0,
+  draft: 1,
+  approved: 1,
+  complete: 2,
+  rejected: 3,
+}
+
+const bandDate = (e: Experience) =>
+  e.status === 'complete' ? (e.completedAt ?? e.createdAt) : e.createdAt
+
+export function sortExperiences(list: Experience[]): Experience[] {
+  return [...list].sort((a, b) => {
+    const band = BAND[a.status] - BAND[b.status]
+    if (band !== 0) return band
+    const ad = bandDate(a)
+    const bd = bandDate(b)
+    return ad < bd ? 1 : ad > bd ? -1 : a.title.localeCompare(b.title)
+  })
+}
+
 /** Everything a student has on the go, minus what was ruled out. */
 export function experiencesOf(studentId: string, data: CasData): Experience[] {
-  return data.experiences
-    .filter((e) => e.studentId === studentId && e.status !== 'rejected')
-    .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1))
+  return sortExperiences(
+    data.experiences.filter((e) => e.studentId === studentId && e.status !== 'rejected'),
+  )
 }
 
 export function viewsOf(studentId: string, data: CasData): ExperienceView[] {

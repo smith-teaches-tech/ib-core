@@ -76,7 +76,7 @@ export default function ExperienceCard({
   const locked = e.status === 'complete' || e.status === 'rejected'
 
   return (
-    <div className={`exp ${open ? 'open' : ''}`}>
+    <div className={`exp ${open ? 'open' : ''}`} id={'exp-' + e.id}>
       <div className="exp-h click" onClick={() => setOpen(!open)}>
         <StrandChips strands={e.strands} />
         <span className="t">{e.title}</span>
@@ -126,7 +126,7 @@ export default function ExperienceCard({
           <div className="caps" style={{ marginTop: 12 }}>
             Reflections &amp; evidence — newest first
           </div>
-          <Thread entries={entries} />
+          <Thread entries={entries} canDownload />
 
           {error && (
             <div className="note warn" style={{ marginTop: 10 }}>{error}</div>
@@ -203,19 +203,26 @@ export default function ExperienceCard({
 
               {panel === 'evidence' && (
                 <div className="cob">
-                  <label className="fld">Photos, video or PDFs</label>
+                  <label className="fld">Photos, video, audio or PDFs</label>
                   <input
                     type="file"
                     multiple
+                    accept="image/*,video/*,audio/*,application/pdf"
                     onChange={(ev) => setFiles(Array.from(ev.target.files ?? []))}
                   />
-                  <label className="fld">A note about this evidence (optional)</label>
+                  <label className="fld">
+                    A note, or a link — either on its own counts as evidence
+                  </label>
                   <textarea
                     rows={2}
                     value={text}
-                    placeholder="e.g. Finished mural and volunteer group photos"
+                    placeholder="e.g. Finished mural and volunteer group photos — or paste a link: https://…"
                     onChange={(ev) => setText(ev.target.value)}
                   />
+                  <p className="mut" style={{ fontSize: 12, margin: '6px 0 0' }}>
+                    A link to a video, an article or a shared album is evidence like anything else.
+                    Paste it here and it becomes a link in the thread.
+                  </p>
                   <div className="note" style={{ marginTop: 8 }}>
                     Cloud storage is not connected yet, so the files themselves are not kept.
                     The record of what you added, when, and of what type is real and permanent.
@@ -223,7 +230,7 @@ export default function ExperienceCard({
                   <div style={{ marginTop: 8 }}>
                     <button
                       className="btn pri sm"
-                      disabled={pending || files.length === 0}
+                      disabled={pending || (files.length === 0 && !text.trim())}
                       onClick={() =>
                         run(() =>
                           cas.addEvidence(
@@ -238,7 +245,9 @@ export default function ExperienceCard({
                         )
                       }
                     >
-                      Add {files.length || ''} file{files.length === 1 ? '' : 's'}
+                      {files.length > 0
+                        ? `Add ${files.length} file${files.length === 1 ? '' : 's'}`
+                        : 'Add link / note as evidence'}
                     </button>
                   </div>
                 </div>
@@ -488,7 +497,7 @@ export default function ExperienceCard({
                 {history && (
                   <div className="hist">
                     <div className="caps">Append-only. Every entry names who, what and when.</div>
-                    <Thread entries={entries} showSystem />
+                    <Thread entries={entries} showSystem canDownload />
                   </div>
                 )}
               </div>
