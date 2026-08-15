@@ -1,13 +1,20 @@
 import Link from 'next/link'
 import DocumentsDrawer from './DocumentsDrawer'
+import { COORDINATOR_PAGES } from '@/lib/nav'
 import { DEV_USERS, type Session } from '@/lib/session'
 import { repo } from '@/lib/data'
 import type { Course } from '@/lib/types'
 
 /**
- * Sidebar carries "my spaces" — the courses this person is attached to, whether
- * that is Biology B or CAS. One uniform concept, no role-derived special cases.
- * Documents sit behind a button in the top bar.
+ * Two sidebars, chosen by role.
+ *
+ * A student or teacher gets "my spaces" — the courses they are attached to,
+ * whether that is Biology B or CAS. Short, and exactly what they need.
+ *
+ * A coordinator gets a list of PAGES instead. They are attached to the whole
+ * programme, so their course list is the entire catalogue: 33 rows of
+ * navigation that helps nobody. What a coordinator moves between is jobs.
+ * See lib/nav.ts.
  */
 export default async function Shell({
   session,
@@ -21,6 +28,10 @@ export default async function Shell({
   current?: string
   children: React.ReactNode
 }) {
+  const roles = session.memberships.find((m) => m.schoolId === session.school.id)?.roles ?? []
+  const isCoordinator =
+    roles.includes('school_coordinator') || roles.includes('district_coordinator')
+
   const schools = await repo.listSchools()
   const mySchools = schools.filter((s) => session.memberships.some((m) => m.schoolId === s.id))
   const documents = await repo.listDocuments(session.school.id, session.user.id)
@@ -60,24 +71,47 @@ export default async function Shell({
 
       <div className="shell">
         <nav className="side">
-          <h3>My spaces</h3>
-          <Link href="/" className={`navrow ${current === 'home' ? 'on' : ''}`}>
-            <span className="nm"><b>Home</b></span>
-          </Link>
-          {spaces.map((c) => (
-            <Link
-              key={c.id}
-              href={`/courses/${c.id}`}
-              className={`navrow ${current === c.id ? 'on' : ''}`}
-            >
-              <span className="nm">
-                <b>{c.name}</b>
-                <small>{c.type === 'subject' ? c.subjectGroup : 'Core'}</small>
-              </span>
-            </Link>
-          ))}
-          {spaces.length === 0 && (
-            <p className="mut" style={{ fontSize: 12.5, padding: '0 9px' }}>Nothing assigned yet.</p>
+          {isCoordinator ? (
+            <>
+              <h3>IB coordinator</h3>
+              {COORDINATOR_PAGES.map((p) => (
+                <Link
+                  key={p.href}
+                  href={p.href}
+                  className={`navrow ${current === p.href ? 'on' : ''}`}
+                >
+                  <span className="nm">
+                    <b>{p.label}</b>
+                    <small>{p.hint}</small>
+                  </span>
+                  {!p.ready && <span className="pill grey">soon</span>}
+                </Link>
+              ))}
+            </>
+          ) : (
+            <>
+              <h3>My spaces</h3>
+              <Link href="/" className={`navrow ${current === 'home' ? 'on' : ''}`}>
+                <span className="nm"><b>Home</b></span>
+              </Link>
+              {spaces.map((c) => (
+                <Link
+                  key={c.id}
+                  href={`/courses/${c.id}`}
+                  className={`navrow ${current === c.id ? 'on' : ''}`}
+                >
+                  <span className="nm">
+                    <b>{c.name}</b>
+                    <small>{c.type === 'subject' ? c.subjectGroup : 'Core'}</small>
+                  </span>
+                </Link>
+              ))}
+              {spaces.length === 0 && (
+                <p className="mut" style={{ fontSize: 12.5, padding: '0 9px' }}>
+                  Nothing assigned yet.
+                </p>
+              )}
+            </>
           )}
         </nav>
         <main className="main">{children}</main>

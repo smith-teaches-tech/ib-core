@@ -64,5 +64,9 @@ export default async function HomePage({
     )
   }
 
-  return <Shell session={session} spaces={spaces}>{body}</Shell>
+  return (
+    <Shell session={session} spaces={spaces} current={isStudent ? 'home' : '/'}>
+      {body}
+    </Shell>
+  )
 }

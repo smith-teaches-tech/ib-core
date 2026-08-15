@@ -176,8 +176,27 @@ export interface Student {
   userId: Id
   schoolId: Id
   cohortId: Id
+
+  /**
+   * The school's own student number, from Skyward. Known at import, stable for
+   * the student's whole time at the school, and — unlike a name — actually
+   * unique. It is the join key back to the SIS.
+   */
+  studentNumber: string | null
+
+  /**
+   * IB identifiers. These arrive from the IB AFTER exams are ordered, so every
+   * student is imported without them and they are filled in later.
+   *
+   * [VERIFY] Michael reports TWO codes, "one alphanumeric and one long
+   * numeric". `personalCode` is the alphanumeric one. `sessionNumber` is the
+   * 4-digit candidate number, which restarts at 0001 in EACH school and is
+   * unique only within (school, session). Confirm with the coordinator whether
+   * the long numeric value is the full candidate code (school code + session
+   * number) or a separate PIN — and add a field only once that is known, rather
+   * than guessing at one now.
+   */
   personalCode: string | null
-  /** Restarts at 0001 in EACH school — unique only within (school, session). */
   sessionNumber: string | null
   identifiersState: 'missing' | 'unconfirmed' | 'confirmed'
 }

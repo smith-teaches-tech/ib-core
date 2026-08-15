@@ -10,6 +10,7 @@
 // genuinely module-owned and avoids a circular import.
 
 import type { StoredRef } from '../storage'
+import { pinned } from './pin'
 import {
   completionGate,
   summarise,
@@ -686,29 +687,10 @@ for (let i = 1; i <= 24; i += 1) {
 // ---------------------------------------------------------------------------
 
 /**
- * WHY THIS IS ON globalThis, AND WHY IT IS NOT A HACK YOU CAN SKIP.
- *
- * Next.js compiles the app into more than one server module graph: a page
- * rendering as a React Server Component and a `'use server'` action live in
- * different webpack layers, and each layer gets its OWN instance of every module
- * it imports. In a production build that means this file is evaluated twice, and
- * without the pin below a student's reflection is appended to an array that no
- * page ever reads. It looks exactly like a save that silently does nothing —
- * which is what it was, until this line.
- *
- * The same pattern is why every Next + Prisma project pins its client here.
- *
- * This is a FIXTURE-ONLY problem and it disappears with the platform decision:
- * a database is shared by definition, so `postgresRepository` will never need
- * it. Nothing above lib/data/ knows this exists.
+ * Pinned for the reason set out in ./pin.ts: a Next production build evaluates
+ * this module twice, and without the pin a student's reflection is appended to
+ * an array no page ever reads.
  */
-declare global {
-  // eslint-disable-next-line no-var
-  var __ibCoreCasData: CasData | undefined
-  // eslint-disable-next-line no-var
-  var __ibCoreCasCounters: { experiences: number; entries: number } | undefined
-}
-
 const built: CasData = {
   experiences: EXPERIENCES,
   entries: ENTRIES,
@@ -719,7 +701,7 @@ const built: CasData = {
   completions: COMPLETIONS,
 }
 
-export const CAS_DATA: CasData = (globalThis.__ibCoreCasData ??= built)
+export const CAS_DATA: CasData = pinned('ibCasData', () => built)
 
 /**
  * Indicators, set last and on purpose.
@@ -776,7 +758,7 @@ for (let i = 1; i <= 24; i += 1) {
  * the same reason as the store above. Two module instances handing out `ex61`
  * twice would be a much harder bug to see than a save that does nothing.
  */
-const counters = (globalThis.__ibCoreCasCounters ??= { experiences: eN, entries: tN })
+const counters = pinned('ibCasCounters', () => ({ experiences: eN, entries: tN }))
 
 export const casCounters = {
   nextExperienceId: () => 'ex' + ++counters.experiences,

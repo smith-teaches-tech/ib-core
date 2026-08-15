@@ -16,6 +16,9 @@ import { LEARNING_OUTCOMES } from '../cas/types'
 import { deriveCasStates } from '../cas/derive'
 import { CAS_DATA, casCounters } from './cas-fixtures'
 import { makeCasRepository } from './cas-repo'
+import { makeSetupRepository } from './setup-repo'
+import { GROUP_CHOICES, GROUP_KEYS, SIXTH_SUBJECT, catalogueFor } from './catalogue'
+import { pinned } from './pin'
 
 export const SCHOOLS: School[] = [
   { id: 'dhahran', name: 'ISG Dhahran', ibSchoolCode: '001234' },
@@ -31,29 +34,35 @@ export const COHORTS: Cohort[] = [
 // Courses — CAS, EE and TOK sit here alongside Biology. Same container.
 // ---------------------------------------------------------------------------
 
-export const COURSES: Course[] = [
-  { id: 'cas', schoolId: 'dhahran', type: 'cas', name: 'CAS', subjectGroup: 'Core', level: null },
-  { id: 'ee', schoolId: 'dhahran', type: 'ee', name: 'Extended Essay', subjectGroup: 'Core', level: null },
-  { id: 'tok', schoolId: 'dhahran', type: 'tok', name: 'Theory of Knowledge', subjectGroup: 'Core', level: null },
-  // HL and SL are DIFFERENT courses, which is why they carry different requirements.
-  { id: 'engHL', schoolId: 'dhahran', type: 'subject', name: 'English A HL', subjectGroup: 'Group 1', level: 'HL' },
-  { id: 'engSL', schoolId: 'dhahran', type: 'subject', name: 'English A SL', subjectGroup: 'Group 1', level: 'SL' },
-  { id: 'spa', schoolId: 'dhahran', type: 'subject', name: 'Spanish B SL', subjectGroup: 'Group 2', level: 'SL' },
-  { id: 'his', schoolId: 'dhahran', type: 'subject', name: 'History HL', subjectGroup: 'Group 3', level: 'HL' },
-  { id: 'bus', schoolId: 'dhahran', type: 'subject', name: 'Business Mgmt SL', subjectGroup: 'Group 3', level: 'SL' },
-  { id: 'bio', schoolId: 'dhahran', type: 'subject', name: 'Biology SL', subjectGroup: 'Group 4', level: 'SL' },
-  { id: 'phy', schoolId: 'dhahran', type: 'subject', name: 'Physics HL', subjectGroup: 'Group 4', level: 'HL' },
-  { id: 'maa', schoolId: 'dhahran', type: 'subject', name: 'Maths AA SL', subjectGroup: 'Group 5', level: 'SL' },
-]
+export const COURSES: Course[] = pinned('ibCourses', () => catalogueFor('dhahran'))
 
-export const SECTIONS: Section[] = COURSES.filter((c) => c.schoolId === 'dhahran').flatMap(
-  (c) =>
-    c.id === 'bio'
+/**
+ * Courses in the catalogue that this cohort does NOT run.
+ *
+ * The catalogue belongs to the school and outlives cohorts; a Section is what
+ * says "we are teaching this, this year". Without a few courses sitting
+ * dormant the distinction is invisible on screen and the setup flow has
+ * nothing to add — so the fixture keeps the three the source sheet itself
+ * suggests are marginal: Germ. A SL appeared in one tab of six, French B HL
+ * ran thin, and Econ HL is taught online through Pamoja with no in-house
+ * teacher at all.
+ */
+const NOT_RUNNING = new Set(['germ_a_sl', 'fr_b_hl', 'econ_hl'])
+
+/**
+ * One section per running course, plus a second for the two biggest — which is
+ * the only reason Section exists as its own object. A course with a single
+ * section shows its label nowhere in the UI.
+ */
+export const SECTIONS: Section[] = pinned('ibSections', () =>
+  COURSES.filter((c) => !NOT_RUNNING.has(c.id)).flatMap((c) =>
+    c.id === 'eng_hl' || c.id === 'bio_sl'
       ? [
-          { id: 'bio_a', schoolId: 'dhahran', courseId: 'bio', cohortId: 'c15', label: 'A' },
-          { id: 'bio_b', schoolId: 'dhahran', courseId: 'bio', cohortId: 'c15', label: 'B' },
+          { id: c.id + '_a', schoolId: 'dhahran', courseId: c.id, cohortId: 'c15', label: 'A' },
+          { id: c.id + '_b', schoolId: 'dhahran', courseId: c.id, cohortId: 'c15', label: 'B' },
         ]
       : [{ id: c.id + '_a', schoolId: 'dhahran', courseId: c.id, cohortId: 'c15', label: 'A' }],
+  ),
 )
 
 // ---------------------------------------------------------------------------
@@ -74,9 +83,10 @@ const STAFF: User[] = [
   { id: 'u_adeyemi', name: 'H. Adeyemi', email: 'hadeyemi@isg.edu.sa', status: 'active' },
   { id: 'u_farouk', name: 'R. Farouk', email: 'rfarouk@isg.edu.sa', status: 'active' },
   { id: 'u_silva', name: 'M. Silva', email: 'msilva@isg.edu.sa', status: 'active' },
+  { id: 'u_okonjo', name: 'C. Okonjo', email: 'cokonjo@isg.edu.sa', status: 'active' },
 ]
 
-export const USERS: User[] = [
+export const USERS: User[] = pinned('ibUsers', () => [
   ...STAFF,
   ...NAMES.map((n, i) => ({
     id: 'st' + String(i + 1).padStart(2, '0'),
@@ -84,21 +94,28 @@ export const USERS: User[] = [
     email: n.split(',')[0].toLowerCase() + (i + 1) + '@isg.edu.sa',
     status: 'active' as const,
   })),
-]
+])
 
-export const STUDENTS: Student[] = NAMES.map((_, i) => ({
-  userId: 'st' + String(i + 1).padStart(2, '0'),
-  schoolId: 'dhahran',
-  cohortId: 'c15',
-  personalCode: i < 21 ? 'p' + (100 + i * 7) : null,
-  sessionNumber: String(i + 1).padStart(4, '0'),
-  identifiersState: i < 18 ? 'confirmed' : i < 21 ? 'unconfirmed' : 'missing',
-}))
+export const STUDENTS: Student[] = pinned('ibStudents', () =>
+  NAMES.map((_, i) => ({
+    userId: 'st' + String(i + 1).padStart(2, '0'),
+    schoolId: 'dhahran',
+    cohortId: 'c15',
+    studentNumber: String(204_100 + i * 3),
+    personalCode: i < 21 ? 'p' + (100 + i * 7) : null,
+    sessionNumber: String(i + 1).padStart(4, '0'),
+    identifiersState: i < 18 ? 'confirmed' : i < 21 ? 'unconfirmed' : 'missing',
+  })),
+)
 
-export const MEMBERSHIPS: Membership[] = [
+export const MEMBERSHIPS: Membership[] = pinned('ibMemberships', () => [
   { userId: 'u_michael', schoolId: 'dhahran', roles: ['district_coordinator'], presetKey: 'district', addedCapabilities: [], removedCapabilities: [] },
   { userId: 'u_michael', schoolId: 'jubail', roles: ['district_coordinator'], presetKey: 'district', addedCapabilities: [], removedCapabilities: [] },
-  { userId: 'u_haddad', schoolId: 'jubail', roles: ['school_coordinator'], presetKey: 'school_standard', addedCapabilities: [], removedCapabilities: [] },
+  // Deliberately a school coordinator who CANNOT import students or invite
+  // teachers until the district coordinator grants it — the delegation this
+  // module exists to control.
+  { userId: 'u_haddad', schoolId: 'jubail', roles: ['school_coordinator'], presetKey: 'school_standard', addedCapabilities: [], removedCapabilities: ['students.add', 'teachers.invite'] },
+  { userId: 'u_okonjo', schoolId: 'dhahran', roles: ['school_coordinator'], presetKey: 'school_standard', addedCapabilities: [], removedCapabilities: ['students.add', 'teachers.invite'] },
   // Four distinct roles held by one person — never merged into a "Core teacher" role.
   { userId: 'u_adeyemi', schoolId: 'dhahran', roles: ['cas_coordinator', 'ee_coordinator', 'tok_teacher', 'tok_coordinator'], presetKey: 'teacher', addedCapabilities: ['items.unlock'], removedCapabilities: [] },
   { userId: 'u_farouk', schoolId: 'dhahran', roles: ['teacher'], presetKey: 'teacher', addedCapabilities: [], removedCapabilities: [] },
@@ -107,17 +124,17 @@ export const MEMBERSHIPS: Membership[] = [
     userId: s.userId, schoolId: 'dhahran', roles: ['student'],
     presetKey: 'student', addedCapabilities: [], removedCapabilities: [],
   })),
-]
+])
 
-export const TEACHING_ASSIGNMENTS: TeachingAssignment[] = [
-  { teacherId: 'u_farouk', sectionId: 'bio_a', isDesignatedMarker: true },
-  { teacherId: 'u_farouk', sectionId: 'bio_b', isDesignatedMarker: true },
-  { teacherId: 'u_silva', sectionId: 'bio_b', isDesignatedMarker: false }, // co-taught
-  { teacherId: 'u_silva', sectionId: 'his_a', isDesignatedMarker: true },
+export const TEACHING_ASSIGNMENTS: TeachingAssignment[] = pinned('ibAssignments', () => [
+  { teacherId: 'u_farouk', sectionId: 'bio_sl_a', isDesignatedMarker: true },
+  { teacherId: 'u_farouk', sectionId: 'bio_sl_b', isDesignatedMarker: true },
+  { teacherId: 'u_silva', sectionId: 'bio_sl_b', isDesignatedMarker: false }, // co-taught
+  { teacherId: 'u_silva', sectionId: 'busman_sl_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'tok_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'cas_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'ee_a', isDesignatedMarker: true },
-]
+])
 
 /** Deterministic pseudo-randomness — no Math.random, so the data never shifts. */
 function rng(seed: number) {
@@ -132,19 +149,38 @@ function rng(seed: number) {
  * Uneven on purpose. Every student gets the three Core courses; their subjects
  * vary — English HL or SL, Biology or Physics, and so on.
  */
-export const ENROLLMENTS: Enrollment[] = (() => {
+export const ENROLLMENTS: Enrollment[] = pinned('ibEnrollments', () => {
   const out: Enrollment[] = []
   const r = rng(42)
+
+  const enrol = (studentId: string, courseId: string, i: number) => {
+    const options = SECTIONS.filter((x) => x.courseId === courseId)
+    if (options.length === 0) return
+    const section = options[i % options.length]
+    if (!out.some((e) => e.studentId === studentId && e.sectionId === section.id)) {
+      out.push({ studentId, sectionId: section.id })
+    }
+  }
+
+  // Weighted toward the front of each list, so the catalogue ends up with
+  // popular courses and thin ones rather than an unrealistically even spread.
+  // Filtered to what is actually running, so a dormant course stays dormant.
+  const running = (ids: string[]) => ids.filter((id) => SECTIONS.some((x) => x.courseId === id))
+  const weighted = (list: string[]) => {
+    const options = running(list)
+    return options[Math.floor(options.length * r() * r())]
+  }
+
   STUDENTS.forEach((s, i) => {
-    for (const core of ['cas_a', 'ee_a', 'tok_a']) out.push({ studentId: s.userId, sectionId: core })
-    out.push({ studentId: s.userId, sectionId: i % 3 === 0 ? 'engSL_a' : 'engHL_a' })
-    out.push({ studentId: s.userId, sectionId: 'maa_a' })
-    out.push({ studentId: s.userId, sectionId: r() > 0.35 ? 'bio_' + (i % 2 ? 'a' : 'b') : 'phy_a' })
-    out.push({ studentId: s.userId, sectionId: r() > 0.4 ? 'his_a' : 'bus_a' })
-    if (r() > 0.25) out.push({ studentId: s.userId, sectionId: 'spa_a' })
+    for (const core of ['cas', 'ee', 'tok']) enrol(s.userId, core, i)
+    for (const group of GROUP_KEYS) enrol(s.userId, weighted(GROUP_CHOICES[group]), i)
+    // The sixth: a Group 6 arts course, or a second from Individuals & Societies
+    // or Sciences. That is the actual IB rule, and it is the reason the
+    // completeness board has hatched cells rather than gaps.
+    enrol(s.userId, weighted(SIXTH_SUBJECT), i)
   })
   return out
-})()
+})
 
 // ---------------------------------------------------------------------------
 // Requirement definitions — defined ONCE per course, never per student
@@ -229,9 +265,9 @@ const programmeDefs: RequirementDef[] = [
   def({ scope: { kind: 'programme' }, key: 'ib.pg', label: 'Predicted grades', lane: 'IB admin', recordedBy: 'coordinator', artifact: 'mark', exportTarget: 'ibis_predicted' }),
 ]
 
-export const REQUIREMENT_DEFS: RequirementDef[] = [
+export const REQUIREMENT_DEFS: RequirementDef[] = pinned('ibRequirementDefs', () => [
   ...casDefs, ...eeDefs, ...tokDefs, ...subjectDefs, ...programmeDefs,
-]
+])
 
 // ---------------------------------------------------------------------------
 // Recorded states — deliberately partial, like a real cohort mid-year
@@ -241,7 +277,7 @@ const ART = (label: string): Artifact[] => [
   { id: label, kind: 'file', label, addedAt: '2026-08-01' },
 ]
 
-export const REQUIREMENT_STATES: RequirementState[] = (() => {
+export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementStates', () => {
   const out: RequirementState[] = []
   const r = rng(2027)
   for (const s of STUDENTS) {
@@ -274,7 +310,7 @@ export const REQUIREMENT_STATES: RequirementState[] = (() => {
     }
   }
   return out
-})()
+})
 
 // ---------------------------------------------------------------------------
 // Reference documents
@@ -305,6 +341,18 @@ const DOCUMENTS: LibraryDocument[] = [
 function allStates(): RequirementState[] {
   return [...REQUIREMENT_STATES, ...deriveCasStates(STUDENTS, REQUIREMENT_DEFS, CAS_DATA)]
 }
+
+const setupRepository = makeSetupRepository({
+  courses: COURSES,
+  sections: SECTIONS,
+  enrollments: ENROLLMENTS,
+  users: USERS,
+  students: STUDENTS,
+  memberships: MEMBERSHIPS,
+  assignments: TEACHING_ASSIGNMENTS,
+  defs: REQUIREMENT_DEFS,
+  cohorts: COHORTS,
+})
 
 const casRepository = makeCasRepository({
   data: CAS_DATA,
@@ -378,6 +426,7 @@ export const fixtureRepository: Repository = {
   },
 
   cas: casRepository,
+  setup: setupRepository,
 
   async listDocuments(schoolId, forUserId) {
     const isStudent = roleOf(forUserId, schoolId).includes('student')

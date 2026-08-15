@@ -21,6 +21,8 @@ import type {
   CasCohortTotals, CasRosterRow, CasStudentView, ExperienceStatus, IndicatorValue,
   InterviewKind, LoKey, Strand, SupervisorRequest, SupervisorView,
 } from '../cas/types'
+import type { CourseRow, ImportPreview, ImportRow, PersonRow } from '../setup/types'
+import type { CapabilityKey, Cohort } from '../types'
 
 export interface Repository {
   // Identity & scope
@@ -53,6 +55,59 @@ export interface Repository {
    * above — and what would make it one.
    */
   cas: CasRepository
+
+  /** Setup & people — creating the spine objects everything else reads. */
+  setup: SetupRepository
+}
+
+/**
+ * Setup invents NOTHING.
+ *
+ * Every method here creates or connects an object that already exists in the
+ * spine: Course, Section, Enrollment, TeachingAssignment, Membership, Student.
+ * That is the test this module has to keep passing — the moment setup needs an
+ * entity of its own, either the spine is missing something real or the screen is
+ * doing more than setting up.
+ */
+export interface SetupRepository {
+  // ---- reads ----
+  listCohorts(schoolId: string): Promise<Cohort[]>
+  listCourseRows(schoolId: string, cohortId: string): Promise<CourseRow[]>
+  listPeople(schoolId: string): Promise<PersonRow[]>
+  /** Pure parse + collision check. Nothing is written; the screen previews this. */
+  previewImport(schoolId: string, text: string): Promise<ImportPreview>
+
+  // ---- students ----
+  /** Commits only the rows the preview marked `new`. Returns how many landed. */
+  importStudents(schoolId: string, cohortId: string, rows: ImportRow[]): Promise<number>
+
+  // ---- catalogue ----
+  addCourse(
+    schoolId: string,
+    input: { name: string; subjectGroup: string; level: 'HL' | 'SL' | null },
+    cohortId: string,
+  ): Promise<string>
+  addSection(schoolId: string, courseId: string, cohortId: string, label: string): Promise<string>
+  enrolStudent(schoolId: string, studentId: string, sectionId: string): Promise<void>
+  unenrolStudent(schoolId: string, studentId: string, sectionId: string): Promise<void>
+
+  // ---- staff ----
+  inviteTeacher(schoolId: string, name: string, email: string): Promise<string>
+  assignTeacher(schoolId: string, teacherId: string, sectionId: string): Promise<void>
+  unassignTeacher(schoolId: string, teacherId: string, sectionId: string): Promise<void>
+  setDesignatedMarker(schoolId: string, teacherId: string, sectionId: string, on: boolean): Promise<void>
+
+  // ---- delegation ----
+  /**
+   * The district coordinator deciding what a school coordinator may do.
+   *
+   * Stored as a DEVIATION from the preset (added / removed), never as a
+   * resolved set — so changing a preset later still reaches everyone who has
+   * not been explicitly overridden. See lib/capabilities.ts.
+   */
+  setCapability(
+    schoolId: string, userId: string, capability: CapabilityKey, granted: boolean,
+  ): Promise<void>
 }
 
 /**
