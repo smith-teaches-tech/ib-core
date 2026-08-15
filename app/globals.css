@@ -269,12 +269,69 @@ select, input[type='text'] {
 .cp.future .cl{opacity:.55}
 .lane .lcount{width:52px;text-align:right;font-weight:800;font-size:13px;flex-shrink:0}
 
-.board{width:100%;border-collapse:collapse;font-size:12.5px}
-.board th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;padding:8px 5px;border-bottom:1px solid var(--line);vertical-align:bottom}
-.board th.rot{writing-mode:vertical-rl;transform:rotate(180deg);height:132px;padding:6px 2px;white-space:nowrap}
-.board td{padding:4px 5px;border-bottom:1px solid var(--line)}
-.board td.nm{font-weight:600;white-space:nowrap}
-.board td.sn{color:var(--muted);font-variant-numeric:tabular-nums}
+/* ------------------------------------------------------------------
+   The coordinator board.
+
+   border-collapse is SEPARATE, not collapse: sticky cells lose their
+   borders under `collapse`, and the frozen candidate columns are the
+   whole reason the expanded board is readable at all.
+   ------------------------------------------------------------------ */
+.bscroll{overflow:auto;max-height:74vh}
+.board{border-collapse:separate;border-spacing:0;font-size:12.5px;width:max-content;min-width:100%}
+.board th,.board td{background:var(--panel);border-bottom:1px solid var(--line)}
+.board th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700;padding:7px 6px;vertical-align:bottom}
+.board td{padding:5px 5px;text-align:center}
+
+/* lane headings — clicking one expands that lane */
+.board tr.bgroups th{position:sticky;top:0;z-index:6;text-align:center;padding:7px 8px;font-size:11px;letter-spacing:.6px;white-space:nowrap}
+.board tr.bgroups th a{color:#33465c;text-decoration:none;display:block;padding:1px 4px;border-radius:6px}
+.board tr.bgroups th a:hover{background:#f2f5f8}
+.board tr.bgroups .chev{color:var(--muted);font-weight:400;margin-left:4px}
+/* A collapsed header wraps rather than forcing the column wide — "Authenticated"
+   should not cost 100px in a 9-column board. Expanded headers rotate instead. */
+.board tr.bcols th{position:sticky;top:31px;z-index:5;padding-bottom:8px;white-space:normal;line-height:1.15;max-width:104px}
+.board tr.bcols th.rot{max-width:none}
+.board th.rot{writing-mode:vertical-rl;transform:rotate(180deg);height:126px;padding:6px 3px;white-space:nowrap}
+
+/* frozen identity columns: scroll to column 90 and still know whose row it is */
+.bstick{position:sticky;z-index:4}
+.board th.bstick{z-index:8}
+.b0{left:0;width:40px;min-width:40px}
+.b1{left:40px;width:148px;min-width:148px;max-width:148px}
+.b2{left:188px;width:54px;min-width:54px}
+.b2::after{content:"";position:absolute;top:0;right:-1px;bottom:0;width:1px;background:#c9d3dc}
+.lanesep{border-left:2px solid #d6dde4}
+.board tbody tr:hover td{background:#f7fafc}
+.board td.nm{text-align:left;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.board td.sn,.board td.pc{text-align:left;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* rolled-up cells */
+.bfrac{display:inline-block;min-width:31px;padding:2px 6px;border-radius:6px;font-weight:700;font-size:11.5px;font-variant-numeric:tabular-nums;border:1px solid transparent}
+.bfrac.ok{background:var(--ok-soft);color:var(--ok);border-color:#c7e6d5}
+.bfrac.mid{background:var(--gold-soft);color:var(--gold);border-color:#ecdcb8}
+.bfrac.bad{background:var(--warn-soft);color:var(--warn);border-color:#f0cccc}
+.bfrac.zero{background:#f2f4f6;color:var(--muted);border-color:#e3e8ee}
+.brollup{display:inline-flex;gap:3px;align-items:center}
+
+/* whose turn is it */
+.turn{display:inline-flex;gap:4px;align-items:center;font-size:11px;font-weight:700}
+.turn span{padding:1px 5px;border-radius:6px;font-variant-numeric:tabular-nums}
+.turn .s{background:var(--info-soft);color:var(--info)}
+.turn .t{background:var(--gold-soft);color:#8a6415}
+.turn .m{background:var(--warn-soft);color:#a82626}
+.turn .z{background:var(--ok-soft);color:#256b4d}
+
+/* the footer reads the board downwards: one column, whole cohort */
+.board tfoot td,.board tfoot th{position:sticky;bottom:0;z-index:3;background:#f8fafb;border-top:2px solid #d6dde4;font-weight:800;font-size:11.5px;padding:7px 6px;text-align:center}
+.board tfoot th.bstick{z-index:7;text-align:left;color:var(--muted);font-size:10.5px;text-transform:uppercase;letter-spacing:.4px}
+.btot{font-variant-numeric:tabular-nums}
+.btot.ok{color:var(--ok)} .btot.mid{color:var(--gold)} .btot.bad,.btot.zero{color:var(--warn)}
+
+.bcontrols{padding-top:0;border-bottom:0;gap:8px}
+.bseg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+.bseg .btn{border:0;border-radius:0;border-right:1px solid var(--line);text-decoration:none}
+.bseg .btn:last-child{border-right:0}
+.bhint{font-size:12px}
 .cellbox{width:19px;height:19px;border-radius:5px;display:inline-block;background:#eef1f4;border:1px solid #e3e8ee}
 .cellbox.done{background:var(--ok);border-color:var(--ok)}
 .cellbox.partial{background:var(--gold);border-color:var(--gold)}

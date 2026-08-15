@@ -16,6 +16,7 @@
 import type {
   Board, Course, LibraryDocument, Membership, School, Student, StudentTrack, User,
 } from '../types'
+import type { BoardOptions } from '../board'
 import type { StoredRef } from '../storage'
 import type {
   CasCohortTotals, CasRosterRow, CasStudentView, ExperienceStatus, IndicatorValue,
@@ -55,10 +56,16 @@ export interface Repository {
 
   // The two views over the spine — same data, different zoom
   getTrack(schoolId: string, studentUserId: string): Promise<StudentTrack | null>
+  /**
+   * The coordinator board. `options` is PRESENTATION ONLY — which lanes are
+   * expanded, and whether to filter to export-blocking requirements. It selects
+   * among things the modules already record; it never asks for anything new.
+   * That is the line this interface exists to hold.
+   */
   getBoard(
     schoolId: string,
     cohortId: string,
-    onlyExportBlocking?: boolean,
+    options?: BoardOptions,
   ): Promise<Board>
 
   // Reference content

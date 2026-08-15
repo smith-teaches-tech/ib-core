@@ -1,10 +1,12 @@
-// The three derivation functions the whole product is built on.
+// The three derivation functions the whole product is built on, plus the
+// student track. The coordinator board is a projection over these and lives in
+// lib/board.ts — it reads them and adds nothing.
 //
 // Nothing here is stored. Course lists, progress counts and board cells are all
 // computed — the moment one is cached, a section move desynchronises it.
 
 import type {
-  Board, BoardRow, Checkpoint, Course, Enrollment, Lane, RequirementDef,
+  Checkpoint, Course, Enrollment, Lane, RequirementDef,
   RequirementState, Section, Student, StudentTrack, TrackLane, User,
 } from './types'
 
@@ -127,53 +129,3 @@ export function buildTrack(
     total: checkpoints.length,
   }
 }
-
-/**
- * ZOOM 3 — every student, every requirement. The same data as the track,
- * compressed to one row per student.
- *
- * Columns are the UNION of defs across the cohort; a cell is null where the
- * requirement doesn't reach that student, which is how "different students take
- * different courses" costs nothing.
- */
-export function buildBoard(
-  students: Student[],
-  users: User[],
-  defs: RequirementDef[],
-  coursesByStudent: Map<string, Course[]>,
-  states: RequirementState[],
-  filter?: (d: RequirementDef) => boolean,
-): Board {
-  const columns = defs
-    .filter((d) => (filter ? filter(d) : true))
-    .sort((a, b) => a.order - b.order)
-
-  const rows: BoardRow[] = students.map((student) => {
-    const user = users.find((u) => u.id === student.userId)!
-    const mine = new Set(
-      requirementsFor(student, defs, coursesByStudent.get(student.userId) ?? []).map(
-        (d) => d.id,
-      ),
-    )
-    const checkpoints = checkpointsFor(
-      student.userId,
-      columns.filter((d) => mine.has(d.id)),
-      states,
-    )
-    const byDefId = new Map(checkpoints.map((c) => [c.def.id, c]))
-
-    const cells = columns.map((d) => (mine.has(d.id) ? byDefId.get(d.id)! : null))
-    return {
-      student,
-      user,
-      cells,
-      done: cells.filter((c) => c?.display === 'done').length,
-      applicable: cells.filter(Boolean).length,
-    }
-  })
-
-  return { columns, rows }
-}
-
-/** The export builder is a filter, not a bespoke feature. */
-export const exportBlocking = (d: RequirementDef) => d.exportTarget != null

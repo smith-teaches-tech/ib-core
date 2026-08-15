@@ -11,7 +11,8 @@ import type {
   TeachingAssignment, User,
 } from '../types'
 import type { Repository } from './repository'
-import { buildBoard, buildTrack, coursesOf, requirementsFor } from '../spine'
+import { buildTrack, coursesOf, requirementsFor } from '../spine'
+import { buildBoard } from '../board'
 import { LEARNING_OUTCOMES } from '../cas/types'
 import { deriveCasStates } from '../cas/derive'
 import { CAS_DATA, casCounters } from './cas-fixtures'
@@ -550,7 +551,7 @@ export const fixtureRepository: Repository = {
     )
   },
 
-  async getBoard(schoolId, cohortId, onlyExportBlocking) {
+  async getBoard(schoolId, cohortId, options) {
     const students = STUDENTS.filter((s) => s.schoolId === schoolId && s.cohortId === cohortId)
     const map = new Map(
       students.map((s) => [s.userId, coursesOf(s.userId, ENROLLMENTS, SECTIONS, COURSES)]),
@@ -561,7 +562,7 @@ export const fixtureRepository: Repository = {
       REQUIREMENT_DEFS.filter((d) => d.schoolId === schoolId && d.cohortId === cohortId),
       map,
       allStates(),
-      onlyExportBlocking ? (d) => d.exportTarget != null : undefined,
+      options,
     )
   },
 

@@ -278,16 +278,69 @@ export interface StudentTrack {
   total: number
 }
 
+/**
+ * Outstanding work bucketed by who owes it. Derived from `recordedBy`, which is
+ * already on every RequirementDef — nothing is stored to make this possible.
+ * `future` requirements never count: they are nobody's turn yet.
+ */
+export interface WaitingOn {
+  student: number
+  staff: number
+  coordinator: number
+}
+
+/**
+ * One column of the coordinator board. A lane COLLAPSES to a few of these and
+ * EXPANDS to one per requirement — see lib/board.ts.
+ *
+ *   check     a single requirement
+ *   fraction  several named requirements as done/total
+ *   rollup    the same stage across many course-scoped requirements — what turns
+ *             60 internal-assessment columns into one cell
+ */
+export interface BoardColumn {
+  key: string
+  label: string
+  lane: Lane
+  kind: 'check' | 'fraction' | 'rollup'
+  /** RequirementDef keys this column reads. */
+  defKeys: string[]
+  /** Only for `rollup`: the stages it summarises, in order. */
+  parts?: { label: string; keys: string[] }[]
+}
+
+/** A lane's header, spanning its columns. */
+export interface BoardGroup {
+  lane: Lane
+  span: number
+  expanded: boolean
+}
+
+/**
+ * INVARIANT: `na` means the requirement does not reach this student — they are
+ * not enrolled in the course. It is the ABSENCE of a def match, never a stored
+ * state, which is the whole answer to "students take different subjects".
+ */
+export type BoardCell =
+  | { kind: 'check'; display: Checkpoint['display']; title: string }
+  | { kind: 'fraction'; done: number; total: number; title: string }
+  | { kind: 'rollup'; parts: { label: string; done: number; total: number }[]; title: string }
+  | { kind: 'na' }
+
 export interface BoardRow {
   student: Student
   user: User
-  /** One entry per column, in column order. null = requirement doesn't apply. */
-  cells: (Checkpoint | null)[]
+  /** One entry per column, in column order. */
+  cells: BoardCell[]
+  waiting: WaitingOn
   done: number
   applicable: number
 }
 
 export interface Board {
-  columns: RequirementDef[]
+  groups: BoardGroup[]
+  columns: BoardColumn[]
   rows: BoardRow[]
+  /** Per column, across the rows shown: how many are complete. null = not applicable to anyone. */
+  totals: ({ done: number; total: number } | null)[]
 }

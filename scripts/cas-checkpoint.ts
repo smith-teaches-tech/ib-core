@@ -85,26 +85,71 @@ async function main() {
   )
 
   // 4 — the board, unedited
+  //
+  // The board now COLLAPSES each lane by default, so this checks both shapes:
+  // expanded, every CAS requirement is still a column reading module data; and
+  // collapsed, the lane rolls up without inventing anything.
   console.log('\n4. Completeness board (zoom 3)')
-  const board = await repo.getBoard('dhahran', 'c15')
+  const board = await repo.getBoard('dhahran', 'c15', { expanded: ['CAS'] })
   const casCols = board.columns.filter((c) => c.lane === 'CAS')
-  const idx = board.columns.findIndex((c) => c.key === 'cas.lo1')
-  check(casCols.length === 12, `12 CAS columns on the board (got ${casCols.length})`)
+  const idx = board.columns.findIndex((c) => c.defKeys[0] === 'cas.lo1')
+  check(casCols.length === 12, `12 CAS columns when the lane is expanded (got ${casCols.length})`)
   const litCells = board.rows.reduce(
-    (n, r) => n + r.cells.slice(idx, idx + 12).filter((c) => c && c.display !== 'not_started').length,
+    (n, r) =>
+      n +
+      r.cells
+        .slice(idx, idx + 12)
+        .filter((c) => c.kind === 'check' && c.display !== 'not_started').length,
     0,
   )
   check(litCells > 0, `CAS cells light up from module data (${litCells} non-empty)`)
   check(
-    board.rows.every((r) => r.cells.slice(idx, idx + 12).every((c) => c !== null)),
+    board.rows.every((r) => r.cells.slice(idx, idx + 12).every((c) => c.kind !== 'na')),
     'every candidate is enrolled in CAS, so no CAS cell is not-applicable',
   )
 
-  console.log('\n     ' + 'candidate'.padEnd(20) + casCols.map((c) => c.key.replace('cas.', '').slice(0, 4).padEnd(5)).join(''))
+  console.log(
+    '\n     ' +
+      'candidate'.padEnd(20) +
+      casCols.map((c) => c.defKeys[0].replace('cas.', '').slice(0, 4).padEnd(5)).join(''),
+  )
   for (const r of board.rows.slice(0, 8)) {
-    const glyph = (d?: string) => (d === 'done' ? '  ●  ' : d === 'partial' ? '  ◐  ' : '  ·  ')
-    console.log('     ' + r.user.name.padEnd(20) + r.cells.slice(idx, idx + 12).map((c) => glyph(c?.display)).join(''))
+    const glyph = (c: (typeof r.cells)[number]) =>
+      c.kind === 'check' && c.display === 'done' ? '  \u25cf  '
+        : c.kind === 'check' && c.display === 'partial' ? '  \u25d0  '
+        : '  \u00b7  '
+    console.log('     ' + r.user.name.padEnd(20) + r.cells.slice(idx, idx + 12).map(glyph).join(''))
   }
+
+  // Collapsed: the coordinator's default. One CAS column, and it is the one
+  // thing they have to be able to say yes to before IBIS.
+  const collapsed = await repo.getBoard('dhahran', 'c15')
+  const casCollapsed = collapsed.columns.filter((c) => c.lane === 'CAS')
+  check(casCollapsed.length === 1, `CAS collapses to 1 column (got ${casCollapsed.length})`)
+  check(
+    casCollapsed[0]?.defKeys[0] === 'cas.complete',
+    'and the column it collapses to is cas.complete',
+  )
+  check(
+    collapsed.columns.length < board.columns.length,
+    `collapsed is narrower than expanded (${collapsed.columns.length} vs ${board.columns.length} columns)`,
+  )
+  check(
+    collapsed.rows.every(
+      (r) =>
+        r.waiting.student + r.waiting.staff + r.waiting.coordinator <= r.applicable - r.done,
+    ),
+    'whose-turn counts never exceed what is genuinely outstanding',
+  )
+  check(
+    collapsed.rows.some((r) => r.waiting.coordinator > 0),
+    'and some of it is owed by the coordinator rather than the student',
+  )
+  const iaRollup = collapsed.columns.find((c) => c.kind === 'rollup')
+  check(
+    iaRollup != null && iaRollup.defKeys.length > 20,
+    `internal assessment rolls ${iaRollup?.defKeys.length ?? 0} course requirements into one column`,
+  )
 
   // 5 — the module's own roster agrees with the spine's derived view
   console.log('\n5. Module roster and spine agree')
@@ -146,10 +191,29 @@ async function main() {
   )
 
   const live = dhahran.filter((c) => !isArchived(c))
-  const boards = await Promise.all(live.map((c) => repo.getBoard('dhahran', c.id)))
+  const boards = await Promise.all(
+    live.map((c) => repo.getBoard('dhahran', c.id, { expanded: ['CAS'] })),
+  )
+  // An EXPANDED lane is keyed by RequirementDef id, and defs are versioned per
+  // cohort — so two live year groups must share no column there. A COLLAPSED
+  // lane is deliberately the opposite: its key is a presentation slot ("CAS ->
+  // Complete"), identical in every cohort, because it names a job rather than a
+  // definition. Both facts matter, so both are asserted.
+  const casKeys = boards.map((b) => new Set(b.columns.filter((c) => c.lane === 'CAS').map((c) => c.key)))
   check(
-    boards.every((b, i) => b.columns.every((col) => col.cohortId === live[i].id)),
+    casKeys[0].size === 12 && casKeys[1].size === 12,
+    `both year groups expand CAS to 12 columns (${casKeys[0].size}, ${casKeys[1].size})`,
+  )
+  check(
+    [...casKeys[0]].every((k) => !casKeys[1].has(k)),
     'each year group\'s board uses its OWN requirement definitions',
+  )
+  const collapsedKeys = boards.map(
+    (b) => new Set(b.columns.filter((c) => c.lane !== 'CAS').map((c) => c.key)),
+  )
+  check(
+    [...collapsedKeys[0]].every((k) => collapsedKeys[1].has(k)),
+    'while a collapsed lane names the same job in every cohort',
   )
   check(
     boards[0].rows.length > 0 && boards[1].rows.length > 0 &&
