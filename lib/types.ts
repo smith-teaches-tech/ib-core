@@ -17,8 +17,15 @@ export interface School {
 export interface Cohort {
   id: Id
   schoolId: Id
+  /** "Class of 2027" — what everyone says out loud. */
   label: string
+  /** "Cohort 15" — what ISG's own spreadsheets are named after. */
+  number: number | null
   gradYear: number
+  /**
+   * Set by a coordinator, never by the calendar. A cohort stays live long after
+   * its exams: results land in July and IB enquiries can follow for months.
+   */
   archived: boolean
 }
 

@@ -1,68 +1,48 @@
-// Which year a cohort is in, and whether it is over.
+// Cohorts: what they are called, and when they stop being live.
 //
-// DERIVED, NEVER STORED — Michael's call, and the right one. A stored "Year 1 /
-// Year 2" field has to be advanced for every cohort every August, and a missed
-// bump mislabels a whole year group silently. The graduation year is the single
-// fact that never changes; everything else follows from it and today's date.
+// TWO DECISIONS, both Michael's, both narrowing what this file does:
 //
-// So "Class of 2029" is created once and moves Year 1 → Year 2 → archived on its
-// own. There is nothing to remember and nothing to get wrong.
+// 1. NO "YEAR 1 / YEAR 2" ANYWHERE. The school already has an unambiguous name
+//    for a year group — "Class of 2027", and internally "Cohort 15". Deriving a
+//    Year 1/Year 2 label on top of that added a second vocabulary for the same
+//    thing, and a second thing to be wrong about in the fortnight either side of
+//    a rollover. Deleted.
+//
+// 2. ARCHIVING IS AN ACT, NOT A DATE. An earlier version archived a cohort
+//    automatically once its exam session passed. That was wrong:
+//
+//      "Don't archive it automatically in June... IB sometimes requests other
+//       info... That's not a good idea."
+//
+//    Results arrive in July. Enquiries upon results, appeals and misconduct
+//    questions arrive later still, and the last of those has no time limit at
+//    all. A cohort that locked itself the moment exams ended would lock the
+//    coordinator out exactly when the IB started asking questions.
+//
+//    So `archived` is a stored flag and nothing else sets it. A cohort stays
+//    live until a coordinator says otherwise.
 
 import type { Cohort } from './types'
 
-export type CohortStage = 'not_started' | 'year_1' | 'year_2' | 'archived'
+/** "Class of 2027 · Cohort 15" — both names the school actually uses. */
+export function cohortTitle(cohort: Cohort): string {
+  return cohort.number != null ? `${cohort.label} · Cohort ${cohort.number}` : cohort.label
+}
 
-/**
- * The academic year a date falls in, named for the year it ENDS.
- * August onward belongs to the next academic year: Aug 2026 → AY 2027.
- */
-export function academicYearOf(date: Date): number {
-  return date.getUTCMonth() >= 7 ? date.getUTCFullYear() + 1 : date.getUTCFullYear()
+/** The only meaning of archived: somebody archived it. */
+export function isArchived(cohort: Cohort): boolean {
+  return cohort.archived
 }
 
 /**
- * The DP runs two academic years and is named for the second:
- *
- *   Class of 2027  ·  Year 1 = AY 2026  ·  Year 2 = AY 2027  ·  archived after
- *
- * A stored `archived` flag wins where it is set, so a coordinator can close a
- * cohort early — but nobody has to set it for the normal case.
+ * Live year groups first, the one graduating soonest at the front — that is the
+ * one with an exam session bearing down on it. Archived years after, newest
+ * first, because a recently finished cohort is the one still being asked about.
  */
-export function stageOf(cohort: Cohort, now: Date = new Date()): CohortStage {
-  if (cohort.archived) return 'archived'
-  const ay = academicYearOf(now)
-  if (ay > cohort.gradYear) return 'archived'
-  if (ay === cohort.gradYear) return 'year_2'
-  if (ay === cohort.gradYear - 1) return 'year_1'
-  return 'not_started'
-}
-
-export const STAGE_LABEL: Record<CohortStage, string> = {
-  not_started: 'Not started',
-  year_1: 'Year 1',
-  year_2: 'Year 2',
-  archived: 'Archived',
-}
-
-/** "Year 2 · Class of 2027" — the label that goes above a group of courses. */
-export function cohortTitle(cohort: Cohort, now: Date = new Date()): string {
-  const stage = stageOf(cohort, now)
-  return stage === 'archived' || stage === 'not_started'
-    ? cohort.label
-    : `${STAGE_LABEL[stage]} · ${cohort.label}`
-}
-
-export function isArchived(cohort: Cohort, now: Date = new Date()): boolean {
-  return stageOf(cohort, now) === 'archived'
-}
-
-/** Live cohorts first, Year 2 before Year 1, then the archive newest-first. */
-const RANK: Record<CohortStage, number> = { year_2: 0, year_1: 1, not_started: 2, archived: 3 }
-
-export function sortCohorts(cohorts: Cohort[], now: Date = new Date()): Cohort[] {
+export function sortCohorts(cohorts: Cohort[]): Cohort[] {
   return [...cohorts].sort((a, b) => {
-    const r = RANK[stageOf(a, now)] - RANK[stageOf(b, now)]
-    return r !== 0 ? r : b.gradYear - a.gradYear
+    if (a.archived !== b.archived) return a.archived ? 1 : -1
+    return a.archived ? b.gradYear - a.gradYear : a.gradYear - b.gradYear
   })
 }
 
@@ -70,10 +50,9 @@ export function sortCohorts(cohorts: Cohort[], now: Date = new Date()): Cohort[]
  * Who may open an archived cohort.
  *
  * Coordinators, always — they answer questions about past sessions for years.
- * Teachers, read-only, for the sections they actually taught: references and
- * moderation queries outlive the session. Students, never: at ISG they lose
- * their school email by 31 July, so the account is gone before the archive
- * matters, and keeping their record reachable would cut against deleting it.
+ * Teachers, read-only, for what they taught: references and moderation queries
+ * outlive the session. Students, never: at ISG they lose their school email by
+ * 31 July, so the account is gone before the archive would matter.
  *
  * Enforced in the actions, not only in the navigation — see lib/setup/actions.ts.
  */

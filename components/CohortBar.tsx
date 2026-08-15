@@ -1,11 +1,14 @@
 import Link from 'next/link'
 import type { Cohort } from '@/lib/types'
-import { STAGE_LABEL, stageOf } from '@/lib/cohorts'
+import { cohortTitle, isArchived } from '@/lib/cohorts'
 
 /**
- * Switch year group. A row of chips rather than a dropdown, because with two
- * live cohorts and one archive there is never enough to justify hiding them —
- * and seeing "Year 2 · Year 1 · Archived" at a glance is most of the point.
+ * Switch year group. Chips rather than a dropdown — with two or three cohorts
+ * there is never enough to justify hiding them, and seeing the whole set at a
+ * glance is most of the point.
+ *
+ * Named by class year, with the school's own cohort number alongside — the two
+ * names ISG already uses. Nothing invents a third.
  */
 export default function CohortBar({
   cohorts,
@@ -20,23 +23,18 @@ export default function CohortBar({
   return (
     <div className="cohortbar">
       <span className="caps">Year group</span>
-      {cohorts.map((c) => {
-        const stage = stageOf(c)
-        return (
-          <Link
-            key={c.id}
-            href={href(c.id)}
-            className={`fchip ${c.id === current ? 'active' : ''}`}
-            title={STAGE_LABEL[stage]}
-          >
-            {stage === 'archived' ? '🗄 ' : ''}
-            {c.label}
-            {stage !== 'archived' && stage !== 'not_started' && (
-              <span className="mut"> · {STAGE_LABEL[stage]}</span>
-            )}
-          </Link>
-        )
-      })}
+      {cohorts.map((c) => (
+        <Link
+          key={c.id}
+          href={href(c.id)}
+          className={`fchip ${c.id === current ? 'active' : ''}`}
+          title={isArchived(c) ? 'Archived — read-only' : cohortTitle(c)}
+        >
+          {isArchived(c) && '🗄 '}
+          {c.label}
+          {c.number != null && <span className="mut"> · Cohort {c.number}</span>}
+        </Link>
+      ))}
     </div>
   )
 }

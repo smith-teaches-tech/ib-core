@@ -264,6 +264,11 @@ export function makeSetupRepository(deps: {
       return cohorts.find((c) => c.id === id && c.schoolId === schoolId) ?? null
     },
 
+    async setCohortArchived(schoolId, cohortId, archived) {
+      const cohort = cohorts.find((c) => c.id === cohortId && c.schoolId === schoolId)
+      if (cohort) cohort.archived = archived
+    },
+
     // ------------------------------------------------- IB identifiers
 
     async setIdentifiers(schoolId, studentId, input) {

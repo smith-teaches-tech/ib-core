@@ -4,7 +4,7 @@ import { COORDINATOR_PAGES } from '@/lib/nav'
 import { DEV_USERS, type Session } from '@/lib/session'
 import { repo } from '@/lib/data'
 import type { CohortSpaces } from '@/lib/data/repository'
-import { cohortTitle, isArchived } from '@/lib/cohorts'
+import { isArchived } from '@/lib/cohorts'
 
 /**
  * Two sidebars, chosen by role.
@@ -99,8 +99,8 @@ export default async function Shell({
           ) : (
             <>
               {/* Grouped by cohort, because two year groups run at once and a
-                  teacher may take both. No switcher and no mode: Year 2 and
-                  Year 1 are both on screen and you click the one you want. */}
+                  teacher may take both. No switcher and no mode: both classes
+                  are on screen at once and you click the one you want. */}
               <h3>My spaces</h3>
               <Link href="/" className={`navrow ${current === 'home' ? 'on' : ''}`}>
                 <span className="nm"><b>Home</b></span>
@@ -108,7 +108,7 @@ export default async function Shell({
 
               {live.map((group) => (
                 <div key={group.cohort.id}>
-                  <h3>{cohortTitle(group.cohort)}</h3>
+                  <h3>{group.cohort.label}</h3>
                   {group.courses.map((c) => (
                     <Link
                       key={group.cohort.id + c.id}

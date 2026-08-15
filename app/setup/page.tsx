@@ -1,3 +1,4 @@
+import ArchiveCohort from '@/components/setup/ArchiveCohort'
 import CohortBar from '@/components/CohortBar'
 import Shell from '@/components/Shell'
 import SetupPage from '@/components/setup/SetupPage'
@@ -30,7 +31,7 @@ export default async function Setup({
   }
 
   const cohorts = sortCohorts(await repo.setup.listCohorts(school.id))
-  // Defaults to the Year 2 group — sortCohorts puts it first — but every cohort
+  // Defaults to the cohort graduating soonest — sortCohorts puts it first — but every one
   // including the archive is reachable, because a coordinator answers questions
   // about finished sessions for years afterwards.
   const cohort = cohorts.find((c) => c.id === wanted) ?? cohorts[0]
@@ -51,6 +52,7 @@ export default async function Setup({
         current={cohort?.id ?? ''}
         href={(id) => `/setup?cohort=${id}`}
       />
+      <ArchiveCohort cohort={cohort} canArchive={session.can('cohort.archive')} />
       {readOnly && (
         <div className="note gold" style={{ marginBottom: 14 }}>
           <b>{cohort?.label} is archived.</b> You can read it; nothing can be changed.

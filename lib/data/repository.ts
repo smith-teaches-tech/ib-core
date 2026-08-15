@@ -112,6 +112,12 @@ export interface SetupRepository {
     ref: { cohortId?: string; sectionId?: string; studentId?: string },
   ): Promise<Cohort | null>
 
+  /**
+   * Archive or reopen a year group. A coordinator's act, never the calendar's —
+   * see lib/cohorts.ts for why automatic archiving was a bad idea.
+   */
+  setCohortArchived(schoolId: string, cohortId: string, archived: boolean): Promise<void>
+
   // ---- IB identifiers ----
   /**
    * Coordinator-entered, deliberately. A transposed candidate code invalidates

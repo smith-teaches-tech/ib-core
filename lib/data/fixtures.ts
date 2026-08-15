@@ -27,22 +27,21 @@ export const SCHOOLS: School[] = [
 ]
 
 /**
- * THREE cohorts, because two are live at once and one is over.
+ * THREE cohorts at Dhahran: two running and one a coordinator has archived.
  *
- * Nothing here says "Year 1" or "Year 2" — that is derived from gradYear and
- * today's date (lib/cohorts.ts). Today, 2026-08-15, this reads as:
+ * Cohort number and class year track each other — Cohort 15 is the Class of
+ * 2027 — which is exactly how ISG's own gradebooks are named. No third label is
+ * invented on top: the class year is unambiguous and the school already uses it.
  *
- *   Class of 2026 → archived   Class of 2027 → Year 2   Class of 2028 → Year 1
- *
- * and in August 2027 the same three rows read one year further on, with nobody
- * having edited anything.
+ * Note `archived` on the Class of 2026: it is stored, because somebody set it.
+ * Nothing archives itself.
  */
-export const COHORTS: Cohort[] = [
-  { id: 'c14', schoolId: 'dhahran', label: 'Class of 2026', gradYear: 2026, archived: false },
-  { id: 'c15', schoolId: 'dhahran', label: 'Class of 2027', gradYear: 2027, archived: false },
-  { id: 'c16', schoolId: 'dhahran', label: 'Class of 2028', gradYear: 2028, archived: false },
-  { id: 'j09', schoolId: 'jubail', label: 'Class of 2027', gradYear: 2027, archived: false },
-]
+export const COHORTS: Cohort[] = pinned('ibCohorts', () => [
+  { id: 'c14', schoolId: 'dhahran', label: 'Class of 2026', number: 14, gradYear: 2026, archived: true },
+  { id: 'c15', schoolId: 'dhahran', label: 'Class of 2027', number: 15, gradYear: 2027, archived: false },
+  { id: 'c16', schoolId: 'dhahran', label: 'Class of 2028', number: 16, gradYear: 2028, archived: false },
+  { id: 'j09', schoolId: 'jubail', label: 'Class of 2027', number: 15, gradYear: 2027, archived: false },
+])
 
 /** The cohorts at Dhahran, oldest first — used to build sections and defs. */
 const DHAHRAN_COHORTS = ['c14', 'c15', 'c16'] as const
@@ -73,9 +72,9 @@ const NOT_RUNNING = new Set(['germ_a_sl', 'fr_b_hl', 'econ_hl'])
  */
 /**
  * A section belongs to ONE cohort. Two live cohorts therefore mean two sets of
- * sections over the same catalogue — which is what makes "Biology SL, Year 1"
- * and "Biology SL, Year 2" different groups with different students and,
- * potentially, different teachers.
+ * sections over the same catalogue — which is what makes Biology SL for the
+ * Class of 2027 and Biology SL for the Class of 2028 different groups, with
+ * different students and, potentially, different teachers.
  */
 export const SECTIONS: Section[] = pinned('ibSections', () =>
   DHAHRAN_COHORTS.flatMap((cohortId) =>
@@ -94,7 +93,7 @@ export const SECTIONS: Section[] = pinned('ibSections', () =>
 // People
 // ---------------------------------------------------------------------------
 
-/** Class of 2027 — the Year 2 cohort, and the one with real CAS data. */
+/** Class of 2027 — graduating next, and the cohort with real CAS data. */
 const NAMES_C15 = [
   'Ahmed, Layla', 'Al-Rashid, Noor', 'Baptiste, Elie', 'Chen, Marcus', 'Diallo, Aminata',
   'Erdem, Kaan', 'Fernandes, Sofia', 'Gupta, Ishaan', 'Haddad, Rami', 'Ibrahim, Yasmin',
@@ -103,7 +102,7 @@ const NAMES_C15 = [
   'Tan, Wei Ling', 'Uddin, Zara', 'Vasquez, Diego', 'Yildiz, Deniz',
 ]
 
-/** Class of 2028 — Year 1, two weeks in. Almost nothing recorded yet, correctly. */
+/** Class of 2028 — two weeks into the programme. Almost nothing recorded, correctly. */
 const NAMES_C16 = [
   'Abadi, Sami', 'Bergman, Elsa', 'Cardoso, Tiago', 'Devi, Anaya', 'Eriksen, Mads',
   'Farah, Idil', 'Ghosh, Rian', 'Hassan, Mariam', 'Iqbal, Bilal', 'Jung, Minseo',
@@ -158,7 +157,8 @@ export const USERS: User[] = pinned('ibUsers', () => [
 export const STUDENTS: Student[] = pinned('ibStudents', () =>
   DHAHRAN_COHORTS.flatMap((cohortId) =>
     COHORT_NAMES[cohortId].map((_, i) => {
-      // The Year 2 cohort is registered and mostly confirmed. Year 1 has no IB
+      // The graduating cohort is registered and mostly confirmed. The new one
+      // has no IB
       // identifiers at all — they are not issued until exams are ordered, and
       // that is the honest state for a cohort two weeks into DP1.
       const registered = cohortId !== 'c16' && i < 21
@@ -200,13 +200,13 @@ export const MEMBERSHIPS: Membership[] = pinned('ibMemberships', () => [
 /**
  * Note who teaches ACROSS cohorts — Adeyemi runs Core for both live years and
  * Farouk takes Biology in both. That is the case Michael raised: a teacher who
- * needs to move between Year 1 and Year 2 without switching anything.
+ * needs to move between two year groups without switching anything.
  *
  * And note what an assignment is: teacher ↔ SECTION. Never teacher ↔ student.
  * Which is why reassigning a teacher moves no student records at all.
  */
 export const TEACHING_ASSIGNMENTS: TeachingAssignment[] = pinned('ibAssignments', () => [
-  // Class of 2027 — Year 2
+  // Class of 2027 — graduating next
   { teacherId: 'u_farouk', sectionId: 'bio_sl_c15_a', isDesignatedMarker: true },
   { teacherId: 'u_farouk', sectionId: 'bio_sl_c15_b', isDesignatedMarker: true },
   { teacherId: 'u_silva', sectionId: 'bio_sl_c15_b', isDesignatedMarker: false }, // co-taught
@@ -215,7 +215,7 @@ export const TEACHING_ASSIGNMENTS: TeachingAssignment[] = pinned('ibAssignments'
   { teacherId: 'u_adeyemi', sectionId: 'cas_c15_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'ee_c15_a', isDesignatedMarker: true },
 
-  // Class of 2028 — Year 1, same people
+  // Class of 2028 — same people, the year behind
   { teacherId: 'u_farouk', sectionId: 'bio_sl_c16_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'tok_c16_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'cas_c16_a', isDesignatedMarker: true },

@@ -195,7 +195,7 @@ export function deriveCasStates(
 ): RequirementState[] {
   // Keyed BY COHORT, not just by key. Two live cohorts each carry a definition
   // called `cas.lo1`, and a flat key→def map would silently keep one of them —
-  // which would attach Year 1's states to Year 2's definitions.
+  // which would attach one class's states to the other class's definitions.
   const byCohort = new Map<string, Map<string, RequirementDef>>()
   for (const d of defs) {
     if (d.lane !== 'CAS') continue

@@ -37,7 +37,7 @@ const SCHOOL = 'dhahran'
 let COHORT = 'c15'
 
 const sid = (i: number) => 'st' + String(i).padStart(2, '0')
-/** Class of 2028 — Year 1, a fortnight in. */
+/** Class of 2028 — a fortnight in. */
 const y1 = (i: number) => 'y1' + String(i).padStart(2, '0')
 
 /** Deterministic pseudo-randomness — no Math.random, so the data never shifts. */
@@ -687,9 +687,9 @@ for (let i = 1; i <= 24; i += 1) {
 }
 
 // ===========================================================================
-// Class of 2028 — Year 1, two weeks into DP1.
+// Class of 2028 — two weeks into DP1.
 //
-// Deliberately almost empty. A Year 1 cohort in mid-August has had the initial
+// Deliberately almost empty. A cohort in its first August has had the initial
 // interview at most and a few keen students have logged something. Fixtures that
 // showed them half-finished would make every screen lie about what the start of
 // the programme looks like.
@@ -783,8 +783,8 @@ const ALL_STUDENTS = [
 const ri = rng(88)
 for (const student of ALL_STUDENTS) {
   if (CAS_DATA.indicators.some((x) => x.studentId === student)) continue
-  // Year 1 has barely started; forming a judgement about them now would be
-  // theatre, so almost none of them carry one.
+  // The new cohort has barely started; forming a judgement about them now would
+  // be theatre, so almost none of them carry one.
   if (ri() < (student.startsWith('y1') ? 0.85 : 0.35)) continue
   const s = summarise(student, CAS_DATA)
   const weight =

@@ -51,8 +51,8 @@ export default async function HomePage({
       <p className="mut">No student record.</p>
     )
   } else {
-    // The board shows one cohort at a time; default to the Year 2 group, since
-    // that is the one with an exam session bearing down on it.
+    // The board shows one year group at a time; default to the one graduating
+    // soonest, since that is the one with an exam session bearing down on it.
     const cohorts = sortCohorts(await repo.setup.listCohorts(school.id))
     const wanted = (await searchParams).cohort
     const cohort = cohorts.find((c) => c.id === wanted) ?? cohorts[0]

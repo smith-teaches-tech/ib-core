@@ -7,7 +7,7 @@
 // Run: npm run checkpoint
 
 import { COHORTS, REQUIREMENT_DEFS, REQUIREMENT_STATES, fixtureRepository as repo } from '../lib/data/fixtures'
-import { stageOf } from '../lib/cohorts'
+import { isArchived, sortCohorts } from '../lib/cohorts'
 import { CAS_DATA } from '../lib/data/cas-fixtures'
 import { summarise } from '../lib/cas/derive'
 
@@ -129,26 +129,32 @@ async function main() {
       `avg ${totals.avgOutcomes}/7 outcomes · ${totals.projectsComplete} projects complete`,
   )
 
-  // 6 — two live cohorts, derived not stored
-  console.log('\n6. Cohorts derive their own stage')
-  for (const c of COHORTS.filter((x) => x.schoolId === 'dhahran')) {
-    console.log(`     ${c.label.padEnd(16)} gradYear ${c.gradYear}  →  ${stageOf(c)}`)
+  // 6 — two cohorts run at once, and archiving is an act rather than a date
+  console.log('\n6. Cohorts')
+  const dhahran = sortCohorts(COHORTS.filter((c) => c.schoolId === 'dhahran'))
+  for (const c of dhahran) {
+    console.log(
+      `     ${c.label.padEnd(16)} Cohort ${c.number}  grad ${c.gradYear}  ` +
+        `${isArchived(c) ? '· archived' : '· live'}`,
+    )
   }
-  const dhahran = COHORTS.filter((c) => c.schoolId === 'dhahran')
-  check(dhahran.filter((c) => stageOf(c) === 'year_2').length === 1, 'exactly one Year 2 cohort')
-  check(dhahran.filter((c) => stageOf(c) === 'year_1').length === 1, 'exactly one Year 1 cohort')
-  check(dhahran.filter((c) => stageOf(c) === 'archived').length === 1, 'one cohort has archived itself')
+  check(dhahran.filter((c) => !isArchived(c)).length === 2, 'two year groups are live at once')
+  check(isArchived(dhahran[dhahran.length - 1]), 'the archived one sorts last')
   check(
-    dhahran.every((c) => !c.archived),
-    'and NOT ONE of them has a stored archived flag — the stage is derived',
+    dhahran.every((c) => c.number != null),
+    'every cohort carries the school\'s own cohort number as well as the class year',
   )
 
-  const y1 = dhahran.find((c) => stageOf(c) === 'year_1')!
-  const y1Board = await repo.getBoard('dhahran', y1.id)
-  check(y1Board.rows.length > 0, `the Year 1 cohort has its own board (${y1Board.rows.length} candidates)`)
+  const live = dhahran.filter((c) => !isArchived(c))
+  const boards = await Promise.all(live.map((c) => repo.getBoard('dhahran', c.id)))
   check(
-    y1Board.columns.every((col) => col.cohortId === y1.id),
-    'and its columns are its OWN definitions, not Year 2\'s',
+    boards.every((b, i) => b.columns.every((col) => col.cohortId === live[i].id)),
+    'each year group\'s board uses its OWN requirement definitions',
+  )
+  check(
+    boards[0].rows.length > 0 && boards[1].rows.length > 0 &&
+      boards[0].rows[0].student.userId !== boards[1].rows[0].student.userId,
+    `and its own candidates (${boards[0].rows.length} and ${boards[1].rows.length})`,
   )
 
   console.log('\n' + '='.repeat(60))

@@ -195,3 +195,16 @@ export async function importIdentifiers(text: string) {
   refresh()
   return applied
 }
+
+// ---------------------------------------------------------------------------
+// Archiving — a decision, not a date
+// ---------------------------------------------------------------------------
+
+export async function setCohortArchived(cohortId: string, archived: boolean) {
+  // `cohort.archive` sits in the Oversight & risk group and is off in every
+  // preset, so only the district coordinator holds it out of the box. A school
+  // coordinator can be granted it under Permissions.
+  const session = await need('cohort.archive')
+  await repo.setup.setCohortArchived(session.school.id, cohortId, archived)
+  refresh()
+}
