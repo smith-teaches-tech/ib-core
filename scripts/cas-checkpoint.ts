@@ -6,10 +6,11 @@
 //
 // Run: npm run checkpoint
 
-import { COHORTS, REQUIREMENT_DEFS, REQUIREMENT_STATES, fixtureRepository as repo } from '../lib/data/fixtures'
+import { COHORTS, COURSES, REQUIREMENT_DEFS, REQUIREMENT_STATES, fixtureRepository as repo } from '../lib/data/fixtures'
 import { isArchived, sortCohorts } from '../lib/cohorts'
 import { CAS_DATA } from '../lib/data/cas-fixtures'
 import { summarise } from '../lib/cas/derive'
+import { iaTotal, templateOf } from '../lib/templates'
 
 const fail: string[] = []
 const check = (ok: boolean, msg: string) => {
@@ -219,6 +220,116 @@ async function main() {
     boards[0].rows.length > 0 && boards[1].rows.length > 0 &&
       boards[0].rows[0].student.userId !== boards[1].rows[0].student.userId,
     `and its own candidates (${boards[0].rows.length} and ${boards[1].rows.length})`,
+  )
+
+  // 7 — IA templates & criterion marks (added with the v8 board + marks build)
+  console.log('\n7. IA templates, criterion marks, and the marks module')
+
+  // Every subject course's mark def carries its family's rubric — the right
+  // denominator, not a guessed /25.
+  const subjects = COURSES.filter((c) => c.type === 'subject')
+  const c15Marks = REQUIREMENT_DEFS.filter(
+    (d) => d.cohortId === 'c15' && d.key.endsWith('.mark') && d.lane === 'Internal assessment',
+  )
+  check(
+    subjects.every((c) => {
+      const d = c15Marks.find((x) => x.key === c.id + '.mark')
+      const t = templateOf(c.iaTemplateKey)
+      return d != null && d.markMax === t.markMax &&
+        (t.criteria.length === 0 ? d.criteria == null : d.criteria?.length === t.criteria.length)
+    }),
+    `every subject course's mark def matches its template family (${subjects.length} courses)`,
+  )
+  check(
+    c15Marks.every((d) => d.criteria == null || d.criteria.reduce((a, x) => a + x.max, 0) === d.markMax),
+    'markMax is always the sum of the criteria — no denominator can drift',
+  )
+  const spread = new Set(c15Marks.map((d) => d.markMax))
+  check(
+    spread.size >= 5,
+    `mark maxima genuinely differ by family (${[...spread].sort((a, b) => (a ?? 0) - (b ?? 0)).join(', ')}) — the /25 fiction is gone`,
+  )
+  check(
+    REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15' && d.key.endsWith('.comment')).length ===
+      subjects.length,
+    'ia.teacher_comment exists for every subject course — named in the MVP set, finally defined',
+  )
+  check(
+    REQUIREMENT_STATES.every(
+      (s) => !(s.criterionMarks != null && s.mark != null),
+    ),
+    'no state stores both criterion marks and a total — the total is derived (invariant #2)',
+  )
+
+  // The marks module: write a criterion mark, watch the total derive and the
+  // board move, with no board code knowing the module exists.
+  const mv = await repo.ia.getMarksView('dhahran', 'bio_sl', 'c15')
+  check(mv != null && mv.criteria.length === 4 && mv.markMax === 24,
+    `Biology SL marks view: 4 criteria /24 (got ${mv?.criteria.length}/${mv?.markMax})`)
+  const target = mv!.rows.find((r) => r.total == null) ?? mv!.rows[0]
+  if (target) {
+    for (let i = 0; i < 4; i++) {
+      await repo.ia.setCriterionMark('dhahran', 'bio_sl', 'c15', target.studentId, i, 5, 'checkpoint')
+    }
+    const after = await repo.ia.getMarksView('dhahran', 'bio_sl', 'c15')
+    const row = after!.rows.find((r) => r.studentId === target.studentId)!
+    check(row.total === 20, `four criterion marks of 5 derive a total of 20 (got ${row.total})`)
+    const st = REQUIREMENT_STATES.find(
+      (s) => s.studentId === target.studentId && s.requirementDefId === 'c15:bio_sl.mark',
+    )
+    check(st != null && st.mark == null && st.recordStatus === 'marked',
+      'the stored state has criterion marks, NO stored total, and recordStatus derived to marked')
+    check(iaTotal(c15Marks.find((d) => d.key === 'bio_sl.mark')!.criteria, st!) === 20,
+      'iaTotal() reads the same 20 back off the raw state')
+    const b = await repo.getBoard('dhahran', 'c15', { view: 'records' })
+    const brow = b.rows.find((r) => r.student.userId === target.studentId)!
+    const rollup = brow.cells.find((c) => c.kind === 'rollup')
+    check(
+      rollup != null && rollup.kind === 'rollup' &&
+        rollup.parts.some((p) => p.label === 'Marks' && p.done >= 1),
+      'and the school-records board sees the new mark through the same states it always read',
+    )
+  } else {
+    check(false, 'found an unmarked Biology SL candidate to exercise the write path')
+  }
+
+  // The two v8 boards: split by where the work goes, whose-turn scoped per tab.
+  const ib = await repo.getBoard('dhahran', 'c15', { view: 'ib' })
+  check(
+    ib.columns.length === 6 && !ib.columns.some((c) => c.lane === 'Internal assessment'),
+    `"Sent to IB" is six columns and carries no IA lane (got ${ib.columns.length})`,
+  )
+  const rec = await repo.getBoard('dhahran', 'c15', { view: 'records' })
+  check(
+    rec.columns.some((c) => c.kind === 'rollup' && c.parts?.length === 3) &&
+      !rec.columns.some((c) => c.defKeys.includes('cas.complete')),
+    '"School records" rolls IA to files · marks · comments and holds no CAS column',
+  )
+  check(
+    ib.rows.some((r) => {
+      const w = r.waiting
+      const w2 = rec.rows.find((x) => x.student.userId === r.student.userId)?.waiting
+      return w2 != null &&
+        w.student + w.staff + w.coordinator !== w2.student + w2.staff + w2.coordinator
+    }),
+    'whose-turn counts differ between the two tabs — each is scoped to its own columns',
+  )
+
+  // Adding a course through setup instantiates its family's defs.
+  const newId = await repo.setup.addCourse(
+    'dhahran',
+    { name: 'ESS SL', subjectGroup: 'Group 4 — Sciences', level: 'SL', iaTemplateKey: 'ess' },
+    'c16',
+  )
+  const newMark = REQUIREMENT_DEFS.find((d) => d.key === newId + '.mark')
+  check(
+    newMark != null && newMark.markMax === 30 && newMark.criteria?.length === 6 &&
+      newMark.cohortId === 'c16',
+    `a new ESS course arrives with the ESS rubric — 6 criteria /30, versioned to its cohort`,
+  )
+  check(
+    REQUIREMENT_DEFS.some((d) => d.key === newId + '.comment'),
+    'and with a teacher-comment def, so the marks screen is complete on day one',
   )
 
   console.log('\n' + '='.repeat(60))

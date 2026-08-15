@@ -13,6 +13,7 @@ import type {
   TeachingAssignment, User,
 } from '../types'
 import { resolveCapabilities } from '../capabilities'
+import { templateOf } from '../templates'
 import { parseIdentifiers, parseRoster } from '../setup/parse'
 import type { CourseRow, PersonRow } from '../setup/types'
 
@@ -163,28 +164,38 @@ export function makeSetupRepository(deps: {
 
     async addCourse(schoolId, input, cohortId) {
       const id = uniqueId(slug(input.name), (x) => courses.some((c) => c.id === x))
+      const t = templateOf(input.iaTemplateKey)
       courses.push({
         id, schoolId, type: 'subject',
         name: input.name.trim(),
         subjectGroup: input.subjectGroup,
         level: input.level,
+        iaTemplateKey: t.key,
       })
 
       // A new course with no requirements would be invisible everywhere
-      // downstream, so it gets the generic IA set the philosophy doc's §3.2
-      // shortcut defines — the same one every other subject course carries.
+      // downstream, so its IA defs are instantiated FROM ITS TEMPLATE FAMILY —
+      // the right rubric and the right mark maximum, not a guessed /25. A family
+      // whose criterion split is unconfirmed arrives total-only and says so.
       const order = defs.reduce((n, d) => Math.max(n, d.order), 0)
       defs.push(
         {
-          id: id + '.file', schoolId, cohortId, scope: { kind: 'course', courseId: id },
-          key: id + '.file', label: input.name + ' — IA', lane: 'Internal assessment',
+          id: `${cohortId}:${id}.file`, schoolId, cohortId, scope: { kind: 'course', courseId: id },
+          key: id + '.file', label: `${input.name} — ${t.component}`, lane: 'Internal assessment',
           order: order + 1, recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework',
         },
         {
-          id: id + '.mark', schoolId, cohortId, scope: { kind: 'course', courseId: id },
+          id: `${cohortId}:${id}.mark`, schoolId, cohortId, scope: { kind: 'course', courseId: id },
           key: id + '.mark', label: input.name + ' — mark', lane: 'Internal assessment',
-          order: order + 2, recordedBy: 'staff', artifact: 'mark', markMax: 25,
+          order: order + 2, recordedBy: 'staff', artifact: 'mark',
+          markMax: t.markMax,
+          criteria: t.criteria.length > 0 ? t.criteria : undefined,
           exportTarget: 'ibis_ia_marks',
+        },
+        {
+          id: `${cohortId}:${id}.comment`, schoolId, cohortId, scope: { kind: 'course', courseId: id },
+          key: id + '.comment', label: input.name + ' — teacher comment', lane: 'Internal assessment',
+          order: order + 3, recordedBy: 'staff', artifact: 'text',
         },
       )
 

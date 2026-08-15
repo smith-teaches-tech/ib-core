@@ -48,8 +48,15 @@ export const COORDINATOR_PAGES: NavPage[] = [
   {
     href: '/',
     label: 'Check work',
-    hint: 'The completeness board',
+    hint: 'The readiness board — sent to IB, school records',
     ready: true,
+  },
+  {
+    href: '/marks',
+    label: 'IA marks',
+    hint: 'By course — enter, check, type into IBIS',
+    ready: true,
+    capability: 'marks.transcribe',
   },
   {
     href: '/export',

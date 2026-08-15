@@ -73,10 +73,16 @@ export async function importStudents(cohortId: string, rows: ImportRow[]) {
 
 export async function addCourse(
   cohortId: string,
-  input: { name: string; subjectGroup: string; level: 'HL' | 'SL' | null },
+  input: {
+    name: string
+    subjectGroup: string
+    level: 'HL' | 'SL' | null
+    iaTemplateKey: string
+  },
 ) {
   const session = await need('catalogue.manage')
   if (!input.name.trim()) throw new Error('A course needs a name.')
+  if (!input.iaTemplateKey) throw new Error('Pick the IA template family — it sets the rubric and mark maximum.')
   await live(session.school.id, { cohortId })
   const id = await repo.setup.addCourse(session.school.id, input, cohortId)
   refresh()

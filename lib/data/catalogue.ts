@@ -24,7 +24,7 @@
 
 import type { Course } from '../types'
 
-type Seed = { id: string; name: string; group: string; level: 'HL' | 'SL' | null }
+type Seed = { id: string; name: string; group: string; level: 'HL' | 'SL' | null; tpl: string }
 
 /** Group labels as the IB writes them, used for the dropdown's option groups. */
 export const SUBJECT_GROUPS = [
@@ -44,42 +44,45 @@ const G4 = SUBJECT_GROUPS[4]
 const G5 = SUBJECT_GROUPS[5]
 const G6 = SUBJECT_GROUPS[6]
 
+// `tpl` is the IA template family (lib/templates.ts) — which rubric and mark
+// maximum this course's internal assessment carries. Assigned here for the seed;
+// a course added through Setup picks its family in the add-course form.
 const SEED: Seed[] = [
-  { id: 'eng_sl', name: 'English SL', group: G1, level: 'SL' },
-  { id: 'eng_hl', name: 'English HL', group: G1, level: 'HL' },
-  { id: 'germ_a_sl', name: 'Germ. A SL', group: G1, level: 'SL' },
+  { id: 'eng_sl', name: 'English SL', group: G1, level: 'SL', tpl: 'lang_a_io' },
+  { id: 'eng_hl', name: 'English HL', group: G1, level: 'HL', tpl: 'lang_a_io' },
+  { id: 'germ_a_sl', name: 'Germ. A SL', group: G1, level: 'SL', tpl: 'lang_a_io' },
 
-  { id: 'fr_ab', name: 'French ab initio', group: G2, level: 'SL' },
-  { id: 'fr_b_sl', name: 'French B SL', group: G2, level: 'SL' },
-  { id: 'fr_b_hl', name: 'French B HL', group: G2, level: 'HL' },
-  { id: 'sp_ab', name: 'Span. ab initio', group: G2, level: 'SL' },
-  { id: 'sp_b_sl', name: 'Span. B SL', group: G2, level: 'SL' },
-  { id: 'sp_b_hl', name: 'Span. B HL', group: G2, level: 'HL' },
-  { id: 'ar_ab', name: 'Arabic ab initio', group: G2, level: 'SL' },
-  { id: 'ar_b_sl', name: 'Arabic B SL', group: G2, level: 'SL' },
-  { id: 'ar_b_hl', name: 'Arabic B HL', group: G2, level: 'HL' },
+  { id: 'fr_ab', name: 'French ab initio', group: G2, level: 'SL', tpl: 'lang_b_io' },
+  { id: 'fr_b_sl', name: 'French B SL', group: G2, level: 'SL', tpl: 'lang_b_io' },
+  { id: 'fr_b_hl', name: 'French B HL', group: G2, level: 'HL', tpl: 'lang_b_io' },
+  { id: 'sp_ab', name: 'Span. ab initio', group: G2, level: 'SL', tpl: 'lang_b_io' },
+  { id: 'sp_b_sl', name: 'Span. B SL', group: G2, level: 'SL', tpl: 'lang_b_io' },
+  { id: 'sp_b_hl', name: 'Span. B HL', group: G2, level: 'HL', tpl: 'lang_b_io' },
+  { id: 'ar_ab', name: 'Arabic ab initio', group: G2, level: 'SL', tpl: 'lang_b_io' },
+  { id: 'ar_b_sl', name: 'Arabic B SL', group: G2, level: 'SL', tpl: 'lang_b_io' },
+  { id: 'ar_b_hl', name: 'Arabic B HL', group: G2, level: 'HL', tpl: 'lang_b_io' },
 
-  { id: 'econ_hl', name: 'Econ HL', group: G3, level: 'HL' },
-  { id: 'glopo_sl', name: 'GloPo SL', group: G3, level: 'SL' },
-  { id: 'glopo_hl', name: 'GloPo HL', group: G3, level: 'HL' },
-  { id: 'busman_sl', name: 'Bus Man SL', group: G3, level: 'SL' },
-  { id: 'busman_hl', name: 'Bus Man HL', group: G3, level: 'HL' },
-  { id: 'psych_sl', name: 'Psych SL', group: G3, level: 'SL' },
-  { id: 'psych_hl', name: 'Psych HL', group: G3, level: 'HL' },
+  { id: 'econ_hl', name: 'Econ HL', group: G3, level: 'HL', tpl: 'econ' },
+  { id: 'glopo_sl', name: 'GloPo SL', group: G3, level: 'SL', tpl: 'glopo_sl' },
+  { id: 'glopo_hl', name: 'GloPo HL', group: G3, level: 'HL', tpl: 'glopo_hl' },
+  { id: 'busman_sl', name: 'Bus Man SL', group: G3, level: 'SL', tpl: 'busman' },
+  { id: 'busman_hl', name: 'Bus Man HL', group: G3, level: 'HL', tpl: 'busman' },
+  { id: 'psych_sl', name: 'Psych SL', group: G3, level: 'SL', tpl: 'psych' },
+  { id: 'psych_hl', name: 'Psych HL', group: G3, level: 'HL', tpl: 'psych' },
 
-  { id: 'chem_sl', name: 'Chem SL', group: G4, level: 'SL' },
-  { id: 'chem_hl', name: 'Chem HL', group: G4, level: 'HL' },
-  { id: 'phys_sl', name: 'Physics SL', group: G4, level: 'SL' },
-  { id: 'phys_hl', name: 'Physics HL', group: G4, level: 'HL' },
-  { id: 'bio_sl', name: 'Biology SL', group: G4, level: 'SL' },
-  { id: 'bio_hl', name: 'Biology HL', group: G4, level: 'HL' },
+  { id: 'chem_sl', name: 'Chem SL', group: G4, level: 'SL', tpl: 'sciences' },
+  { id: 'chem_hl', name: 'Chem HL', group: G4, level: 'HL', tpl: 'sciences' },
+  { id: 'phys_sl', name: 'Physics SL', group: G4, level: 'SL', tpl: 'sciences' },
+  { id: 'phys_hl', name: 'Physics HL', group: G4, level: 'HL', tpl: 'sciences' },
+  { id: 'bio_sl', name: 'Biology SL', group: G4, level: 'SL', tpl: 'sciences' },
+  { id: 'bio_hl', name: 'Biology HL', group: G4, level: 'HL', tpl: 'sciences' },
 
-  { id: 'maa_sl', name: 'Math AA SL', group: G5, level: 'SL' },
-  { id: 'maa_hl', name: 'Math AA HL', group: G5, level: 'HL' },
-  { id: 'mai_sl', name: 'Math AI SL', group: G5, level: 'SL' },
+  { id: 'maa_sl', name: 'Math AA SL', group: G5, level: 'SL', tpl: 'math' },
+  { id: 'maa_hl', name: 'Math AA HL', group: G5, level: 'HL', tpl: 'math' },
+  { id: 'mai_sl', name: 'Math AI SL', group: G5, level: 'SL', tpl: 'math' },
 
-  { id: 'art_sl', name: 'Art SL', group: G6, level: 'SL' },
-  { id: 'art_hl', name: 'Art HL', group: G6, level: 'HL' },
+  { id: 'art_sl', name: 'Art SL', group: G6, level: 'SL', tpl: 'va_sl' },
+  { id: 'art_hl', name: 'Art HL', group: G6, level: 'HL', tpl: 'va_hl' },
 ]
 
 /** The three Core courses. Same container as Biology — philosophy doc §5. */
@@ -99,6 +102,7 @@ export function catalogueFor(schoolId: string): Course[] {
       name: s.name,
       subjectGroup: s.group,
       level: s.level,
+      iaTemplateKey: s.tpl,
     })),
   ]
 }

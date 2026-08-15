@@ -48,6 +48,13 @@ export interface Course {
   subjectGroup: string
   /** HL and SL are DIFFERENT courses — which is why they carry different requirements. */
   level: 'HL' | 'SL' | null
+  /**
+   * Which IA template family this course's internal assessment follows —
+   * 'sciences', 'math', 'lang_a_io'… (lib/templates.ts). Set when the course is
+   * added; what a NEW course's defs are instantiated from. Absent on Core
+   * courses, and on courses created before templates existed ('generic').
+   */
+  iaTemplateKey?: string
 }
 
 /** Optional and invisible when a course has only one. */
@@ -101,6 +108,14 @@ export interface RequirementDef {
   recordedBy: 'student' | 'staff' | 'coordinator'
   artifact: 'file' | 'text' | 'link' | 'mark' | 'none'
   markMax?: number
+  /**
+   * For `artifact: 'mark'` recorded at criterion grain (IA marks): the rubric,
+   * copied from the course's IA template at def-creation time so the def stays
+   * self-contained and immutable. `markMax` is always the sum of these maxima.
+   * Absent = the mark is a single total (either the family's split is not yet
+   * confirmed against the guide, or the def predates templates).
+   */
+  criteria?: { key: string; label: string; max: number }[]
   /** Does this feed an IB upload, and which one? Drives the export builder. */
   exportTarget?: ExportTarget
   /** Not actionable until the named requirement is complete. The RPF needs the viva first. */
@@ -140,7 +155,15 @@ export interface RequirementState {
   schoolId: Id
   recordStatus: RecordStatus
   exportStatus?: ExportStatus
+  /** A single-total mark. NOT stored when `criterionMarks` is — the total derives. */
   mark?: number
+  /**
+   * Marks per criterion, aligned to the def's `criteria`. `null` = not yet
+   * entered. The TOTAL IS NEVER STORED — `iaTotal()` (lib/templates.ts) sums it
+   * on every read, which is why IBIS's two asks (totals for everyone, criterion
+   * breakdown for the sample) are one recording rather than two.
+   */
+  criterionMarks?: (number | null)[]
   artifacts: Artifact[]
   recordedBy?: string
   recordedAt?: string

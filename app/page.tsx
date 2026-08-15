@@ -2,12 +2,11 @@ import CohortBar from '@/components/CohortBar'
 import Shell from '@/components/Shell'
 import Track from '@/components/Track'
 import BoardView from '@/components/BoardView'
+import CandidatePanel from '@/components/CandidatePanel'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
 import { cohortTitle, sortCohorts } from '@/lib/cohorts'
-import { LANE_ORDER } from '@/lib/board'
 import type { BoardControls, RowFilter, SortKey, TurnKey } from '@/components/BoardView'
-import type { Lane } from '@/lib/types'
 
 // Home routes by role, but both views are the SAME data at different zooms:
 //   student      → their track  (one student, full detail)
@@ -22,12 +21,12 @@ export default async function HomePage({
   searchParams,
 }: {
   searchParams: Promise<{
-    export?: string
     cohort?: string
-    expand?: string
+    view?: string
     rows?: string
     sort?: string
     turn?: string
+    candidate?: string
   }>
 }) {
   const params = await searchParams
@@ -35,7 +34,6 @@ export default async function HomePage({
   const { user, school, memberships } = session
   const roles = memberships.find((m) => m.schoolId === school.id)?.roles ?? []
   const isStudent = roles.includes('student')
-  const exportOnly = params.export === '1'
 
   const isCoordinator =
     roles.includes('school_coordinator') || roles.includes('district_coordinator')
@@ -67,45 +65,58 @@ export default async function HomePage({
     const cohorts = sortCohorts(await repo.setup.listCohorts(school.id))
     const cohort = cohorts.find((c) => c.id === params.cohort) ?? cohorts[0]
 
-    // The whole view lives in the URL — no client state, and a coordinator can
-    // bookmark "teachers, export-blocking" and find it there tomorrow.
+    // The whole view lives in the URL — no client state. Tabs, filters, and the
+    // open candidate panel are all params, so any of it can be bookmarked.
     const controls: BoardControls = {
-      expanded: (params.expand ?? '')
-        .split(',')
-        .filter((l): l is Lane => (LANE_ORDER as string[]).includes(l)),
+      view: params.view === 'records' ? 'records' : 'ib',
       rows: params.rows === 'all' ? 'all' : ('outstanding' as RowFilter),
       sort: params.sort === 'session' ? 'session' : ('outstanding' as SortKey),
       turn: (['student', 'staff', 'coordinator'] as const).includes(params.turn as never)
         ? (params.turn as TurnKey)
         : 'any',
-      exportOnly,
+      candidate: params.candidate ?? null,
     }
 
     const board = await repo.getBoard(school.id, cohort?.id ?? 'c15', {
-      expanded: controls.expanded,
-      exportOnly,
+      view: controls.view,
     })
+
+    // The open panel — a candidate of THIS cohort, or nothing.
+    const track =
+      controls.candidate && board.rows.some((r) => r.student.userId === controls.candidate)
+        ? await repo.getTrack(school.id, controls.candidate)
+        : null
 
     // The cohort chips carry the rest of the view with them, and the board's own
     // links carry the cohort back — otherwise either one silently resets the other.
     const keep: Record<string, string> = cohort ? { cohort: cohort.id } : {}
-    const cohortHref = (id: string) => {
-      const q = new URLSearchParams({ cohort: id })
-      if (controls.expanded.length) q.set('expand', controls.expanded.join(','))
+    const withParams = (patch: Record<string, string | null>) => {
+      const q = new URLSearchParams(keep)
+      if (controls.view !== 'ib') q.set('view', controls.view)
       if (controls.rows !== 'outstanding') q.set('rows', controls.rows)
       if (controls.sort !== 'outstanding') q.set('sort', controls.sort)
       if (controls.turn !== 'any') q.set('turn', controls.turn)
-      if (exportOnly) q.set('export', '1')
-      return `/?${q.toString()}`
+      if (controls.candidate) q.set('candidate', controls.candidate)
+      for (const [k, v] of Object.entries(patch)) {
+        if (v == null) q.delete(k)
+        else q.set(k, v)
+      }
+      const s = q.toString()
+      return s ? `/?${s}` : '/'
     }
 
     body = (
       <>
         <h1>IBIS readiness</h1>
         <p className="sub">
-          What has to be true before the upload window opens — every candidate, one row each.
+          Two boards, split by where the work goes — every candidate, one row each. Click a
+          candidate for their whole file.
         </p>
-        <CohortBar cohorts={cohorts} current={cohort?.id ?? ''} href={cohortHref} />
+        <CohortBar
+          cohorts={cohorts}
+          current={cohort?.id ?? ''}
+          href={(id) => withParams({ cohort: id, candidate: null })}
+        />
         <BoardView
           board={board}
           cohortLabel={cohort ? cohortTitle(cohort) : ''}
@@ -113,6 +124,7 @@ export default async function HomePage({
           base="/"
           keep={keep}
         />
+        {track && <CandidatePanel track={track} closeHref={withParams({ candidate: null })} />}
       </>
     )
   }

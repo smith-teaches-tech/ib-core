@@ -25,6 +25,7 @@ import type {
 import type {
   CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
 } from '../setup/types'
+import type { IaMarksView } from '../ia/types'
 import type { CapabilityKey, Cohort } from '../types'
 
 export interface CohortSpaces {
@@ -79,6 +80,42 @@ export interface Repository {
 
   /** Setup & people — creating the spine objects everything else reads. */
   setup: SetupRepository
+
+  /** IA marks — the module that records criterion marks and comments. */
+  ia: IaRepository
+}
+
+/**
+ * The IA marks module. Same justification as CAS (below): the board still reads
+ * everything through getBoard() — these methods exist for the module's OWN
+ * screen, the mark-entry grid, which shows the values the board compresses to
+ * fractions. Marks are recorded at CRITERION grain (the template's rubric), the
+ * total derives on read, and IBIS's two asks — totals for every candidate,
+ * criterion breakdown for the moderation sample — are answered by one recording.
+ */
+export interface IaRepository {
+  /** One course, one cohort: the grid. Rows in session-number (IBIS) order. */
+  getMarksView(schoolId: string, courseId: string, cohortId: string): Promise<IaMarksView | null>
+  /**
+   * Record one criterion's mark (index into the def's criteria; for a
+   * total-only family the index is ignored and the value is the total).
+   * `null` clears it. recordStatus derives from what is entered.
+   */
+  setCriterionMark(
+    schoolId: string, courseId: string, cohortId: string,
+    studentId: string, index: number, value: number | null, by: string,
+  ): Promise<void>
+  setComment(
+    schoolId: string, courseId: string, cohortId: string,
+    studentId: string, text: string, by: string,
+  ): Promise<void>
+  /**
+   * The transcription tick: this candidate's total has been typed into IBIS.
+   * Moves exportStatus only — the school record is untouched.
+   */
+  setTypedIntoIbis(
+    schoolId: string, courseId: string, cohortId: string, studentId: string, on: boolean,
+  ): Promise<void>
 }
 
 /**
@@ -148,7 +185,13 @@ export interface SetupRepository {
   // ---- catalogue ----
   addCourse(
     schoolId: string,
-    input: { name: string; subjectGroup: string; level: 'HL' | 'SL' | null },
+    input: {
+      name: string
+      subjectGroup: string
+      level: 'HL' | 'SL' | null
+      /** IA template family (lib/templates.ts) — what the course's IA defs are instantiated from. */
+      iaTemplateKey: string
+    },
     cohortId: string,
   ): Promise<string>
   addSection(schoolId: string, courseId: string, cohortId: string, label: string): Promise<string>

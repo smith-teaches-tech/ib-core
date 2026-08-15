@@ -612,3 +612,86 @@ details.archived .navrow { opacity: .75; }
 
 /* ---- cohort chips ------------------------------------------------------ */
 .cohortbar { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-bottom: 14px; }
+
+/* ===========================================================================
+   v8 — the split board, the candidate panel, and the IA marks grid
+   (added 15 Aug 2026 with the board v8 rebuild; see IB-Coordinator-Board-v8.md)
+   =========================================================================== */
+
+/* tabs on the board header */
+.btabs .btn{font-size:13px;padding:7px 14px}
+
+/* the v8 board fits without horizontal scroll; keep cells breathing */
+.board.v8{width:100%}
+.board.v8 td{padding:6px 6px}
+.board.v8 tbody tr.sel td{background:var(--brand-soft)}
+.candlink{color:inherit;text-decoration:none;display:block}
+.candlink:hover{color:var(--brand)}
+.candlink .chev{color:var(--muted);margin-left:5px;font-weight:400}
+.cellbox.sm{width:15px;height:15px;border-radius:4px}
+
+/* ---- candidate side panel ---- */
+.soverlay{position:fixed;inset:0;background:rgba(20,30,45,.18);z-index:40;display:block}
+.spanel{position:fixed;top:0;right:0;bottom:0;width:440px;max-width:94vw;background:#fff;z-index:50;
+  box-shadow:-8px 0 30px rgba(20,30,45,.18);display:flex;flex-direction:column}
+.sp-h{padding:14px 18px 12px;border-bottom:1px solid var(--line);display:flex;align-items:flex-start;gap:10px}
+.sp-h h3{margin:0;font-size:17px}
+.sp-h .ids{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;margin-top:1px}
+.sp-x{margin-left:auto;border:1px solid var(--line);background:#fff;border-radius:8px;width:28px;height:28px;
+  font-size:14px;color:var(--muted);line-height:26px;text-align:center;text-decoration:none}
+.sp-x:hover{border-color:#c9d3dc;color:var(--ink)}
+.sp-b{overflow:auto;padding:14px 18px 24px;flex:1}
+.sp-sec{margin-bottom:18px}
+.sp-sec h4{margin:0 0 8px;font-size:11px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.sp-sec h4 .tag{font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:none;
+  padding:1px 7px;border-radius:20px;margin-left:6px;vertical-align:1px}
+.tag.ib{background:var(--brand-soft);color:var(--brand)}
+.tag.int{background:#eef1f4;color:#5b6672}
+.ck{display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #f0f3f6;font-size:13px}
+.ck:last-child{border-bottom:0}
+.ck .lab{font-weight:600}
+.ck .st{margin-left:auto;font-size:12px;color:var(--muted)}
+.ck .st.bad{color:var(--warn);font-weight:700}
+.ck .st.ok{color:var(--ok);font-weight:700}
+.sp-note{font-size:11.5px;color:var(--muted);margin-top:7px}
+.sp-ia{border-collapse:collapse;font-size:12.5px;width:100%}
+.sp-ia th{font-size:10px;text-transform:uppercase;color:var(--muted);letter-spacing:.4px;
+  padding:3px 6px;border-bottom:1px solid var(--line);text-align:center}
+.sp-ia td{padding:4px 6px;text-align:center;border-bottom:1px solid #f0f3f6;font-variant-numeric:tabular-nums}
+
+/* ---- IA marks grid ---- */
+.board.marks{width:100%}
+.board.marks th.idc,.board.marks td.idc{text-align:left}
+.board.marks td{padding:5px 6px}
+.board.marks tbody tr.dim td{opacity:.5}
+.critmax{font-size:10px;color:var(--muted);font-weight:400}
+.cv{display:inline-block;min-width:24px;font-weight:700;font-variant-numeric:tabular-nums}
+.cv.none{color:#c9d2da;font-weight:400}
+.totv{font-size:15px;font-weight:800;font-variant-numeric:tabular-nums}
+.totv.sm{font-size:13px}
+.cin{width:42px;border:1px solid var(--line);border-radius:7px;font:inherit;font-size:13px;font-weight:700;
+  text-align:center;padding:3px 0;font-variant-numeric:tabular-nums;color:var(--ink);background:#fff}
+.cin.wide{width:56px}
+.cin:focus{outline:0;border-color:var(--brand)}
+.cin:disabled{opacity:.5}
+.cmt{font-size:11.5px;color:var(--muted);display:inline-block;max-width:210px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis;vertical-align:middle;cursor:default}
+.cmtin{border:1px solid var(--line);border-radius:7px;font:inherit;font-size:12px;padding:3px 7px;width:170px}
+.cmtin:focus{outline:0;border-color:var(--brand)}
+.tick{width:24px;height:24px;border:1px solid var(--line);border-radius:6px;background:#fff;cursor:pointer;
+  font-size:13px;line-height:1;color:#c9d2da}
+.tick.on{background:var(--ok);border-color:var(--ok);color:#fff}
+.tick:hover{border-color:#c9d3dc}
+.tick:disabled{opacity:.5;cursor:default}
+.owe{color:var(--warn);font-weight:700;font-size:12.5px}
+.owe.done{color:var(--ok)}
+
+/* course chips (marks screen) */
+.chip{font-size:12px;font-weight:600;padding:4px 10px;border:1px solid var(--line);border-radius:20px;
+  background:#fff;white-space:nowrap;text-decoration:none;color:var(--ink)}
+.chip:hover{border-color:#c9d3dc}
+.chip.on{background:var(--brand);border-color:var(--brand);color:#fff}
+.chip .n{color:var(--muted);font-weight:500;margin-left:4px;font-size:11px}
+.chip.on .n{color:#cfe3e0}
+/* the marks grid has ONE header row — don't inherit the two-row sticky offset */
+.board.marks tr.bcols th{top:0}

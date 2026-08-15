@@ -2,6 +2,7 @@ import { notFound } from 'next/navigation'
 import Shell from '@/components/Shell'
 import CasRoster from '@/components/cas/CasRoster'
 import CohortBar from '@/components/CohortBar'
+import MarksGrid from '@/components/ia/MarksGrid'
 import StudentCas from '@/components/cas/StudentCas'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
@@ -100,6 +101,58 @@ export default async function CoursePage({
         </>
       )
     }
+  } else if (course.type === 'subject') {
+    // A subject course's page IS its IA — the mark-entry grid for staff who can
+    // mark, a plain status note for everyone else. One course screen, N
+    // templates (IB-Course-Templates.md §1): what differs between Chemistry HL
+    // and Visual Arts SL is the requirement set rendered into it, not the page.
+    const cohortId = cohort?.id ?? 'c15'
+    if (!isStudent && session.can('ia.manage')) {
+      const view = await repo.ia.getMarksView(school.id, course.id, cohortId)
+      body = view ? (
+        <>
+          <h1>{course.name}</h1>
+          <p className="sub">
+            {course.subjectGroup}
+            {course.level ? ` · ${course.level}` : ''} — internal assessment, entered per criterion.
+            The total derives, and the moderation sample&rsquo;s criterion form is answered the day
+            IBIS asks.
+          </p>
+          <CohortBar
+            cohorts={isCoordinator ? cohorts : attached.map((g) => g.cohort)}
+            current={cohortId}
+            href={(id) => `/courses/${course.id}?cohort=${id}`}
+          />
+          <MarksGrid
+            view={view}
+            editable={session.can('ia.manage') && !readOnly}
+            canTranscribe={false}
+            readOnlyReason={
+              readOnly ? `${cohort?.label} is archived — a record, not a workspace.` : undefined
+            }
+          />
+        </>
+      ) : (
+        <>
+          <h1>{course.name}</h1>
+          <div className="note">This course has no sections for {cohort?.label ?? 'this year group'} yet.</div>
+        </>
+      )
+    } else {
+      body = (
+        <>
+          <h1>{course.name}</h1>
+          <p className="sub">
+            {course.subjectGroup}
+            {course.level ? ` · ${course.level}` : ''}
+          </p>
+          <div className="note">
+            Your internal assessment for this course — the file, the mark and the teacher comment —
+            shows on your own track on the home page. Marks are released by your teacher.
+          </div>
+        </>
+      )
+    }
   } else {
     body = (
       <>
@@ -109,9 +162,8 @@ export default async function CoursePage({
           {course.level ? ` · ${course.level}` : ''}
         </p>
         <div className="note">
-          This module is not built yet. CAS is the one that is — it is the module that tests
-          whether a module can own its own entities and still feed the spine. See
-          <b> IB-Build-Status.md</b> for the order.
+          This module is not built yet. CAS and the subject-course IA grids are the ones that are.
+          See <b>IB-Build-Status.md</b> for the order.
         </div>
       </>
     )

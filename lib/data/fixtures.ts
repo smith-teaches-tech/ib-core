@@ -19,6 +19,8 @@ import { CAS_DATA, casCounters } from './cas-fixtures'
 import { makeCasRepository } from './cas-repo'
 import { makeSetupRepository } from './setup-repo'
 import { GROUP_CHOICES, GROUP_KEYS, SIXTH_SUBJECT, catalogueFor } from './catalogue'
+import { templateOf } from '../templates'
+import { makeIaRepository } from './ia-repo'
 import { pinned } from './pin'
 import { sortCohorts } from '../cohorts'
 
@@ -360,11 +362,31 @@ function buildDefs(cohortId: string): RequirementDef[] {
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.essay', label: 'Final essay', lane: 'TOK', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
   ]
 
-  /** The MVP shortcut: every subject gets the SAME generic IA set. */
-  const subjectDefs: RequirementDef[] = COURSES.filter((c) => c.type === 'subject').flatMap((c) => [
-    def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.file', label: c.name + ' — IA', lane: 'Internal assessment', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
-    def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.mark', label: c.name + ' — mark', lane: 'Internal assessment', recordedBy: 'staff', artifact: 'mark', markMax: 25, exportTarget: 'ibis_ia_marks' }),
-  ])
+  /**
+   * Every subject course's IA set comes from its TEMPLATE FAMILY
+   * (lib/templates.ts) — the rubric and mark maximum the current guide gives
+   * that family for this session. The generic single-total set survives only as
+   * the fallback for a course whose family is unset.
+   *
+   * Three defs per course now, not two: `ia.teacher_comment` was named in the
+   * spine's MVP set and the coordinator spec from the start, and the marks
+   * screen finally gives it somewhere to be recorded. The board's IA rollup
+   * gains its third part for free (lib/board.ts matches by suffix).
+   */
+  const subjectDefs: RequirementDef[] = COURSES.filter((c) => c.type === 'subject').flatMap((c) => {
+    const t = templateOf(c.iaTemplateKey)
+    return [
+      def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.file', label: `${c.name} — ${t.component}`, lane: 'Internal assessment', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
+      def({
+        scope: { kind: 'course', courseId: c.id }, key: c.id + '.mark', label: c.name + ' — mark',
+        lane: 'Internal assessment', recordedBy: 'staff', artifact: 'mark',
+        markMax: t.markMax,
+        criteria: t.criteria.length > 0 ? t.criteria : undefined,
+        exportTarget: 'ibis_ia_marks',
+      }),
+      def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.comment', label: c.name + ' — teacher comment', lane: 'Internal assessment', recordedBy: 'staff', artifact: 'text' }),
+    ]
+  })
 
   const programmeDefs: RequirementDef[] = [
     def({ scope: { kind: 'programme' }, key: 'ib.reg', label: 'Registered with the IB', lane: 'IB admin', recordedBy: 'coordinator', artifact: 'none' }),
@@ -408,14 +430,34 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
       if (roll < 0.1 + bias) continue // nothing recorded yet
       const status =
         roll > 0.55 + bias ? 'marked' : roll > 0.3 + bias ? 'submitted' : 'in_progress'
+      // A mark def with CRITERIA is recorded at criterion grain — the total is
+      // never stored (invariant #2; iaTotal() sums on read). in_progress means
+      // some criteria are still null, exactly as a half-marked IA looks.
+      const criterionMarks =
+        d.artifact === 'mark' && d.criteria
+          ? d.criteria.map((c, i) =>
+              status !== 'in_progress' || i < d.criteria!.length / 2
+                ? Math.round(r() * c.max)
+                : null,
+            )
+          : undefined
       out.push({
         studentId: s.userId,
         requirementDefId: d.id,
         schoolId: 'dhahran',
         recordStatus: status,
         exportStatus: d.exportTarget && status === 'marked' ? 'ready_for_submission' : undefined,
-        mark: d.artifact === 'mark' && status !== 'in_progress' ? Math.round(r() * (d.markMax ?? 25)) : undefined,
-        artifacts: d.artifact === 'file' && status !== 'in_progress' ? ART(d.label + '.pdf') : [],
+        mark:
+          d.artifact === 'mark' && !d.criteria && status !== 'in_progress'
+            ? Math.round(r() * (d.markMax ?? 25))
+            : undefined,
+        criterionMarks,
+        artifacts:
+          d.artifact === 'file' && status !== 'in_progress'
+            ? ART(d.label + '.pdf')
+            : d.key.endsWith('.comment') && status !== 'in_progress'
+              ? [{ id: d.id + ':c', kind: 'text', label: 'Teacher comment', body: 'Marks justified per criterion; see rubric notes.', addedAt: '2026-08-02' }]
+              : [],
         recordedAt: '2026-08-0' + (1 + Math.floor(r() * 8)),
       })
     }
@@ -474,6 +516,17 @@ const setupRepository = makeSetupRepository({
   assignments: TEACHING_ASSIGNMENTS,
   defs: REQUIREMENT_DEFS,
   cohorts: COHORTS,
+})
+
+const iaRepository = makeIaRepository({
+  courses: COURSES,
+  sections: SECTIONS,
+  enrollments: ENROLLMENTS,
+  students: STUDENTS,
+  users: USERS,
+  assignments: TEACHING_ASSIGNMENTS,
+  defs: REQUIREMENT_DEFS,
+  states: REQUIREMENT_STATES,
 })
 
 const casRepository = makeCasRepository({
@@ -568,6 +621,7 @@ export const fixtureRepository: Repository = {
 
   cas: casRepository,
   setup: setupRepository,
+  ia: iaRepository,
 
   async listDocuments(schoolId, forUserId) {
     const isStudent = roleOf(forUserId, schoolId).includes('student')

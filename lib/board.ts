@@ -76,10 +76,11 @@ export const LANE_SUMMARY: Record<Lane, LaneSummary[]> = {
   'Internal assessment': [
     {
       kind: 'rollup',
-      label: 'Files · marks',
+      label: 'Files · marks · comments',
       parts: [
         { label: 'Files', suffix: '.file' },
         { label: 'Marks', suffix: '.mark' },
+        { label: 'Comments', suffix: '.comment' },
       ],
     },
   ],
@@ -90,11 +91,84 @@ export const LANE_SUMMARY: Record<Lane, LaneSummary[]> = {
   ],
 }
 
+// ---------------------------------------------------------------------------
+// The v8 split: two boards, divided by WHERE THE WORK GOES.
+// ---------------------------------------------------------------------------
+
+export type BoardViewKind = 'ib' | 'records'
+
+/**
+ * SENT TO IB — only what IBIS or eCoursework will ask for. Six data columns, no
+ * horizontal scroll, nothing expands: detail lives in the candidate panel.
+ * An EMPTY array removes the lane from this board entirely — internal
+ * assessment is school-held, so it lives on the other tab.
+ */
+const SENT_TO_IB: Record<Lane, LaneSummary[]> = {
+  CAS: [{ kind: 'one', key: 'cas.complete', label: 'Complete' }],
+  'Extended Essay': [
+    { kind: 'one', key: 'ee.final', label: 'Essay in' },
+    { kind: 'one', key: 'ee.rpf', label: 'RPF' },
+  ],
+  TOK: [
+    { kind: 'one', key: 'tok.essay', label: 'Essay in' },
+    { kind: 'fraction', label: 'TK/PPF', keys: ['tok.ppf1', 'tok.ppf2', 'tok.ppf3'] },
+  ],
+  'Internal assessment': [],
+  'IB admin': [{ kind: 'one', key: 'ib.pg', label: 'Predicted' }],
+}
+
+/**
+ * SCHOOL RECORDS — held by the school; the IB sees these only if it samples.
+ * The honest home for the 60-column problem, as one three-part rollup.
+ */
+const SCHOOL_RECORDS: Record<Lane, LaneSummary[]> = {
+  CAS: [],
+  'Extended Essay': [
+    {
+      kind: 'fraction',
+      label: 'Supervision',
+      keys: ['ee.rq', 'ee.r1', 'ee.r2', 'ee.viva', 'ee.attest'],
+    },
+  ],
+  TOK: [
+    { kind: 'one', key: 'tok.exh', label: 'Exhibition' },
+    { kind: 'one', key: 'tok.exhmark', label: 'Exh. mark' },
+    { kind: 'one', key: 'tok.title', label: 'Title' },
+  ],
+  'Internal assessment': [
+    {
+      kind: 'rollup',
+      label: 'Files · marks · comments',
+      parts: [
+        { label: 'Files', suffix: '.file' },
+        { label: 'Marks', suffix: '.mark' },
+        { label: 'Comments', suffix: '.comment' },
+      ],
+    },
+  ],
+  'IB admin': [
+    { kind: 'one', key: 'ib.reg', label: 'Registered' },
+    { kind: 'one', key: 'ib.auth', label: 'Authenticated' },
+  ],
+}
+
+const VIEW_SUMMARY: Record<BoardViewKind, Record<Lane, LaneSummary[]>> = {
+  ib: SENT_TO_IB,
+  records: SCHOOL_RECORDS,
+}
+
 export interface BoardOptions {
-  /** Lanes to show in full. Everything else uses LANE_SUMMARY. */
+  /** Lanes to show in full. Everything else uses the summary. */
   expanded?: Lane[]
   /** Only requirements that feed an IB upload. */
   exportOnly?: boolean
+  /**
+   * Which v8 board: 'ib' (sent to IB) or 'records' (school held). Unset =
+   * the legacy single-board summary, which the checkpoint still exercises.
+   * When set, whose-turn counts are scoped to THIS board's columns — the
+   * records tab counts IA debts, not TOK essays.
+   */
+  view?: BoardViewKind
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +216,7 @@ export function buildBoard(
 ): Board {
   const expanded = new Set(options.expanded ?? [])
   const visible = options.exportOnly ? defs.filter((d) => d.exportTarget != null) : defs
+  const summary = options.view ? VIEW_SUMMARY[options.view] : LANE_SUMMARY
 
   // ---- columns, lane by lane ------------------------------------------------
   const columns: BoardColumn[] = []
@@ -150,6 +225,8 @@ export function buildBoard(
   for (const lane of LANE_ORDER) {
     const laneDefs = visible.filter((d) => d.lane === lane).sort((a, b) => a.order - b.order)
     if (laneDefs.length === 0) continue
+    // A v8 view removes a lane from its board on purpose — the other tab has it.
+    if (options.view && summary[lane].length === 0 && !expanded.has(lane)) continue
 
     const start = columns.length
     const isExpanded = expanded.has(lane)
@@ -159,7 +236,7 @@ export function buildBoard(
         columns.push({ key: d.id, label: d.label, lane, kind: 'check', defKeys: [d.key] })
       }
     } else {
-      for (const s of LANE_SUMMARY[lane]) {
+      for (const s of summary[lane]) {
         if (s.kind === 'one') {
           if (!laneDefs.some((d) => d.key === s.key)) continue
           columns.push({ key: `${lane}:${s.key}`, label: s.label, lane, kind: 'check', defKeys: [s.key] })
@@ -226,11 +303,16 @@ export function buildBoard(
     })
 
     const all = [...cps.values()]
+    // A v8 board's whose-turn counts are scoped to ITS columns: the records tab
+    // counts IA debts, the IB tab counts upload blockers. The legacy board keeps
+    // counting everything, which is what the checkpoint asserts.
+    const visibleKeys = options.view ? new Set(columns.flatMap((c) => c.defKeys)) : null
+    const counted = visibleKeys ? all.filter((c) => visibleKeys.has(c.def.key)) : all
     return {
       student,
       user,
       cells,
-      waiting: waitingOn(all),
+      waiting: waitingOn(counted),
       done: all.filter(isComplete).length,
       applicable: all.length,
     }

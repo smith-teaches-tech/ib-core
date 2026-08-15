@@ -10,6 +10,7 @@
 import { useState, useTransition } from 'react'
 import * as setup from '@/lib/setup/actions'
 import { SUBJECT_GROUPS } from '@/lib/data/catalogue'
+import { templateOf, templatesForGroup } from '@/lib/templates'
 import type { CourseRow } from '@/lib/setup/types'
 import Picker from './Picker'
 
@@ -30,6 +31,9 @@ export default function CoursesTab({
   const [newCourse, setNewCourse] = useState<string | null>(null)
   const [group, setGroup] = useState<string>(SUBJECT_GROUPS[1])
   const [level, setLevel] = useState<'HL' | 'SL' | ''>('')
+  // The IA template family — defaults to the group's own family the moment the
+  // group is picked, so the common case is zero extra clicks.
+  const [tpl, setTpl] = useState<string>(templatesForGroup(SUBJECT_GROUPS[1])[0].key)
   const [pending, start] = useTransition()
 
   const run = (fn: () => Promise<unknown>) => {
@@ -83,7 +87,15 @@ export default function CoursesTab({
             with no conditional logic anywhere. Add them one at a time.
           </p>
           <div className="row">
-            <select value={group} onChange={(e) => setGroup(e.target.value)}>
+            <select
+              value={group}
+              onChange={(e) => {
+                setGroup(e.target.value)
+                // Re-default the family to the new group's own — a Sciences
+                // course should never accidentally keep a Language A rubric.
+                setTpl(templatesForGroup(e.target.value)[0].key)
+              }}
+            >
               {SUBJECT_GROUPS.filter((g) => g !== 'Core').map((g) => (
                 <option key={g} value={g}>{g}</option>
               ))}
@@ -93,6 +105,37 @@ export default function CoursesTab({
               <option value="HL">HL</option>
               <option value="SL">SL</option>
             </select>
+          </div>
+          <div className="row" style={{ marginTop: 8 }}>
+            <span className="caps" style={{ minWidth: 130 }}>IA template</span>
+            <select value={tpl} onChange={(e) => setTpl(e.target.value)}>
+              <optgroup label="This group's families">
+                {templatesForGroup(group)
+                  .filter((t) => t.key !== 'generic' && t.groups.includes(group))
+                  .map((t) => (
+                    <option key={t.key} value={t.key}>{t.label}</option>
+                  ))}
+              </optgroup>
+              <optgroup label="Other families">
+                {templatesForGroup(group)
+                  .filter((t) => t.key === 'generic' || !t.groups.includes(group))
+                  .map((t) => (
+                    <option key={t.key} value={t.key}>{t.label}</option>
+                  ))}
+              </optgroup>
+            </select>
+          </div>
+          <p className="mut" style={{ fontSize: 12, margin: '6px 0 10px' }}>
+            {templateOf(tpl).component} · marked /{templateOf(tpl).markMax}
+            {templateOf(tpl).criteria.length > 0
+              ? ` over ${templateOf(tpl).criteria.length} criteria`
+              : ' as a single total'}
+            {' — '}{templateOf(tpl).guide}
+            {templateOf(tpl).verify && (
+              <span className="pill gold" style={{ marginLeft: 6 }}>verify against the guide</span>
+            )}
+          </p>
+          <div className="row">
             <button
               className="btn pri sm"
               disabled={pending}
@@ -102,6 +145,7 @@ export default function CoursesTab({
                     name: newCourse,
                     subjectGroup: group,
                     level: level || null,
+                    iaTemplateKey: tpl,
                   })
                   setNewCourse(null)
                 })
@@ -112,8 +156,9 @@ export default function CoursesTab({
             <button className="btn sm ghost" onClick={() => setNewCourse(null)}>Cancel</button>
           </div>
           <p className="mut" style={{ fontSize: 12, marginBottom: 0 }}>
-            It gets the standard internal-assessment requirements — the file and the mark — so it
-            appears on the completeness board straight away.
+            It arrives with its family&rsquo;s IA requirements — the {templateOf(tpl).component.toLowerCase()},
+            the mark /{templateOf(tpl).markMax} and the teacher comment — so it reaches the board and the
+            marks screen immediately, with the right denominator.
           </p>
         </div>
       )}
@@ -127,6 +172,7 @@ export default function CoursesTab({
               <th>Course</th>
               <th>Group</th>
               <th>Level</th>
+              <th>IA rubric</th>
               <th>Sections</th>
               <th>Students</th>
               <th>Teachers</th>
@@ -139,6 +185,21 @@ export default function CoursesTab({
                 <td className="name">{r.course.name}</td>
                 <td className="mut">{r.course.subjectGroup}</td>
                 <td>{r.course.level ? <span className="pill info">{r.course.level}</span> : <span className="mut">—</span>}</td>
+                <td>
+                  {r.course.type === 'subject' ? (
+                    <span
+                      className={`pill ${templateOf(r.course.iaTemplateKey).verify ? 'gold' : 'grey'}`}
+                      title={`${templateOf(r.course.iaTemplateKey).component} — ${templateOf(r.course.iaTemplateKey).guide}${templateOf(r.course.iaTemplateKey).verify ? ' · ' + templateOf(r.course.iaTemplateKey).verify : ''}`}
+                    >
+                      /{templateOf(r.course.iaTemplateKey).markMax}
+                      {templateOf(r.course.iaTemplateKey).criteria.length > 0
+                        ? ` · ${templateOf(r.course.iaTemplateKey).criteria.length} crit.`
+                        : ' · total only'}
+                    </span>
+                  ) : (
+                    <span className="mut">—</span>
+                  )}
+                </td>
                 <td>
                   {r.sections.map((s) => (
                     <span key={s.section.id} className="pill grey" style={{ marginRight: 4 }}>
