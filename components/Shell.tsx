@@ -2,41 +2,27 @@ import Link from 'next/link'
 import DocumentsDrawer from './DocumentsDrawer'
 import { DEV_USERS, type Session } from '@/lib/session'
 import { repo } from '@/lib/data'
-import type { Announcement, KeyDate, ModuleTile } from '@/lib/types'
-
-function formatShort(iso: string) {
-  return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', {
-    day: 'numeric', month: 'short', timeZone: 'UTC',
-  })
-}
-function daysAway(iso: string) {
-  const then = new Date(iso + 'T00:00:00Z').getTime()
-  const now = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime()
-  return Math.round((then - now) / 86_400_000)
-}
+import type { Course } from '@/lib/types'
 
 /**
- * The app shell: a persistent left sidebar carrying navigation, key dates and
- * announcements, with the main area free for whatever the current role is
- * actually here to do. Documents sit behind a button in the top bar.
+ * Sidebar carries "my spaces" — the courses this person is attached to, whether
+ * that is Biology B or CAS. One uniform concept, no role-derived special cases.
+ * Documents sit behind a button in the top bar.
  */
 export default async function Shell({
   session,
-  tiles,
-  dates,
-  announcements,
+  spaces,
+  current = 'home',
   children,
 }: {
   session: Session
-  tiles: ModuleTile[]
-  dates: KeyDate[]
-  announcements: Announcement[]
+  spaces: Course[]
+  /** Which "space" is open — 'home' or a course id. */
+  current?: string
   children: React.ReactNode
 }) {
   const schools = await repo.listSchools()
-  const mySchools = schools.filter((s) =>
-    session.memberships.some((m) => m.schoolId === s.id),
-  )
+  const mySchools = schools.filter((s) => session.memberships.some((m) => m.schoolId === s.id))
   const documents = await repo.listDocuments(session.school.id, session.user.id)
 
   return (
@@ -46,7 +32,6 @@ export default async function Shell({
           IB&nbsp;Core <span>· {session.school.name}</span>
         </Link>
 
-        {/* Only for users who belong to more than one school. */}
         {mySchools.length > 1 && (
           <form action="/api/dev/school" method="POST">
             <select name="schoolId" defaultValue={session.school.id}>
@@ -75,58 +60,26 @@ export default async function Shell({
 
       <div className="shell">
         <nav className="side">
-          <h3>{session.memberships[0]?.roles.includes('student') ? 'My Core & courses' : 'Modules'}</h3>
-          <Link href="/" className="navrow on">
+          <h3>My spaces</h3>
+          <Link href="/" className={`navrow ${current === 'home' ? 'on' : ''}`}>
             <span className="nm"><b>Home</b></span>
           </Link>
-          {tiles.map((t) => (
-            <Link key={t.key} href={t.href} className="navrow">
+          {spaces.map((c) => (
+            <Link
+              key={c.id}
+              href={`/courses/${c.id}`}
+              className={`navrow ${current === c.id ? 'on' : ''}`}
+            >
               <span className="nm">
-                <b>{t.label}</b>
-                <small>{t.sublabel}</small>
-              </span>
-              <span className={`badge${t.outstanding === 0 ? ' zero' : ''}`}>
-                {t.outstanding === 0 ? '—' : t.outstanding}
+                <b>{c.name}</b>
+                <small>{c.type === 'subject' ? c.subjectGroup : 'Core'}</small>
               </span>
             </Link>
           ))}
-
-          <h3>Key dates</h3>
-          {dates.length === 0 && <p className="mut" style={{ fontSize: 12.5, padding: '0 9px' }}>None set.</p>}
-          {dates.slice(0, 5).map((k) => {
-            const away = daysAway(k.date)
-            return (
-              <div className={`sidedate${k.kind === 'ib' ? ' ib' : ''}`} key={k.id}>
-                <div className="dl">
-                  <b>{formatShort(k.date)}</b>
-                  <span>{k.label}</span>
-                </div>
-                <div className="meta">
-                  {away < 0 ? `${-away} days ago` : `in ${away} days`}
-                  {k.kind === 'ib' ? ' · IB deadline' : ''}
-                </div>
-              </div>
-            )
-          })}
-
-          <h3>
-            Announcements
-            {session.can('announcements.post') && (
-              <Link href="/announcements/new" style={{ float: 'right', textDecoration: 'none' }}>+ Post</Link>
-            )}
-          </h3>
-          {announcements.length === 0 && <p className="mut" style={{ fontSize: 12.5, padding: '0 9px' }}>Nothing posted.</p>}
-          {announcements.slice(0, 4).map((a) => (
-            <div className="sideann" key={a.id}>
-              <b>{a.title}</b>
-              <div className="meta">
-                {a.postedBy} · {formatShort(a.postedAt)}
-                {a.audienceRoles.length > 0 && ' · staff'}
-              </div>
-            </div>
-          ))}
+          {spaces.length === 0 && (
+            <p className="mut" style={{ fontSize: 12.5, padding: '0 9px' }}>Nothing assigned yet.</p>
+          )}
         </nav>
-
         <main className="main">{children}</main>
       </div>
     </>

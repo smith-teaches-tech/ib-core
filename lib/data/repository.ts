@@ -1,18 +1,26 @@
 // THE SWAP POINT.
 //
-// Every screen in the app reads through this interface and never touches a
-// database directly. Today it is backed by fixtures (no cloud, no database,
-// runs on a laptop). When IT decides between Postgres/Supabase and Firestore,
-// we write ONE new file implementing this same interface and change a single
-// line in lib/data/index.ts. No screen changes.
+// Every screen reads through this interface and never touches a database. Today
+// it is backed by fixtures (no cloud, no database, runs on a laptop). When IT
+// decides between Postgres/Supabase and Firestore, we write ONE new file
+// implementing this same interface and change a single line in lib/data/index.ts.
 //
 // Rule for anything added here: every method takes a schoolId. Scope is a
 // boundary, not an afterthought.
+//
+// Note what is NOT here: no getCommandCentre, no listMyWork, no attention feed.
+// The coordinator's views are projections of the same spine the modules write to
+// (see claude/IB-Spine-Architecture.md §0). If a coordinator view ever needs a
+// new method here, a module underneath is missing something real.
 
 import type {
-  Announcement, Cohort, CommandCentre, Course, KeyDate, LibraryDocument,
-  Membership, ModuleTile, School, Section, Student, User, WorkItem,
+  Board, Course, LibraryDocument, Membership, School, Student, StudentTrack, User,
 } from '../types'
+import type { StoredRef } from '../storage'
+import type {
+  CasCohortTotals, CasRosterRow, CasStudentView, ExperienceStatus, IndicatorValue,
+  InterviewKind, LoKey, Strand, SupervisorRequest, SupervisorView,
+} from '../cas/types'
 
 export interface Repository {
   // Identity & scope
@@ -20,20 +28,123 @@ export interface Repository {
   getMemberships(userId: string): Promise<Membership[]>
   getSchool(schoolId: string): Promise<School | null>
   listSchools(): Promise<School[]>
-
-  // Structure
-  listCohorts(schoolId: string): Promise<Cohort[]>
-  listCourses(schoolId: string): Promise<Course[]>
-  listSections(schoolId: string): Promise<Section[]>
   getStudent(userId: string): Promise<Student | null>
 
-  // Home page
-  listAnnouncements(schoolId: string, forUserId: string): Promise<Announcement[]>
-  listKeyDates(schoolId: string, cohortId: string | null): Promise<KeyDate[]>
-  listDocuments(schoolId: string, forUserId: string): Promise<LibraryDocument[]>
-  listModuleTiles(schoolId: string, forUserId: string): Promise<ModuleTile[]>
+  // Structure
+  listCourses(schoolId: string): Promise<Course[]>
+  /** Derived from enrolments — never a stored list. */
+  coursesOfStudent(studentId: string): Promise<Course[]>
+  /** The courses a staff member is actually assigned to teach. */
+  myCourses(schoolId: string, userId: string): Promise<Course[]>
 
-  // Role-specific main content
-  getCommandCentre(schoolId: string): Promise<CommandCentre>
-  listMyWork(schoolId: string, forUserId: string): Promise<WorkItem[]>
+  // The two views over the spine — same data, different zoom
+  getTrack(schoolId: string, studentUserId: string): Promise<StudentTrack | null>
+  getBoard(
+    schoolId: string,
+    cohortId: string,
+    onlyExportBlocking?: boolean,
+  ): Promise<Board>
+
+  // Reference content
+  listDocuments(schoolId: string, forUserId: string): Promise<LibraryDocument[]>
+
+  /**
+   * Module-owned data. See below for why this is not a violation of the rule
+   * above — and what would make it one.
+   */
+  cas: CasRepository
+}
+
+/**
+ * CAS reads and writes its OWN entities.
+ *
+ * This is not the coordinator-view exception creeping back in. The test in
+ * IB-Spine-Architecture.md §0 is whether a COORDINATOR VIEW needs a new method:
+ * the completeness board and the student track still get everything they need
+ * from getBoard/getTrack, because CAS derives its RequirementStates from what is
+ * here (lib/cas/derive.ts). Nothing on this interface exists to feed a dashboard.
+ *
+ * The CAS roster below is the module's own screen, not a projection of one — it
+ * shows experiences, threads and interviews, which are exactly the things the
+ * spine deliberately does not know about.
+ */
+export interface CasRepository {
+  // ---- reads ----
+  getStudentView(schoolId: string, studentUserId: string): Promise<CasStudentView | null>
+  getRoster(schoolId: string, cohortId: string): Promise<CasRosterRow[]>
+  getTotals(schoolId: string, cohortId: string): Promise<CasCohortTotals>
+  /**
+   * The one method with no schoolId, and the only one: a supervisor has no
+   * account and no membership. The token IS the scope — single experience,
+   * 28-day expiry, single use. Nothing else is reachable through it.
+   */
+  getSupervisorView(token: string): Promise<SupervisorView | null>
+
+  // ---- writes: the student's own record ----
+  createExperience(
+    schoolId: string,
+    studentId: string,
+    input: {
+      title: string
+      description: string
+      strands: Strand[]
+      isProject: boolean
+      claimedOutcomes: LoKey[]
+      submit: boolean
+    },
+    authorName: string,
+  ): Promise<string>
+  addReflection(
+    schoolId: string, experienceId: string, body: string, authorName: string,
+  ): Promise<void>
+  /** Versioned: the prior entry is kept and superseded, never overwritten. */
+  editReflection(
+    schoolId: string, entryId: string, body: string, authorName: string,
+  ): Promise<void>
+  addEvidence(
+    schoolId: string, experienceId: string, media: StoredRef[], note: string, authorName: string,
+  ): Promise<void>
+  requestSupervisor(
+    schoolId: string, experienceId: string, email: string, authorName: string,
+  ): Promise<SupervisorRequest>
+  /** The paper route: mark it ready for the coordinator to verify. */
+  markPaperFormUploaded(schoolId: string, experienceId: string, authorName: string): Promise<void>
+
+  // ---- writes: the coordinator ----
+  setExperienceStatus(
+    schoolId: string,
+    experienceId: string,
+    status: ExperienceStatus,
+    opts: { note?: string; reason?: string; by: string },
+  ): Promise<void>
+  /** Verify a paper form, or complete on behalf when a supervisor won't sign. */
+  completeOnBehalf(
+    schoolId: string,
+    experienceId: string,
+    confirmedOutcomes: LoKey[],
+    comment: string,
+    by: string,
+  ): Promise<void>
+  saveInterview(
+    schoolId: string,
+    studentId: string,
+    kind: InterviewKind,
+    notes: string,
+    conductedOn: string,
+    by: string,
+  ): Promise<void>
+  /** Capability-gated (items.unlock) and always leaves a reason in the trail. */
+  unlockInterview(schoolId: string, interviewId: string, reason: string, by: string): Promise<void>
+  setIndicator(
+    schoolId: string, studentId: string, value: IndicatorValue | null, by: string,
+  ): Promise<void>
+  addNote(schoolId: string, studentId: string, body: string, by: string): Promise<void>
+  /** cas.complete — the one CAS requirement recorded rather than derived. */
+  setCasComplete(schoolId: string, studentId: string, complete: boolean, by: string): Promise<void>
+
+  // ---- writes: the supervisor, through the token ----
+  signOff(
+    token: string,
+    input: { confirmedOutcomes: LoKey[]; comment: string; signature: string },
+  ): Promise<boolean>
 }

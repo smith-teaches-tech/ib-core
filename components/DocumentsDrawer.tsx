@@ -3,11 +3,6 @@
 import { useState } from 'react'
 import type { LibraryDocument } from '@/lib/types'
 
-const MODULE_LABEL: Record<string, string> = {
-  cas: 'CAS', ee: 'Extended Essay', tok: 'TOK', ia: 'Internal assessment',
-  core: 'Core', general: 'General',
-}
-
 /**
  * Information & documents lives behind a button in the top bar rather than
  * taking up a band on every page: people need it often enough to want it one
@@ -29,8 +24,8 @@ export default function DocumentsDrawer({
       (d.title + ' ' + d.description).toLowerCase().includes(q.toLowerCase()),
   )
 
-  const byModule = filtered.reduce<Record<string, LibraryDocument[]>>((acc, d) => {
-    ;(acc[d.module] ??= []).push(d)
+  const byLane = filtered.reduce<Record<string, LibraryDocument[]>>((acc, d) => {
+    ;(acc[d.lane] ??= []).push(d)
     return acc
   }, {})
 
@@ -64,10 +59,10 @@ export default function DocumentsDrawer({
             </div>
             <div className="drawer-b">
               {filtered.length === 0 && <p className="mut">Nothing matches that.</p>}
-              {Object.entries(byModule).map(([mod, docs]) => (
+              {Object.entries(byLane).map(([mod, docs]) => (
                 <div key={mod} style={{ marginTop: 16 }}>
                   <div className="caps" style={{ marginBottom: 4 }}>
-                    {MODULE_LABEL[mod] ?? mod}
+                    {mod}
                   </div>
                   {docs.map((d) => (
                     <div className="linkrow" key={d.id}>

@@ -1,62 +1,68 @@
 import Shell from '@/components/Shell'
-import CoordinatorHome from '@/components/CoordinatorHome'
-import WorkHome from '@/components/WorkHome'
+import Track from '@/components/Track'
+import BoardView from '@/components/BoardView'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
 
-// The home page routes by role rather than showing one generic page to
-// everyone. A coordinator's home is the command centre; a teacher's and a
-// student's is the queue of things waiting on them. The shell — sidebar
-// navigation, key dates, announcements, documents — is the same for all.
+// Home routes by role, but both views are the SAME data at different zooms:
+//   student      → their track  (one student, full detail)
+//   coordinator  → the board    (every student, compressed to a row)
+//
+// Neither reads anything the modules don't write. There is no separate
+// coordinator data source, by design.
 
 export const dynamic = 'force-dynamic'
 
-export default async function HomePage() {
+export default async function HomePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ export?: string }>
+}) {
   const session = await getSession()
   const { user, school, memberships } = session
-
   const roles = memberships.find((m) => m.schoolId === school.id)?.roles ?? []
+  const isStudent = roles.includes('student')
+  const exportOnly = (await searchParams).export === '1'
+
   const isCoordinator =
     roles.includes('school_coordinator') || roles.includes('district_coordinator')
 
-  const student = await repo.getStudent(user.id)
-
-  const [tiles, dates, announcements] = await Promise.all([
-    repo.listModuleTiles(school.id, user.id),
-    repo.listKeyDates(school.id, student?.cohortId ?? null),
-    repo.listAnnouncements(school.id, user.id),
-  ])
+  // "My spaces" is uniform: the things you are attached to. A coordinator is
+  // attached to the whole programme; everyone else to what they teach or take.
+  const spaces = isStudent
+    ? await repo.coursesOfStudent(user.id)
+    : isCoordinator
+      ? await repo.listCourses(school.id)
+      : await repo.myCourses(school.id, user.id)
 
   let body: React.ReactNode
 
-  if (isCoordinator) {
-    const cc = await repo.getCommandCentre(school.id)
-    body = <CoordinatorHome cc={cc} canConfigure={session.can('session.configure')} />
+  if (isStudent) {
+    const track = await repo.getTrack(school.id, user.id)
+    body = track ? (
+      <>
+        <h1>{user.name}</h1>
+        <p className="sub">
+          Class of 2027 · Candidate {track.student.sessionNumber} / {track.student.personalCode ?? '—'}
+          {' '}— a record of what you have completed.
+        </p>
+        <Track track={track} examDate="2027-05-01" />
+      </>
+    ) : (
+      <p className="mut">No student record.</p>
+    )
   } else {
-    const work = await repo.listMyWork(school.id, user.id)
-    const overdue = work.filter((w) => w.tone === 'overdue').length
+    const board = await repo.getBoard(school.id, 'c15', exportOnly)
     body = (
-      <WorkHome
-        name={user.name}
-        subtitle={
-          student
-            ? overdue
-              ? `${overdue} thing${overdue === 1 ? '' : 's'} overdue`
-              : 'Here is where you stand'
-            : roles.includes('tok_teacher')
-              ? 'CAS coordinator · EE coordinator · TOK teacher · TOK coordinator'
-              : 'Teacher'
-        }
-        work={work}
-        tiles={tiles}
-        student={student}
-      />
+      <>
+        <h1>Completeness</h1>
+        <p className="sub">
+          What is recorded and what isn&rsquo;t — every candidate&rsquo;s track, compressed to one row.
+        </p>
+        <BoardView board={board} cohortLabel="Class of 2027" exportOnly={exportOnly} />
+      </>
     )
   }
 
-  return (
-    <Shell session={session} tiles={tiles} dates={dates} announcements={announcements}>
-      {body}
-    </Shell>
-  )
+  return <Shell session={session} spaces={spaces}>{body}</Shell>
 }

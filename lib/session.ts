@@ -17,7 +17,7 @@ export const DEV_USERS = [
   { id: 'u_haddad', label: 'S. Haddad — School coordinator (Jubail)' },
   { id: 'u_adeyemi', label: 'H. Adeyemi — Core teacher (CAS/EE/TOK)' },
   { id: 'u_farouk', label: 'R. Farouk — Teacher (Biology)' },
-  { id: 'u_layla', label: 'Layla Ahmed — Student' },
+  { id: 'st01', label: 'Layla Ahmed — Student' },
 ]
 
 export interface Session {

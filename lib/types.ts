@@ -1,48 +1,17 @@
-// Domain types for IB Core.
-// These mirror the data model in the project specs. Keep this file as the single
-// source of truth — the data layer, the UI and any future database all agree here.
+// The spine. Nine objects, and everything else in the product is a view over them.
+// See claude/IB-Spine-Architecture.md in the project docs.
 
 export type Id = string
 
-/** A school within the district. Everything below is scoped to one of these. */
+// ---------------------------------------------------------------------------
+// 1–2. Scope
+// ---------------------------------------------------------------------------
+
+/** The outer boundary. Nothing crosses it. */
 export interface School {
   id: Id
   name: string
   ibSchoolCode: string
-}
-
-export type RoleKey =
-  | 'student'
-  | 'teacher'
-  | 'cas_coordinator'
-  | 'ee_coordinator'
-  | 'tok_teacher'
-  | 'tok_coordinator'
-  | 'school_coordinator'
-  | 'district_coordinator'
-
-export type UserStatus = 'invited' | 'active' | 'suspended'
-
-export interface User {
-  id: Id
-  name: string
-  email: string
-  status: UserStatus
-}
-
-/**
- * A user's relationship to ONE school. A user may hold several.
- * Capabilities resolve from the preset plus/minus the deviations —
- * we store the deviations, never the resolved set, so preset
- * improvements reach people who already have them.
- */
-export interface Membership {
-  userId: Id
-  schoolId: Id
-  roles: RoleKey[]
-  presetKey: PresetKey
-  addedCapabilities: CapabilityKey[]
-  removedCapabilities: CapabilityKey[]
 }
 
 export interface Cohort {
@@ -53,16 +22,28 @@ export interface Cohort {
   archived: boolean
 }
 
+// ---------------------------------------------------------------------------
+// 3–6. Structure
+// ---------------------------------------------------------------------------
+
+/**
+ * CAS, EE and TOK are courses, exactly like Biology. The container is identical;
+ * the contents differ by `type`. This is what makes handing TOK to a different
+ * teacher a one-row change.
+ */
+export type CourseType = 'subject' | 'cas' | 'ee' | 'tok'
+
 export interface Course {
   id: Id
   schoolId: Id
+  type: CourseType
   name: string
   subjectGroup: string
+  /** HL and SL are DIFFERENT courses — which is why they carry different requirements. */
   level: 'HL' | 'SL' | null
-  hasIA: boolean
 }
 
-/** Sections are optional and invisible when a course has only one. */
+/** Optional and invisible when a course has only one. */
 export interface Section {
   id: Id
   schoolId: Id
@@ -82,41 +63,128 @@ export interface TeachingAssignment {
   isDesignatedMarker: boolean
 }
 
+// ---------------------------------------------------------------------------
+// 7–9. The spine proper
+// ---------------------------------------------------------------------------
+
+export type RequirementScope =
+  | { kind: 'course'; courseId: Id }
+  | { kind: 'programme' }
+
+export type Lane = 'CAS' | 'Extended Essay' | 'TOK' | 'Internal assessment' | 'IB admin'
+
+export type ExportTarget = 'ecoursework' | 'ibis_ia_marks' | 'ibis_predicted'
+
+/**
+ * The template. Defined ONCE per course (or for the programme) and versioned per
+ * cohort. There is no per-student requirement configuration anywhere in the system:
+ * a student's set is derived from what they are enrolled in.
+ *
+ * Immutable once any RequirementState exists against it — version forward instead.
+ */
+export interface RequirementDef {
+  id: Id
+  schoolId: Id
+  cohortId: Id
+  scope: RequirementScope
+  key: string
+  label: string
+  lane: Lane
+  order: number
+  recordedBy: 'student' | 'staff' | 'coordinator'
+  artifact: 'file' | 'text' | 'link' | 'mark' | 'none'
+  markMax?: number
+  /** Does this feed an IB upload, and which one? Drives the export builder. */
+  exportTarget?: ExportTarget
+  /** Not actionable until the named requirement is complete. The RPF needs the viva first. */
+  opensAfter?: string
+  dueAt?: string
+}
+
+/** Has the school got it? Our vocabulary. */
+export type RecordStatus =
+  | 'not_started' | 'in_progress' | 'submitted' | 'marked' | 'released'
+
+/** Has it gone to the IB? eCoursework's vocabulary, verbatim, so nobody translates. */
+export type ExportStatus =
+  | 'not_started' | 'in_progress' | 'ready_for_candidate' | 'candidate_submitted'
+  | 'ready_for_authentication' | 'ready_for_submission' | 'submitted'
+  | 'error' | 'non_submission' | 'academic_misconduct'
+
+export interface Artifact {
+  id: Id
+  kind: 'file' | 'text' | 'link'
+  label: string
+  href?: string
+  body?: string
+  addedAt: string
+}
+
+/**
+ * What has been recorded for one student × one requirement.
+ *
+ * INVARIANT: a state exists only where the requirement applies. "Not applicable"
+ * is represented by ABSENCE, never stored — which is how the board handles
+ * students taking different courses at no cost.
+ */
+export interface RequirementState {
+  studentId: Id
+  requirementDefId: Id
+  schoolId: Id
+  recordStatus: RecordStatus
+  exportStatus?: ExportStatus
+  mark?: number
+  artifacts: Artifact[]
+  recordedBy?: string
+  recordedAt?: string
+  lockedAt?: string
+}
+
+// ---------------------------------------------------------------------------
+// People, membership, permissions
+// ---------------------------------------------------------------------------
+
+export type RoleKey =
+  | 'student' | 'teacher' | 'cas_coordinator' | 'ee_coordinator'
+  | 'tok_teacher' | 'tok_coordinator' | 'school_coordinator' | 'district_coordinator'
+
+export type UserStatus = 'invited' | 'active' | 'suspended'
+
+export interface User {
+  id: Id
+  name: string
+  email: string
+  status: UserStatus
+}
+
+export type CapabilityKey = string
+export type PresetKey =
+  | 'district' | 'school_full' | 'school_standard'
+  | 'setup_only' | 'observer' | 'teacher' | 'student'
+
+/** A user's relationship to ONE school. A user may hold several. */
+export interface Membership {
+  userId: Id
+  schoolId: Id
+  roles: RoleKey[]
+  presetKey: PresetKey
+  addedCapabilities: CapabilityKey[]
+  removedCapabilities: CapabilityKey[]
+}
+
 export interface Student {
   userId: Id
   schoolId: Id
   cohortId: Id
-  /** Permanent, issued by the IB. Globally unique. */
   personalCode: string | null
   /** Restarts at 0001 in EACH school — unique only within (school, session). */
   sessionNumber: string | null
   identifiersState: 'missing' | 'unconfirmed' | 'confirmed'
 }
 
-export type ModuleKey = 'cas' | 'ee' | 'tok' | 'ia'
-
-export interface Announcement {
-  id: Id
-  schoolId: Id
-  title: string
-  body: string
-  postedBy: string
-  postedAt: string
-  /** Empty means everyone at the school. */
-  audienceRoles: RoleKey[]
-  cohortId: Id | null
-}
-
-export interface KeyDate {
-  id: Id
-  schoolId: Id
-  cohortId: Id
-  label: string
-  date: string
-  module: ModuleKey | 'core' | 'ib'
-  /** IB deadlines are immovable; internal ones are set by the coordinator. */
-  kind: 'internal' | 'ib'
-}
+// ---------------------------------------------------------------------------
+// Reference content (not part of the spine)
+// ---------------------------------------------------------------------------
 
 export type DocumentAudience = 'everyone' | 'students' | 'staff'
 
@@ -125,96 +193,51 @@ export interface LibraryDocument {
   schoolId: Id
   title: string
   description: string
-  module: ModuleKey | 'core' | 'general'
+  lane: Lane | 'General'
   audience: DocumentAudience
-  /** Which cohort this version applies to — 2027 students see the 2027 guide. */
   cohortId: Id | null
   version: string
   updatedAt: string
   href: string
 }
 
-/** A tile on the home page: one module or one course, with its outstanding count. */
-export interface ModuleTile {
-  key: string
-  label: string
-  sublabel: string
-  href: string
-  outstanding: number
-  status: 'ok' | 'attention' | 'none'
+// ---------------------------------------------------------------------------
+// Derived shapes — computed, never stored
+// ---------------------------------------------------------------------------
+
+/** A requirement plus its state for one student, ready to render as a checkpoint. */
+export interface Checkpoint {
+  def: RequirementDef
+  state: RequirementState | null
+  /** 'future' = its opensAfter isn't complete yet. Never counted as outstanding. */
+  display: 'done' | 'partial' | 'not_started' | 'future'
 }
 
-// ---------------------------------------------------------------------------
-// Capabilities — see lib/capabilities.ts for the list, presets and resolution.
-// ---------------------------------------------------------------------------
-
-export type CapabilityKey = string
-export type PresetKey =
-  | 'district'
-  | 'school_full'
-  | 'school_standard'
-  | 'setup_only'
-  | 'observer'
-  | 'teacher'
-  | 'student'
-
-// ---------------------------------------------------------------------------
-// Command centre — the IB Coordinator's home. Not a variant of a generic page:
-// this IS their dashboard, as designed in the coordinator mockup.
-// ---------------------------------------------------------------------------
-
-export interface SessionDeadline {
-  label: string
-  date: string
-  urgent: boolean
-}
-
-export interface SessionBanner {
-  sessionLabel: string
-  cohortLabel: string
-  candidates: number
-  ibSchoolCode: string
-  deadlines: SessionDeadline[]
-}
-
-export interface ReadinessTile {
-  label: string
+export interface TrackLane {
+  lane: Lane
+  checkpoints: Checkpoint[]
   done: number
   total: number
-  unit: string
-  state: 'ok' | 'warn' | 'bad'
 }
 
-export interface AttentionItem {
-  id: Id
-  tag: string
-  tone: 'ib' | 'ee' | 'tok' | 'cas' | 'ia' | 'staff'
-  title: string
-  detail: string
-  action: string
+export interface StudentTrack {
+  student: Student
+  user: User
+  lanes: TrackLane[]
+  done: number
+  total: number
 }
 
-export interface StaffOutstanding {
-  name: string
-  role: string
-  detail: string
-  count: number
+export interface BoardRow {
+  student: Student
+  user: User
+  /** One entry per column, in column order. null = requirement doesn't apply. */
+  cells: (Checkpoint | null)[]
+  done: number
+  applicable: number
 }
 
-export interface CommandCentre {
-  banner: SessionBanner
-  readiness: ReadinessTile[]
-  attention: AttentionItem[]
-  staff: StaffOutstanding[]
-}
-
-/** A teacher's or student's queue of things waiting on them personally. */
-export interface WorkItem {
-  id: Id
-  title: string
-  detail: string
-  due: string | null
-  overdueDays: number | null
-  href: string
-  tone: 'ok' | 'attention' | 'overdue'
+export interface Board {
+  columns: RequirementDef[]
+  rows: BoardRow[]
 }
