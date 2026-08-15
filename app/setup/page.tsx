@@ -26,7 +26,8 @@ export default async function Setup() {
   const cohort = cohorts.find((c) => !c.archived) ?? cohorts[0]
   const [courseRows, people] = await Promise.all([
     repo.setup.listCourseRows(school.id, cohort?.id ?? 'c15'),
-    repo.setup.listPeople(school.id),
+    // The PIN leaves the repository only for someone who may manage identifiers.
+    repo.setup.listPeople(school.id, session.can('identifiers.manage')),
   ])
 
   const membership = memberships.find((m) => m.schoolId === school.id)
@@ -49,6 +50,8 @@ export default async function Setup() {
           sections: session.can('sections.manage'),
           enrolment: session.can('enrolment.manage'),
           roles: session.can('roles.assign'),
+          identifiers: session.can('identifiers.manage'),
+          distribute: session.can('identifiers.distribute'),
         }}
       />
     </Shell>

@@ -61,9 +61,36 @@ export default function ImportStudents({
   return (
     <>
       <div className="note">
-        Paste straight from a spreadsheet — <b>Last name · First name · Email · Student number</b>,
-        tab or comma separated. A header row is detected and skipped. Nothing is written until you
-        have seen the preview.
+        <b>Upload a CSV, or paste straight from a spreadsheet</b> — Last name · First name · Email ·
+        Student number, tab or comma separated. A header row is detected and skipped. Nothing is
+        written until you have seen the preview.
+      </div>
+
+      <div className="row exptools" style={{ marginTop: 12 }}>
+        <span className="caps" style={{ minWidth: 70 }}>Upload</span>
+        <input
+          type="file"
+          accept=".csv,.tsv,.txt,text/csv,text/tab-separated-values,text/plain"
+          onChange={(e) => {
+            const file = e.target.files?.[0]
+            if (!file) return
+            setError(null)
+            // Read in the browser and drop it into the same box. The parser
+            // already handles both separators, so a file and a paste are the
+            // same input — one code path, one preview, one set of verdicts.
+            file
+              .text()
+              .then((body) => {
+                setText(body.trim())
+                setPreview(null)
+                setDone(null)
+              })
+              .catch(() => setError('That file could not be read as text.'))
+          }}
+        />
+        <span className="mut" style={{ fontSize: 12 }}>
+          A .csv or .tsv export from Skyward. Excel workbooks need saving as CSV first.
+        </span>
       </div>
 
       <label className="fld">

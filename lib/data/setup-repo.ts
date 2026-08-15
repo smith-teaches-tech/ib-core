@@ -13,7 +13,7 @@ import type {
   TeachingAssignment, User,
 } from '../types'
 import { resolveCapabilities } from '../capabilities'
-import { parseRoster } from '../setup/parse'
+import { parseIdentifiers, parseRoster } from '../setup/parse'
 import type { CourseRow, PersonRow } from '../setup/types'
 
 const slug = (s: string) =>
@@ -72,7 +72,7 @@ export function makeSetupRepository(deps: {
         })
     },
 
-    async listPeople(schoolId) {
+    async listPeople(schoolId, includePins = false) {
       return memberships
         .filter((m) => m.schoolId === schoolId)
         .map<PersonRow>((membership) => {
@@ -97,7 +97,16 @@ export function makeSetupRepository(deps: {
             isStudent: membership.roles.includes('student'),
             studentNumber: student?.studentNumber ?? null,
             candidate: student
-              ? { personalCode: student.personalCode, sessionNumber: student.sessionNumber }
+              ? {
+                  sessionNumber: student.sessionNumber,
+                  personalCode: student.personalCode,
+                  state: student.identifiersState,
+                  // The PIN leaves this repository only when the caller holds
+                  // `identifiers.manage`. Redacting in a component would be a
+                  // suggestion; redacting here is the rule.
+                  resultsPin: includePins ? student.resultsPin : null,
+                  hasPin: student.resultsPin != null,
+                }
               : null,
             teaches: assignments
               .filter((a) => a.teacherId === membership.userId)
@@ -135,9 +144,10 @@ export function makeSetupRepository(deps: {
           schoolId,
           cohortId,
           studentNumber: row.studentNumber || null,
-          // IB identifiers arrive from the IB after exams are ordered.
-          personalCode: null,
+          // All three IB identifiers arrive after exams are ordered.
           sessionNumber: null,
+          personalCode: null,
+          resultsPin: null,
           identifiersState: 'missing',
         })
         memberships.push({
@@ -240,6 +250,52 @@ export function makeSetupRepository(deps: {
         if (a.teacherId === teacherId) a.isDesignatedMarker = on
         else if (on) a.isDesignatedMarker = false
       }
+    },
+
+    // ------------------------------------------------- IB identifiers
+
+    async setIdentifiers(schoolId, studentId, input) {
+      const student = students.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!student) return
+      if (input.sessionNumber !== undefined) student.sessionNumber = input.sessionNumber || null
+      if (input.personalCode !== undefined) student.personalCode = input.personalCode || null
+      if (input.resultsPin !== undefined) student.resultsPin = input.resultsPin || null
+
+      // The state is derived from what is actually there, except for the
+      // confirmation itself, which is a recorded act.
+      if (!student.personalCode && !student.sessionNumber) student.identifiersState = 'missing'
+      else if (input.confirmed === true) student.identifiersState = 'confirmed'
+      else if (input.confirmed === false) student.identifiersState = 'unconfirmed'
+      else if (student.identifiersState === 'missing') student.identifiersState = 'unconfirmed'
+    },
+
+    async previewIdentifiers(schoolId, text) {
+      return parseIdentifiers(
+        text,
+        students
+          .filter((x) => x.schoolId === schoolId)
+          .map((x) => ({
+            userId: x.userId,
+            name: users.find((u) => u.id === x.userId)?.name ?? '',
+            email: users.find((u) => u.id === x.userId)?.email ?? '',
+            studentNumber: x.studentNumber,
+          })),
+      )
+    },
+
+    async importIdentifiers(schoolId, rows) {
+      let applied = 0
+      for (const row of rows) {
+        if (!row.studentId) continue
+        const student = students.find((x) => x.userId === row.studentId && x.schoolId === schoolId)
+        if (!student) continue
+        if (row.sessionNumber) student.sessionNumber = row.sessionNumber
+        if (row.personalCode) student.personalCode = row.personalCode
+        if (row.resultsPin) student.resultsPin = row.resultsPin
+        if (student.identifiersState === 'missing') student.identifiersState = 'unconfirmed'
+        applied += 1
+      }
+      return applied
     },
 
     // -------------------------------------------------------- delegation

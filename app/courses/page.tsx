@@ -70,12 +70,25 @@ export default async function AllCourses() {
                       </td>
                       <td>{r.students || <span className="mut">—</span>}</td>
                       <td>
-                        {r.sections.flatMap((s) => s.teachers).map((t) => (
-                          <span key={t.userId} className="pill ok" style={{ marginRight: 4 }}>
-                            {t.name}{t.isDesignatedMarker ? ' ★' : ''}
-                          </span>
-                        ))}
-                        {r.sections.length > 0 && r.sections.flatMap((s) => s.teachers).length === 0 && (
+                        {/* One chip per teacher PER SECTION. A teacher who takes
+                            both Biology SL groups appears twice, so the key has to
+                            carry the section — and the label has to as well, or the
+                            two chips read as an accidental duplicate. */}
+                        {r.sections.flatMap((s) =>
+                          s.teachers.map((t) => (
+                            <span
+                              key={s.section.id + ':' + t.userId}
+                              className="pill ok"
+                              style={{ marginRight: 4 }}
+                              title={t.isDesignatedMarker ? 'Designated marker' : 'Teaches this section'}
+                            >
+                              {t.name}
+                              {r.sections.length > 1 && ` ${s.section.label}`}
+                              {t.isDesignatedMarker ? ' ★' : ''}
+                            </span>
+                          )),
+                        )}
+                        {r.sections.length > 0 && r.sections.every((s) => s.teachers.length === 0) && (
                           <span className="pill warn">None assigned</span>
                         )}
                       </td>

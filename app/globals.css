@@ -529,3 +529,14 @@ img.viewer-media { object-fit: contain; }
 }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
 textarea.mono { font-size: 12.5px; }
+
+/* ---- inline editable table cells (candidate identifiers) --------------- */
+input.cell {
+  width: 100%; border: 1px solid transparent; background: transparent;
+  border-radius: 6px; padding: 5px 7px; font-family: inherit;
+}
+input.cell.mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+input.cell:hover { border-color: var(--line); background: #fff; }
+input.cell:focus { border-color: var(--brand); background: #fff; outline: none; }
+details.cob summary { list-style: revert; }
+details.cob > summary::marker { color: var(--muted); }

@@ -184,20 +184,44 @@ export interface Student {
    */
   studentNumber: string | null
 
+  // -------------------------------------------------------------------------
+  // IB identifiers. All three arrive AFTER exams are ordered, so every student
+  // is imported without them. RESOLVED against the IB's own documentation and
+  // ManageBac's IBIS notes — see IB-Candidate-Identifiers.md.
+  // -------------------------------------------------------------------------
+
   /**
-   * IB identifiers. These arrive from the IB AFTER exams are ordered, so every
-   * student is imported without them and they are filled in later.
+   * The 4-digit candidate session number. Assigned in registration order,
+   * restarts at 0001 in EACH school, so it is unique only within
+   * (school, session) — never use it as a key.
    *
-   * [VERIFY] Michael reports TWO codes, "one alphanumeric and one long
-   * numeric". `personalCode` is the alphanumeric one. `sessionNumber` is the
-   * 4-digit candidate number, which restarts at 0001 in EACH school and is
-   * unique only within (school, session). Confirm with the coordinator whether
-   * the long numeric value is the full candidate code (school code + session
-   * number) or a separate PIN — and add a field only once that is known, rather
-   * than guessing at one now.
+   * Comes down from IBIS automatically once registration succeeds.
    */
-  personalCode: string | null
   sessionNumber: string | null
+
+  /** The alphanumeric personal code. Follows the candidate, not the session. */
+  personalCode: string | null
+
+  /**
+   * The results PIN — A CREDENTIAL, NOT AN IDENTIFIER.
+   *
+   * With the personal code it is what the candidate logs into the IB results
+   * site with. The IB does not auto-populate it, deliberately: ManageBac's own
+   * documentation says "for security reasons, pins are not automatically
+   * updated". Three failed logins lock a candidate out for 30 minutes.
+   *
+   * CONSEQUENCE, and it is enforced rather than merely intended: this value is
+   * never sent to a student's browser. It is stripped in the repository, not
+   * hidden in a component — see `getStudent()` and `CasStudentView`. Michael's
+   * instruction: "Do not publish pin... sent to students via email."
+   */
+  resultsPin: string | null
+
+  /**
+   * missing → nothing recorded · unconfirmed → typed in · confirmed → checked
+   * against the IBIS download. A transposed digit invalidates a whole upload,
+   * so the check is a recorded act rather than an assumption.
+   */
   identifiersState: 'missing' | 'unconfirmed' | 'confirmed'
 }
 

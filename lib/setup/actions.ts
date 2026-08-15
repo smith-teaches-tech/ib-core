@@ -140,3 +140,31 @@ export async function setCapability(
   await repo.setup.setCapability(session.school.id, userId, capability, granted)
   refresh()
 }
+
+// ---------------------------------------------------------------------------
+// IB identifiers
+// ---------------------------------------------------------------------------
+
+export async function setIdentifiers(
+  studentId: string,
+  input: { sessionNumber?: string; personalCode?: string; resultsPin?: string; confirmed?: boolean },
+) {
+  const session = await need('identifiers.manage')
+  await repo.setup.setIdentifiers(session.school.id, studentId, input)
+  refresh()
+}
+
+export async function previewIdentifiers(text: string) {
+  const session = await need('identifiers.manage')
+  return repo.setup.previewIdentifiers(session.school.id, text)
+}
+
+export async function importIdentifiers(text: string) {
+  const session = await need('identifiers.manage')
+  // Re-parse server-side rather than trusting the rows the client previewed:
+  // the match from a row to a student is exactly the decision worth re-making.
+  const fresh = await repo.setup.previewIdentifiers(session.school.id, text)
+  const applied = await repo.setup.importIdentifiers(session.school.id, fresh.rows)
+  refresh()
+  return applied
+}

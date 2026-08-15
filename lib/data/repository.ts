@@ -21,7 +21,9 @@ import type {
   CasCohortTotals, CasRosterRow, CasStudentView, ExperienceStatus, IndicatorValue,
   InterviewKind, LoKey, Strand, SupervisorRequest, SupervisorView,
 } from '../cas/types'
-import type { CourseRow, ImportPreview, ImportRow, PersonRow } from '../setup/types'
+import type {
+  CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
+} from '../setup/types'
 import type { CapabilityKey, Cohort } from '../types'
 
 export interface Repository {
@@ -73,13 +75,38 @@ export interface SetupRepository {
   // ---- reads ----
   listCohorts(schoolId: string): Promise<Cohort[]>
   listCourseRows(schoolId: string, cohortId: string): Promise<CourseRow[]>
-  listPeople(schoolId: string): Promise<PersonRow[]>
+  /**
+   * `includePins` is the ONLY way a results PIN leaves this repository, and it
+   * is gated on `identifiers.manage` at the call site. Redaction happens here
+   * rather than in a component, because a component that forgets is a leak.
+   */
+  listPeople(schoolId: string, includePins?: boolean): Promise<PersonRow[]>
   /** Pure parse + collision check. Nothing is written; the screen previews this. */
   previewImport(schoolId: string, text: string): Promise<ImportPreview>
 
   // ---- students ----
   /** Commits only the rows the preview marked `new`. Returns how many landed. */
   importStudents(schoolId: string, cohortId: string, rows: ImportRow[]): Promise<number>
+
+  // ---- IB identifiers ----
+  /**
+   * Coordinator-entered, deliberately. A transposed candidate code invalidates
+   * an entire eCoursework upload, and the identifiers are also stamped onto the
+   * title pages of uploaded coursework — so this is not a field to leave to
+   * whoever happens to type it first.
+   */
+  setIdentifiers(
+    schoolId: string,
+    studentId: string,
+    input: {
+      sessionNumber?: string
+      personalCode?: string
+      resultsPin?: string
+      confirmed?: boolean
+    },
+  ): Promise<void>
+  previewIdentifiers(schoolId: string, text: string): Promise<IdentifierPreview>
+  importIdentifiers(schoolId: string, rows: IdentifierRow[]): Promise<number>
 
   // ---- catalogue ----
   addCourse(

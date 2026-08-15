@@ -148,13 +148,21 @@ export default function CoursesTab({
                 </td>
                 <td><b>{r.students}</b></td>
                 <td>
-                  {r.sections.flatMap((s) => s.teachers).length === 0 ? (
+                  {r.sections.every((s) => s.teachers.length === 0) ? (
                     <span className="pill warn">None assigned</span>
                   ) : (
+                    // Per teacher PER SECTION — see the note in app/courses/page.tsx.
                     r.sections.flatMap((s) =>
                       s.teachers.map((t) => (
-                        <span key={s.section.id + t.userId} className="pill ok" style={{ marginRight: 4 }}>
-                          {t.name}{t.isDesignatedMarker ? ' ★' : ''}
+                        <span
+                          key={s.section.id + ':' + t.userId}
+                          className="pill ok"
+                          style={{ marginRight: 4 }}
+                          title={t.isDesignatedMarker ? 'Designated marker' : 'Teaches this section'}
+                        >
+                          {t.name}
+                          {r.sections.length > 1 && ` ${s.section.label}`}
+                          {t.isDesignatedMarker ? ' ★' : ''}
                         </span>
                       )),
                     )

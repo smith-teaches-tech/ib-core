@@ -29,7 +29,15 @@ export interface PersonRow {
   capabilities: CapabilityKey[]
   isStudent: boolean
   studentNumber: string | null
-  candidate: { personalCode: string | null; sessionNumber: string | null } | null
+  candidate: {
+    sessionNumber: string | null
+    personalCode: string | null
+    state: 'missing' | 'unconfirmed' | 'confirmed'
+    /** Null unless the caller holds `identifiers.manage` — redacted in the repository. */
+    resultsPin: string | null
+    /** So a coordinator without the capability can still see one exists. */
+    hasPin: boolean
+  } | null
   teaches: { sectionId: string; label: string }[]
   /** For students: the sections they are enrolled in, which IS their course list. */
   enrolled: { sectionId: string; label: string }[]
@@ -50,6 +58,29 @@ export interface ImportRow {
   verdict: RowVerdict
   /** Why it will not import, or a caveat worth reading before committing. */
   message?: string
+}
+
+// ---------------------------------------------------------------------------
+// IB identifier import — a different shape, because the rows already exist
+// ---------------------------------------------------------------------------
+
+export interface IdentifierRow {
+  line: number
+  /** How the row was matched back to a student, or null if it was not. */
+  studentId: string | null
+  matchedOn: 'email' | 'student number' | 'name' | null
+  who: string
+  sessionNumber: string
+  personalCode: string
+  resultsPin: string
+  message?: string
+}
+
+export interface IdentifierPreview {
+  rows: IdentifierRow[]
+  headerSkipped: boolean
+  matched: number
+  unmatched: number
 }
 
 export interface ImportPreview {

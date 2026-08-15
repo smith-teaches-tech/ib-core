@@ -10,12 +10,13 @@
 import { useState } from 'react'
 import type { CourseRow, PersonRow } from '@/lib/setup/types'
 import type { PickerOption } from './Picker'
+import CandidatesTab from './CandidatesTab'
 import CoursesTab from './CoursesTab'
 import PermissionsTab from './PermissionsTab'
 import StudentsTab from './StudentsTab'
 import TeachersTab from './TeachersTab'
 
-type Tab = 'students' | 'courses' | 'teachers' | 'permissions'
+type Tab = 'students' | 'candidates' | 'courses' | 'teachers' | 'permissions'
 
 export default function SetupPage({
   courseRows,
@@ -39,6 +40,8 @@ export default function SetupPage({
     sections: boolean
     enrolment: boolean
     roles: boolean
+    identifiers: boolean
+    distribute: boolean
   }
   myCapabilities: string[]
   myUserId: string
@@ -58,8 +61,11 @@ export default function SetupPage({
   const students = people.filter((p) => p.isStudent)
   const unenrolled = students.filter((p) => p.enrolled.length === 0).length
 
+  const needIdentifiers = students.filter((p) => p.candidate?.state !== 'confirmed').length
+
   const TABS: [Tab, string][] = [
     ['students', `Students (${students.length})`],
+    ['candidates', `IB identifiers${needIdentifiers ? ` (${needIdentifiers})` : ''}`],
     ['courses', `Courses & sections (${courseRows.filter((r) => r.sections.length > 0).length})`],
     ['teachers', `Teachers (${people.filter((p) => !p.isStudent).length})`],
     ['permissions', 'Permissions'],
@@ -102,6 +108,13 @@ export default function SetupPage({
               cohortLabel={cohortLabel}
               canImport={can.students}
               canEnrol={can.enrolment}
+            />
+          )}
+          {tab === 'candidates' && (
+            <CandidatesTab
+              people={people}
+              canManage={can.identifiers}
+              canDistribute={can.distribute}
             />
           )}
           {tab === 'courses' && (

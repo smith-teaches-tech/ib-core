@@ -102,8 +102,9 @@ export const STUDENTS: Student[] = pinned('ibStudents', () =>
     schoolId: 'dhahran',
     cohortId: 'c15',
     studentNumber: String(204_100 + i * 3),
+    sessionNumber: i < 21 ? String(i + 1).padStart(4, '0') : null,
     personalCode: i < 21 ? 'p' + (100 + i * 7) : null,
-    sessionNumber: String(i + 1).padStart(4, '0'),
+    resultsPin: i < 18 ? String(48_120_000 + i * 977) : null,
     identifiersState: i < 18 ? 'confirmed' : i < 21 ? 'unconfirmed' : 'missing',
   })),
 )
@@ -338,6 +339,17 @@ const DOCUMENTS: LibraryDocument[] = [
  * A cached copy is precisely the desynchronisation invariant #2 exists to
  * prevent, and it would cost more to invalidate than it saves to keep.
  */
+/**
+ * A Student with the results PIN removed.
+ *
+ * Everything except the coordinator's own identifier screen goes through this.
+ * The PIN is a login credential, not an identifier, and the one place it is
+ * allowed out is `setup.listPeople(schoolId, true)` — gated on
+ * `identifiers.manage`. Doing it here means a future client component cannot
+ * leak it by forgetting, which is the only kind of protection worth having.
+ */
+const redact = (s: Student): Student => ({ ...s, resultsPin: null })
+
 function allStates(): RequirementState[] {
   return [...REQUIREMENT_STATES, ...deriveCasStates(STUDENTS, REQUIREMENT_DEFS, CAS_DATA)]
 }
@@ -383,7 +395,8 @@ export const fixtureRepository: Repository = {
     return SCHOOLS
   },
   async getStudent(userId) {
-    return STUDENTS.find((s) => s.userId === userId) ?? null
+    const student = STUDENTS.find((s) => s.userId === userId)
+    return student ? redact(student) : null
   },
   async listCourses(schoolId) {
     return COURSES.filter((c) => c.schoolId === schoolId)
@@ -402,7 +415,7 @@ export const fixtureRepository: Repository = {
     if (!student || student.schoolId !== schoolId) return null
     const user = USERS.find((u) => u.id === studentUserId)!
     return buildTrack(
-      student,
+      redact(student),
       user,
       REQUIREMENT_DEFS,
       coursesOf(studentUserId, ENROLLMENTS, SECTIONS, COURSES),
@@ -416,7 +429,7 @@ export const fixtureRepository: Repository = {
       students.map((s) => [s.userId, coursesOf(s.userId, ENROLLMENTS, SECTIONS, COURSES)]),
     )
     return buildBoard(
-      students,
+      students.map(redact),
       USERS,
       REQUIREMENT_DEFS.filter((d) => d.schoolId === schoolId && d.cohortId === cohortId),
       map,

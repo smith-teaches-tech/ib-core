@@ -14,7 +14,9 @@
 // The Skyward student number is carried too, because it is the join back to the
 // SIS and it is the one identifier the school controls.
 
-import type { ImportPreview, ImportRow, RowVerdict } from './types'
+import type {
+  IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, RowVerdict,
+} from './types'
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -116,5 +118,109 @@ export function parseRoster(text: string, existingEmails: Iterable<string>): Imp
     newCount: rows.filter((r) => r.verdict === 'new').length,
     skipCount: rows.filter((r) => r.verdict === 'already_here' || r.verdict === 'duplicate_in_paste').length,
     errorCount: rows.filter((r) => r.verdict === 'error').length,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// IB identifiers
+// ---------------------------------------------------------------------------
+
+/**
+ * A different problem from importing a roster: the students already exist, so
+ * every row has to be MATCHED to one. IBIS does not know their email or their
+ * Skyward number, so whatever column the coordinator happens to have is what we
+ * match on — email, student number, or the name — and a row that matches nothing
+ * is reported rather than dropped.
+ *
+ * Names are the weakest of the three and are matched last, case- and
+ * order-insensitively ("Ahmed, Layla" and "Layla Ahmed" both land).
+ */
+const ID_CANON: Record<string, 'session' | 'personal' | 'pin' | 'email' | 'number' | 'name'> = {
+  session: 'session', sessionnumber: 'session', candidate: 'session',
+  candidatenumber: 'session', candidatesessionnumber: 'session', number4: 'session',
+  personal: 'personal', personalcode: 'personal', code: 'personal', ibcode: 'personal',
+  pin: 'pin', resultspin: 'pin', candidatepin: 'pin',
+  email: 'email', mail: 'email',
+  studentnumber: 'number', skyward: 'number', sis: 'number', studentid: 'number',
+  name: 'name', student: 'name', candidatename: 'name', lastname: 'name', surname: 'name',
+}
+
+const normalName = (s: string) =>
+  s.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ')
+
+export function parseIdentifiers(
+  text: string,
+  roster: { userId: string; name: string; email: string; studentNumber: string | null }[],
+): IdentifierPreview {
+  const byEmail = new Map(roster.map((r) => [r.email.toLowerCase(), r]))
+  const byNumber = new Map(roster.filter((r) => r.studentNumber).map((r) => [r.studentNumber!, r]))
+  const byName = new Map(roster.map((r) => [normalName(r.name), r]))
+
+  const lines = text.split(/\r?\n/).map((l) => l.trimEnd()).filter((l) => l.trim() !== '')
+
+  let order: (keyof typeof ID_CANON | undefined)[] = []
+  let headerSkipped = false
+  if (lines.length > 0) {
+    const cells = splitCells(lines[0])
+    const mapped = cells.map((c) => ID_CANON[c.toLowerCase().replace(/[^a-z0-9]/g, '')])
+    if (mapped.filter(Boolean).length >= 2) {
+      order = mapped as never[]
+      headerSkipped = true
+      lines.shift()
+    }
+  }
+  // Without a header, assume the order the IB lists them in.
+  if (!headerSkipped) order = ['name', 'session', 'personal', 'pin'] as never[]
+
+  const rows: IdentifierRow[] = lines.map((line, i) => {
+    const cells = splitCells(line)
+    const at = (want: string) => {
+      const idx = (order as string[]).indexOf(want)
+      return idx >= 0 ? (cells[idx] ?? '').trim() : ''
+    }
+
+    const email = at('email').toLowerCase()
+    const number = at('number')
+    const name = at('name')
+
+    let match = email ? byEmail.get(email) : undefined
+    let matchedOn: IdentifierRow['matchedOn'] = match ? 'email' : null
+    if (!match && number) {
+      match = byNumber.get(number)
+      if (match) matchedOn = 'student number'
+    }
+    if (!match && name) {
+      match = byName.get(normalName(name))
+      if (match) matchedOn = 'name'
+    }
+
+    const sessionNumber = at('session')
+    const personalCode = at('personal')
+    const resultsPin = at('pin')
+
+    let message: string | undefined
+    if (!match) {
+      message = `No student here matches ${[email, number, name].filter(Boolean).join(' / ') || 'this row'}.`
+    } else if (!sessionNumber && !personalCode && !resultsPin) {
+      message = 'Matched, but this row carries no identifiers.'
+    } else if (matchedOn === 'name') {
+      message = 'Matched on name — the weakest key. Worth a glance before applying.'
+    }
+
+    return {
+      line: i + 1 + (headerSkipped ? 1 : 0),
+      studentId: match?.userId ?? null,
+      matchedOn,
+      who: match?.name ?? [name, email, number].filter(Boolean).join(' · '),
+      sessionNumber, personalCode, resultsPin,
+      message,
+    }
+  })
+
+  return {
+    rows,
+    headerSkipped,
+    matched: rows.filter((r) => r.studentId).length,
+    unmatched: rows.filter((r) => !r.studentId).length,
   }
 }
