@@ -12,7 +12,7 @@ import { repo } from '../data'
 import { getSession } from '../session'
 import { canGrant } from '../capabilities'
 import type { CapabilityKey } from '../types'
-import { isArchived } from '../cohorts'
+import { assertLiveCohort } from '../cohorts'
 import type { ImportRow } from './types'
 
 function refresh() {
@@ -38,10 +38,7 @@ async function live(
   schoolId: string,
   ref: { cohortId?: string; sectionId?: string; studentId?: string },
 ) {
-  const cohort = await repo.setup.cohortOf(schoolId, ref)
-  if (cohort && isArchived(cohort)) {
-    throw new Error(`${cohort.label} is archived — it is a record and cannot be changed.`)
-  }
+  assertLiveCohort(await repo.setup.cohortOf(schoolId, ref))
 }
 
 // ---------------------------------------------------------------------------

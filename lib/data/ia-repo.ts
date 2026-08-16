@@ -13,6 +13,7 @@ import type {
 } from '../types'
 import type { IaMarksRow, IaMarksView } from '../ia/types'
 import { iaTotal, templateOf } from '../templates'
+import { todayRiyadh } from './dates'
 
 export function makeIaRepository(deps: {
   courses: Course[]
@@ -26,15 +27,24 @@ export function makeIaRepository(deps: {
 }): IaRepository {
   const { courses, sections, enrollments, students, users, assignments, defs, states } = deps
 
-  const defFor = (cohortId: string, courseId: string, suffix: string) =>
-    defs.find((d) => d.cohortId === cohortId && d.key === courseId + suffix) ?? null
+  // Both scoped by school: a def or state reached with another school's id is a
+  // boundary violation, not a lookup miss.
+  const defFor = (schoolId: string, cohortId: string, courseId: string, suffix: string) => {
+    const d = defs.find((x) => x.cohortId === cohortId && x.key === courseId + suffix) ?? null
+    if (d && d.schoolId !== schoolId) {
+      throw new Error('That requirement definition is not at this school.')
+    }
+    return d
+  }
 
-  const stateFor = (studentId: string, defId: string) =>
-    states.find((s) => s.studentId === studentId && s.requirementDefId === defId) ?? null
+  const stateFor = (schoolId: string, studentId: string, defId: string) =>
+    states.find(
+      (s) => s.schoolId === schoolId && s.studentId === studentId && s.requirementDefId === defId,
+    ) ?? null
 
   /** Find-or-create — a state exists only once something is recorded against it. */
   const ensureState = (schoolId: string, studentId: string, defId: string): RequirementState => {
-    let s = stateFor(studentId, defId)
+    let s = stateFor(schoolId, studentId, defId)
     if (!s) {
       s = {
         studentId, requirementDefId: defId, schoolId,
@@ -50,9 +60,9 @@ export function makeIaRepository(deps: {
       const course = courses.find((c) => c.id === courseId && c.schoolId === schoolId)
       if (!course || course.type !== 'subject') return null
 
-      const markDef = defFor(cohortId, courseId, '.mark')
-      const fileDef = defFor(cohortId, courseId, '.file')
-      const commentDef = defFor(cohortId, courseId, '.comment')
+      const markDef = defFor(schoolId, cohortId, courseId, '.mark')
+      const fileDef = defFor(schoolId, cohortId, courseId, '.file')
+      const commentDef = defFor(schoolId, cohortId, courseId, '.comment')
       if (!markDef) return null
 
       const t = templateOf(course.iaTemplateKey)
@@ -72,9 +82,9 @@ export function makeIaRepository(deps: {
 
       const rows: IaMarksRow[] = enrolled
         .map<IaMarksRow>((st) => {
-          const mark = stateFor(st.userId, markDef.id)
-          const file = fileDef ? stateFor(st.userId, fileDef.id) : null
-          const comment = commentDef ? stateFor(st.userId, commentDef.id) : null
+          const mark = stateFor(schoolId, st.userId, markDef.id)
+          const file = fileDef ? stateFor(schoolId, st.userId, fileDef.id) : null
+          const comment = commentDef ? stateFor(schoolId, st.userId, commentDef.id) : null
           const commentBody =
             comment?.artifacts.find((a) => a.kind === 'text')?.body ?? null
           return {
@@ -123,7 +133,7 @@ export function makeIaRepository(deps: {
     },
 
     async setCriterionMark(schoolId, courseId, cohortId, studentId, index, value, by) {
-      const markDef = defFor(cohortId, courseId, '.mark')
+      const markDef = defFor(schoolId, cohortId, courseId, '.mark')
       if (!markDef) return
       const s = ensureState(schoolId, studentId, markDef.id)
       if (s.lockedAt != null) return
@@ -147,11 +157,11 @@ export function makeIaRepository(deps: {
         s.mark = undefined // the total is never stored — invariant #2
       }
       s.recordedBy = by
-      s.recordedAt = new Date().toISOString().slice(0, 10)
+      s.recordedAt = todayRiyadh()
     },
 
     async setComment(schoolId, courseId, cohortId, studentId, text, by) {
-      const commentDef = defFor(cohortId, courseId, '.comment')
+      const commentDef = defFor(schoolId, cohortId, courseId, '.comment')
       if (!commentDef) return
       const s = ensureState(schoolId, studentId, commentDef.id)
       const body = text.trim()
@@ -159,22 +169,24 @@ export function makeIaRepository(deps: {
         ? [{
             id: commentDef.id + ':' + studentId, kind: 'text',
             label: 'Teacher comment', body,
-            addedAt: new Date().toISOString().slice(0, 10),
+            addedAt: todayRiyadh(),
           }]
         : []
       s.recordStatus = body ? 'submitted' : 'not_started'
       s.recordedBy = by
-      s.recordedAt = new Date().toISOString().slice(0, 10)
+      s.recordedAt = todayRiyadh()
     },
 
     async setTypedIntoIbis(schoolId, courseId, cohortId, studentId, on) {
-      const markDef = defFor(cohortId, courseId, '.mark')
+      const markDef = defFor(schoolId, cohortId, courseId, '.mark')
       if (!markDef) return
-      const s = stateFor(studentId, markDef.id)
+      const s = stateFor(schoolId, studentId, markDef.id)
       // Nothing recorded means nothing to type — refuse rather than invent a state.
       if (!s || iaTotal(markDef.criteria, s) == null) return
       // eCoursework's own word, on the export axis; the school record is untouched.
-      s.exportStatus = on ? 'submitted' : 'ready_for_submission'
+      // Unticking stores NOTHING — "ready" is derivable, and a stored copy of a
+      // derivable fact is exactly what invariant #2 forbids.
+      s.exportStatus = on ? 'submitted' : undefined
     },
   }
 }

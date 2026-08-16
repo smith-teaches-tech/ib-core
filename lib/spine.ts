@@ -83,7 +83,11 @@ export function displayOf(
 ): Checkpoint['display'] {
   if (isComplete(state)) return 'done'
   if (state?.recordStatus === 'in_progress') return 'partial'
-  if (def.opensAfter && !isComplete(byKey.get(def.opensAfter) ?? null)) return 'future'
+  // An opener that is not in this student's def set can never complete — treat
+  // the dependent normally rather than parking it at 'future' forever.
+  if (def.opensAfter && byKey.has(def.opensAfter) && !isComplete(byKey.get(def.opensAfter) ?? null)) {
+    return 'future'
+  }
   return 'not_started'
 }
 

@@ -751,73 +751,79 @@ for (let i = 1; i <= 20; i += 1) {
  * Pinned for the reason set out in ./pin.ts: a Next production build evaluates
  * this module twice, and without the pin a student's reflection is appended to
  * an array no page ever reads.
- */
-const built: CasData = {
-  experiences: EXPERIENCES,
-  entries: ENTRIES,
-  requests: REQUESTS,
-  interviews: INTERVIEWS,
-  indicators: INDICATORS,
-  notes: NOTES,
-  completions: COMPLETIONS,
-}
-
-export const CAS_DATA: CasData = pinned('ibCasData', () => built)
-
-/**
- * Indicators, set last and on purpose.
  *
- * The indicator is a HUMAN judgement, so the fixture generates it from what the
- * coordinator would actually be looking at rather than from a separate dice
- * roll. A trophy next to a 0/7 row would be a defensible thing for a real
- * coordinator to do and an indefensible thing for fixture data to show — it
- * makes the screen look broken when it is working.
- *
- * Plenty stay unset. Most students, most of the time, are simply fine.
+ * The indicator and completion generation runs INSIDE the builder — pin.ts's
+ * contract. Mutating the pinned store at module-eval time would run again on the
+ * second evaluation and fork the state the pin exists to share.
  */
-const ALL_STUDENTS = [
-  ...Array.from({ length: 24 }, (_, i) => sid(i + 1)),
-  ...Array.from({ length: 20 }, (_, i) => y1(i + 1)),
-]
+export const CAS_DATA: CasData = pinned('ibCasData', () => {
+  const built: CasData = {
+    experiences: EXPERIENCES,
+    entries: ENTRIES,
+    requests: REQUESTS,
+    interviews: INTERVIEWS,
+    indicators: INDICATORS,
+    notes: NOTES,
+    completions: COMPLETIONS,
+  }
 
-const ri = rng(88)
-for (const student of ALL_STUDENTS) {
-  if (CAS_DATA.indicators.some((x) => x.studentId === student)) continue
-  // The new cohort has barely started; forming a judgement about them now would
-  // be theatre, so almost none of them carry one.
-  if (ri() < (student.startsWith('y1') ? 0.85 : 0.35)) continue
-  const s = summarise(student, CAS_DATA)
-  const weight =
-    s.outcomes.length +
-    (s.project === 'complete' ? 2 : s.project === 'in_progress' ? 1 : 0) +
-    s.interviews
-  // At risk is a deliberate act, not a default. Where the record is merely
-  // ordinary the honest answer is that nobody has formed a view yet.
-  if (weight >= 4 && weight < 8 && ri() < 0.35) continue
-  const value: IndicatorValue = weight >= 8 ? 'excellent' : weight >= 4 ? 'on_track' : 'at_risk'
-  CAS_DATA.indicators.push({
-    studentId: student, schoolId: SCHOOL, value,
-    setBy: 'H. Adeyemi', setAt: '2026-06-0' + (1 + Math.floor(ri() * 8)),
-  })
-}
+  /**
+   * Indicators, set last and on purpose.
+   *
+   * The indicator is a HUMAN judgement, so the fixture generates it from what
+   * the coordinator would actually be looking at rather than from a separate
+   * dice roll. A trophy next to a 0/7 row would be a defensible thing for a real
+   * coordinator to do and an indefensible thing for fixture data to show — it
+   * makes the screen look broken when it is working.
+   *
+   * Plenty stay unset. Most students, most of the time, are simply fine.
+   */
+  const ALL_STUDENTS = [
+    ...Array.from({ length: 24 }, (_, i) => sid(i + 1)),
+    ...Array.from({ length: 20 }, (_, i) => y1(i + 1)),
+  ]
 
-// CAS complete is RECORDED, not derived — but a fixture that records it for a
-// student who has not met the gate would be lying about the one thing this
-// product exists to get right. So: only where the gate actually passes, and
-// only for some of those, because confirming it is a job someone has to do.
-let confirmedSoFar = 0
-for (const student of ALL_STUDENTS) {
-  if (CAS_DATA.completions.some((c) => c.studentId === student)) continue
-  if (!completionGate(summarise(student, CAS_DATA)).ready) continue
-  confirmedSoFar += 1
-  if (confirmedSoFar % 2 === 0) continue // left for the coordinator to confirm
-  CAS_DATA.completions.push({
-    studentId: student,
-    schoolId: SCHOOL,
-    confirmedBy: 'H. Adeyemi',
-    confirmedAt: '2026-06-20',
-  })
-}
+  const ri = rng(88)
+  for (const student of ALL_STUDENTS) {
+    if (built.indicators.some((x) => x.studentId === student)) continue
+    // The new cohort has barely started; forming a judgement about them now would
+    // be theatre, so almost none of them carry one.
+    if (ri() < (student.startsWith('y1') ? 0.85 : 0.35)) continue
+    const s = summarise(student, built)
+    const weight =
+      s.outcomes.length +
+      (s.project === 'complete' ? 2 : s.project === 'in_progress' ? 1 : 0) +
+      s.interviews
+    // At risk is a deliberate act, not a default. Where the record is merely
+    // ordinary the honest answer is that nobody has formed a view yet.
+    if (weight >= 4 && weight < 8 && ri() < 0.35) continue
+    const value: IndicatorValue = weight >= 8 ? 'excellent' : weight >= 4 ? 'on_track' : 'at_risk'
+    built.indicators.push({
+      studentId: student, schoolId: SCHOOL, value,
+      setBy: 'H. Adeyemi', setAt: '2026-06-0' + (1 + Math.floor(ri() * 8)),
+    })
+  }
+
+  // CAS complete is RECORDED, not derived — but a fixture that records it for a
+  // student who has not met the gate would be lying about the one thing this
+  // product exists to get right. So: only where the gate actually passes, and
+  // only for some of those, because confirming it is a job someone has to do.
+  let confirmedSoFar = 0
+  for (const student of ALL_STUDENTS) {
+    if (built.completions.some((c) => c.studentId === student)) continue
+    if (!completionGate(summarise(student, built)).ready) continue
+    confirmedSoFar += 1
+    if (confirmedSoFar % 2 === 0) continue // left for the coordinator to confirm
+    built.completions.push({
+      studentId: student,
+      schoolId: SCHOOL,
+      confirmedBy: 'H. Adeyemi',
+      confirmedAt: '2026-06-20',
+    })
+  }
+
+  return built
+})
 
 /**
  * Next ids, so runtime writes carry on where the fixtures left off — pinned for

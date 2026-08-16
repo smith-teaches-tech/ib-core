@@ -14,6 +14,7 @@ import {
   type Interview, type InterviewKind,
 } from '@/lib/cas/types'
 import { prettyDate } from './parts'
+import { todayRiyadh } from '@/lib/data/dates'
 
 const QUESTION_BANK: Record<InterviewKind, string[]> = {
   initial: [
@@ -106,7 +107,7 @@ function InterviewCard({
 }) {
   const [notes, setNotes] = useState(interview?.notes ?? '')
   const [date, setDate] = useState(
-    interview?.conductedOn ?? new Date().toISOString().slice(0, 10),
+    interview?.conductedOn ?? todayRiyadh(),
   )
   const [unlocking, setUnlocking] = useState(false)
   const [reason, setReason] = useState('')

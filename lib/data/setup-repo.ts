@@ -14,7 +14,7 @@ import type {
 } from '../types'
 import { resolveCapabilities } from '../capabilities'
 import { templateOf } from '../templates'
-import { parseIdentifiers, parseRoster } from '../setup/parse'
+import { normaliseSessionNumber, parseIdentifiers, parseRoster } from '../setup/parse'
 import type { CourseRow, PersonRow } from '../setup/types'
 
 const slug = (s: string) =>
@@ -40,6 +40,13 @@ export function makeSetupRepository(deps: {
     let n = 2
     while (taken(id)) id = `${base}_${n++}`
     return id
+  }
+
+  /** Scope is a boundary: a ref from another school is an error, not a no-op. */
+  const sectionAt = (schoolId: string, sectionId: string) => {
+    const section = sections.find((s) => s.id === sectionId && s.schoolId === schoolId)
+    if (!section) throw new Error('That section is not at this school.')
+    return section
   }
 
   return {
@@ -81,12 +88,15 @@ export function makeSetupRepository(deps: {
           const student = students.find((s) => s.userId === membership.userId) ?? null
 
           // A section's display name only carries its label where the course has
-          // more than one — a single-section course shows the label nowhere.
+          // more than one IN THE SAME COHORT — a single-section course shows the
+          // label nowhere, and a sibling in another year is not a sibling here.
           const nameOf = (sectionId: string) => {
             const section = sections.find((s) => s.id === sectionId)
             const course = courses.find((c) => c.id === section?.courseId)
             const many = section
-              ? sections.filter((x) => x.courseId === section.courseId).length > 1
+              ? sections.filter(
+                  (x) => x.courseId === section.courseId && x.cohortId === section.cohortId,
+                ).length > 1
               : false
             return (course?.name ?? sectionId) + (many && section ? ` ${section.label}` : '')
           }
@@ -103,8 +113,8 @@ export function makeSetupRepository(deps: {
                   personalCode: student.personalCode,
                   state: student.identifiersState,
                   // The PIN leaves this repository only when the caller holds
-                  // `identifiers.manage`. Redacting in a component would be a
-                  // suggestion; redacting here is the rule.
+                  // `identifiers.distribute`. Redacting in a component would be
+                  // a suggestion; redacting here is the rule.
                   resultsPin: includePins ? student.resultsPin : null,
                   hasPin: student.resultsPin != null,
                 }
@@ -210,11 +220,13 @@ export function makeSetupRepository(deps: {
     },
 
     async enrolStudent(schoolId, studentId, sectionId) {
+      sectionAt(schoolId, sectionId)
       if (enrollments.some((e) => e.studentId === studentId && e.sectionId === sectionId)) return
       enrollments.push({ studentId, sectionId })
     },
 
     async unenrolStudent(schoolId, studentId, sectionId) {
+      sectionAt(schoolId, sectionId)
       const at = enrollments.findIndex((e) => e.studentId === studentId && e.sectionId === sectionId)
       if (at >= 0) enrollments.splice(at, 1)
     },
@@ -244,6 +256,7 @@ export function makeSetupRepository(deps: {
     },
 
     async assignTeacher(schoolId, teacherId, sectionId) {
+      sectionAt(schoolId, sectionId)
       if (assignments.some((a) => a.teacherId === teacherId && a.sectionId === sectionId)) return
       // First teacher on a section is the designated marker; a co-teacher is not.
       const first = !assignments.some((a) => a.sectionId === sectionId)
@@ -251,11 +264,13 @@ export function makeSetupRepository(deps: {
     },
 
     async unassignTeacher(schoolId, teacherId, sectionId) {
+      sectionAt(schoolId, sectionId)
       const at = assignments.findIndex((a) => a.teacherId === teacherId && a.sectionId === sectionId)
       if (at >= 0) assignments.splice(at, 1)
     },
 
     async setDesignatedMarker(schoolId, teacherId, sectionId, on) {
+      sectionAt(schoolId, sectionId)
       for (const a of assignments.filter((x) => x.sectionId === sectionId)) {
         // Exactly one marker per section — that is who the IB holds responsible.
         if (a.teacherId === teacherId) a.isDesignatedMarker = on
@@ -285,7 +300,15 @@ export function makeSetupRepository(deps: {
     async setIdentifiers(schoolId, studentId, input) {
       const student = students.find((x) => x.userId === studentId && x.schoolId === schoolId)
       if (!student) return
-      if (input.sessionNumber !== undefined) student.sessionNumber = input.sessionNumber || null
+      if (input.sessionNumber !== undefined) {
+        if (!input.sessionNumber.trim()) {
+          student.sessionNumber = null
+        } else {
+          const n = normaliseSessionNumber(input.sessionNumber)
+          if (!n) throw new Error('A candidate session number is 1–4 digits.')
+          student.sessionNumber = n
+        }
+      }
       if (input.personalCode !== undefined) student.personalCode = input.personalCode || null
       if (input.resultsPin !== undefined) student.resultsPin = input.resultsPin || null
 
@@ -317,10 +340,28 @@ export function makeSetupRepository(deps: {
         if (!row.studentId) continue
         const student = students.find((x) => x.userId === row.studentId && x.schoolId === schoolId)
         if (!student) continue
-        if (row.sessionNumber) student.sessionNumber = row.sessionNumber
+        const before = {
+          sessionNumber: student.sessionNumber,
+          personalCode: student.personalCode,
+          resultsPin: student.resultsPin,
+        }
+        if (row.sessionNumber) {
+          const n = normaliseSessionNumber(row.sessionNumber)
+          if (n) student.sessionNumber = n
+        }
         if (row.personalCode) student.personalCode = row.personalCode
         if (row.resultsPin) student.resultsPin = row.resultsPin
         if (student.identifiersState === 'missing') student.identifiersState = 'unconfirmed'
+        // A confirmation covered the values it was made against. Overwrite one
+        // and the confirmation no longer describes what is stored.
+        else if (
+          student.identifiersState === 'confirmed' &&
+          (student.sessionNumber !== before.sessionNumber ||
+            student.personalCode !== before.personalCode ||
+            student.resultsPin !== before.resultsPin)
+        ) {
+          student.identifiersState = 'unconfirmed'
+        }
         applied += 1
       }
       return applied

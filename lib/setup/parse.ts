@@ -148,6 +148,16 @@ const ID_CANON: Record<string, 'session' | 'personal' | 'pin' | 'email' | 'numbe
 const normalName = (s: string) =>
   s.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean).sort().join(' ')
 
+/**
+ * A candidate session number is 1–4 digits, stored zero-padded to 4 — "2" and
+ * "0002" are the same candidate, and padding on write is what makes the marks
+ * grid's string sort agree with IBIS's numeric order. Null means invalid.
+ */
+export function normaliseSessionNumber(value: string): string | null {
+  const v = value.trim()
+  return /^\d{1,4}$/.test(v) ? v.padStart(4, '0') : null
+}
+
 export function parseIdentifiers(
   text: string,
   roster: { userId: string; name: string; email: string; studentNumber: string | null }[],

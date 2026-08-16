@@ -61,9 +61,17 @@ export default function CandidatesTab({
     )
   }
 
+  // A cell starting with = + - @ is a formula to a spreadsheet; defang it.
+  const defang = (s: string) => (/^[=+\-@]/.test(s) ? "'" + s : s)
   const pinList = students
     .filter((p) => p.candidate?.resultsPin)
-    .map((p) => `${p.user.email}\t${p.candidate!.personalCode ?? ''}\t${p.candidate!.resultsPin}`)
+    .map((p) =>
+      [
+        defang(p.user.email),
+        defang(p.candidate!.personalCode ?? ''),
+        defang(p.candidate!.resultsPin!),
+      ].join('\t'),
+    )
     .join('\n')
 
   return (

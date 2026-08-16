@@ -47,14 +47,19 @@ export default async function HomePage({
 
   if (isStudent) {
     const track = await repo.getTrack(school.id, user.id)
+    // The header and exam date come from the student's OWN cohort — two year
+    // groups run at once, and a hardcoded year is wrong for one of them.
+    const myCohort = track
+      ? (await repo.setup.listCohorts(school.id)).find((c) => c.id === track.student.cohortId)
+      : undefined
     body = track ? (
       <>
         <h1>{user.name}</h1>
         <p className="sub">
-          Class of 2027 · Candidate {track.student.sessionNumber} / {track.student.personalCode ?? '—'}
+          {myCohort?.label ?? 'IB Diploma'} · Candidate {track.student.sessionNumber} / {track.student.personalCode ?? '—'}
           {' '}— a record of what you have completed.
         </p>
-        <Track track={track} examDate="2027-05-01" />
+        <Track track={track} examDate={myCohort ? `${myCohort.gradYear}-05-01` : '2027-05-01'} />
       </>
     ) : (
       <p className="mut">No student record.</p>

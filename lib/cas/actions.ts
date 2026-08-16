@@ -13,7 +13,7 @@ import { repo } from '../data'
 import { getSession } from '../session'
 import { storage } from '../storage'
 import type { ExperienceStatus, IndicatorValue, InterviewKind, LoKey, Strand } from './types'
-import { isArchived } from '../cohorts'
+import { assertLiveCohort } from '../cohorts'
 
 function refresh() {
   revalidatePath('/', 'layout')
@@ -28,10 +28,14 @@ async function asStaff() {
 
 /** An archived year group is a record, not a workspace. See lib/setup/actions.ts. */
 async function live(schoolId: string, studentId: string) {
-  const cohort = await repo.setup.cohortOf(schoolId, { studentId })
-  if (cohort && isArchived(cohort)) {
-    throw new Error(`${cohort.label} is archived — it is a record and cannot be changed.`)
-  }
+  assertLiveCohort(await repo.setup.cohortOf(schoolId, { studentId }))
+}
+
+/** The same gate, reached through the experience being written to. */
+async function liveExperience(schoolId: string, experienceId: string) {
+  const owner = await repo.cas.ownerOf(schoolId, experienceId)
+  if (!owner) throw new Error('That experience is not at this school.')
+  await live(schoolId, owner)
 }
 
 /** Student actions: you may only ever write to your own record. */
@@ -56,6 +60,7 @@ export async function createExperience(input: {
   submit: boolean
 }) {
   const session = await getSession()
+  await live(session.school.id, session.user.id)
   if (!input.title.trim() || input.strands.length === 0) {
     throw new Error('An experience needs a title and at least one strand.')
   }
@@ -70,6 +75,7 @@ export async function createExperience(input: {
 
 export async function addReflection(experienceId: string, body: string) {
   const session = await asOwner(experienceId)
+  await live(session.school.id, session.user.id)
   if (!body.trim()) return
   await repo.cas.addReflection(session.school.id, experienceId, body.trim(), session.user.name)
   refresh()
@@ -77,8 +83,11 @@ export async function addReflection(experienceId: string, body: string) {
 
 export async function editReflection(entryId: string, experienceId: string, body: string) {
   const session = await asOwner(experienceId)
+  await live(session.school.id, session.user.id)
   if (!body.trim()) return
-  await repo.cas.editReflection(session.school.id, entryId, body.trim(), session.user.name)
+  await repo.cas.editReflection(
+    session.school.id, entryId, experienceId, body.trim(), session.user.name,
+  )
   refresh()
 }
 
@@ -100,6 +109,7 @@ export async function addEvidence(
   note: string,
 ) {
   const session = await asOwner(experienceId)
+  await live(session.school.id, session.user.id)
   if (files.length === 0 && !note.trim()) return
   const refs = []
   for (const f of files) {
@@ -111,6 +121,7 @@ export async function addEvidence(
 
 export async function submitForApproval(experienceId: string) {
   const session = await asOwner(experienceId)
+  await live(session.school.id, session.user.id)
   await repo.cas.setExperienceStatus(session.school.id, experienceId, 'submitted', {
     by: session.user.name,
   })
@@ -120,6 +131,7 @@ export async function submitForApproval(experienceId: string) {
 /** Route 1 to completion: generate the secure link. Sending it needs email. */
 export async function emailSupervisor(experienceId: string, email: string) {
   const session = await asOwner(experienceId)
+  await live(session.school.id, session.user.id)
   if (!email.includes('@')) throw new Error('That does not look like an email address.')
   const request = await repo.cas.requestSupervisor(
     session.school.id, experienceId, email.trim(), session.user.name,
@@ -131,6 +143,7 @@ export async function emailSupervisor(experienceId: string, email: string) {
 /** Route 2: the paper form, photographed and uploaded, for the coordinator. */
 export async function paperFormUploaded(experienceId: string) {
   const session = await asOwner(experienceId)
+  await live(session.school.id, session.user.id)
   await repo.cas.markPaperFormUploaded(session.school.id, experienceId, session.user.name)
   refresh()
 }
@@ -145,6 +158,7 @@ export async function setExperienceStatus(
   opts: { note?: string; reason?: string } = {},
 ) {
   const session = await asStaff()
+  await liveExperience(session.school.id, experienceId)
   if (status === 'returned' && !opts.note?.trim()) {
     throw new Error('Returning an experience needs a note the student can act on.')
   }
@@ -164,6 +178,7 @@ export async function completeOnBehalf(
   comment: string,
 ) {
   const session = await asStaff()
+  await liveExperience(session.school.id, experienceId)
   if (confirmedOutcomes.length === 0) {
     throw new Error('Confirm at least one outcome — completing with none records nothing.')
   }

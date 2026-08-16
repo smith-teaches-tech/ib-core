@@ -9,6 +9,8 @@
 // When cloud storage arrives, ONE implementation changes here and every upload in
 // the product starts working. No screen changes.
 
+import { todayRiyadh } from './data/dates'
+
 export interface StoredRef {
   id: string
   name: string
@@ -29,6 +31,16 @@ export interface StorageAdapter {
 
 let counter = 0
 
+/**
+ * A client filename is input, not a path. Keep a safe basename: strip any
+ * directory part and any '..' so a name can never steer the bucket key.
+ */
+function safeBasename(name: string): string {
+  const base = name.split(/[\\/]/).pop() ?? ''
+  const clean = base.replace(/\.\./g, '.').trim()
+  return clean && clean !== '.' ? clean : 'file'
+}
+
 /** Records the metadata, discards the bytes, and says so. */
 export const stubStorage: StorageAdapter = {
   async put(file, meta) {
@@ -38,8 +50,8 @@ export const stubStorage: StorageAdapter = {
       name: file.name,
       mime: file.mime,
       bytes: file.bytes,
-      key: `${meta.schoolId}/${meta.studentId}/${counter}-${file.name}`,
-      addedAt: new Date().toISOString().slice(0, 10),
+      key: `${meta.schoolId}/${meta.studentId}/${counter}-${safeBasename(file.name)}`,
+      addedAt: todayRiyadh(),
     }
   },
   url() {

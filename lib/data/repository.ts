@@ -133,8 +133,8 @@ export interface SetupRepository {
   listCourseRows(schoolId: string, cohortId: string): Promise<CourseRow[]>
   /**
    * `includePins` is the ONLY way a results PIN leaves this repository, and it
-   * is gated on `identifiers.manage` at the call site. Redaction happens here
-   * rather than in a component, because a component that forgets is a leak.
+   * is gated on `identifiers.distribute` at the call site. Redaction happens
+   * here rather than in a component, because a component that forgets is a leak.
    */
   listPeople(schoolId: string, includePins?: boolean): Promise<PersonRow[]>
   /** Pure parse + collision check. Nothing is written; the screen previews this. */
@@ -241,6 +241,8 @@ export interface CasRepository {
    * 28-day expiry, single use. Nothing else is reachable through it.
    */
   getSupervisorView(token: string): Promise<SupervisorView | null>
+  /** Who an experience belongs to — exists so the actions can check its cohort. */
+  ownerOf(schoolId: string, experienceId: string): Promise<string | null>
 
   // ---- writes: the student's own record ----
   createExperience(
@@ -261,7 +263,7 @@ export interface CasRepository {
   ): Promise<void>
   /** Versioned: the prior entry is kept and superseded, never overwritten. */
   editReflection(
-    schoolId: string, entryId: string, body: string, authorName: string,
+    schoolId: string, entryId: string, experienceId: string, body: string, authorName: string,
   ): Promise<void>
   addEvidence(
     schoolId: string, experienceId: string, media: StoredRef[], note: string, authorName: string,

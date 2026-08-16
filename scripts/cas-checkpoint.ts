@@ -7,7 +7,7 @@
 // Run: npm run checkpoint
 
 import { COHORTS, COURSES, REQUIREMENT_DEFS, REQUIREMENT_STATES, fixtureRepository as repo } from '../lib/data/fixtures'
-import { isArchived, sortCohorts } from '../lib/cohorts'
+import { assertLiveCohort, isArchived, sortCohorts } from '../lib/cohorts'
 import { CAS_DATA } from '../lib/data/cas-fixtures'
 import { summarise } from '../lib/cas/derive'
 import { iaTotal, templateOf } from '../lib/templates'
@@ -330,6 +330,56 @@ async function main() {
   check(
     REQUIREMENT_DEFS.some((d) => d.key === newId + '.comment'),
     'and with a teacher-comment def, so the marks screen is complete on day one',
+  )
+
+  // 8 — the reviewed-fix guard rails
+  console.log('\n8. Guard rails')
+
+  // (a) editReflection refuses a mismatched entry/experience pair.
+  const refl = CAS_DATA.entries.find((e) => e.kind === 'reflection' && !e.supersededBy)!
+  const otherExp = CAS_DATA.experiences.find((x) => x.id !== refl.experienceId)!
+  let mismatchThrew = false
+  try {
+    await repo.cas.editReflection('dhahran', refl.id, otherExp.id, 'tampered', 'checkpoint')
+  } catch {
+    mismatchThrew = true
+  }
+  check(mismatchThrew, 'editReflection throws on a mismatched entry/experience pair')
+
+  // (b) + (c) The write gate every action's live() helper delegates to: an
+  // archived cohort refuses, and an unresolvable ref fails CLOSED. (The server
+  // actions themselves need a request-scoped session, so the shared gate is
+  // what this harness can exercise.)
+  let archivedThrew = false
+  try {
+    assertLiveCohort(await repo.setup.cohortOf('dhahran', { cohortId: 'c14' }))
+  } catch {
+    archivedThrew = true
+  }
+  check(archivedThrew, 'a write gated on the archived Class of 2026 throws')
+
+  let unknownThrew = false
+  try {
+    assertLiveCohort(await repo.setup.cohortOf('dhahran', { cohortId: 'no_such_cohort' }))
+  } catch {
+    unknownThrew = true
+  }
+  check(unknownThrew, 'an unknown cohort ref fails closed instead of bypassing the archive lock')
+
+  // (d) Session numbers normalise on import, so string sort equals numeric sort.
+  const subj = (await repo.coursesOfStudent('st24')).find((c) => c.type === 'subject')!
+  await repo.setup.importIdentifiers('dhahran', [{
+    line: 1, studentId: 'st24', matchedOn: 'email', who: 'Yildiz, Deniz',
+    sessionNumber: '2', personalCode: '', resultsPin: '',
+  }])
+  const mvSess = await repo.ia.getMarksView('dhahran', subj.id, 'c15')
+  const nums = (mvSess?.rows ?? [])
+    .map((r) => r.sessionNumber)
+    .filter((x): x is string => x != null)
+  check(nums.includes('0002'), 'an unpadded imported session number lands zero-padded as 0002')
+  check(
+    nums.length > 1 && nums.every((n, i) => i === 0 || Number(nums[i - 1]) <= Number(n)),
+    `marks-grid rows sit in true numeric session order (${nums.length} registered candidates)`,
   )
 
   console.log('\n' + '='.repeat(60))

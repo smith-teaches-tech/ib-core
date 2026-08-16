@@ -8,3 +8,6 @@ next-env.d.ts
 
 # CAS spine checkpoint build output
 .checkpoint-build/
+
+# device-bridge junk drawer (bridge cannot delete files)
+_to_delete/

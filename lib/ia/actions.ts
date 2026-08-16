@@ -7,7 +7,7 @@
 import { revalidatePath } from 'next/cache'
 import { repo } from '../data'
 import { getSession } from '../session'
-import { isArchived } from '../cohorts'
+import { assertLiveCohort } from '../cohorts'
 import type { CapabilityKey } from '../types'
 
 function refresh() {
@@ -24,9 +24,18 @@ async function need(capability: CapabilityKey) {
 
 /** An archived year group is a record, not a workspace — same rule as setup. */
 async function live(schoolId: string, cohortId: string) {
-  const cohort = await repo.setup.cohortOf(schoolId, { cohortId })
-  if (cohort && isArchived(cohort)) {
-    throw new Error(`${cohort.label} is archived — it is a record and cannot be changed.`)
+  assertLiveCohort(await repo.setup.cohortOf(schoolId, { cohortId }))
+}
+
+/**
+ * The cohortId arrives from the client, so it is checked rather than trusted:
+ * the course must actually run for that cohort at the session's school.
+ */
+async function courseInCohort(schoolId: string, courseId: string, cohortId: string) {
+  const rows = await repo.setup.listCourseRows(schoolId, cohortId)
+  const row = rows.find((r) => r.course.id === courseId)
+  if (!row || row.sections.length === 0) {
+    throw new Error('That course does not run for that year group at this school.')
   }
 }
 
@@ -39,6 +48,7 @@ export async function setCriterionMark(
 ) {
   const session = await need('ia.manage')
   await live(session.school.id, cohortId)
+  await courseInCohort(session.school.id, courseId, cohortId)
   await repo.ia.setCriterionMark(
     session.school.id, courseId, cohortId, studentId, index, value, session.user.name,
   )
@@ -53,6 +63,7 @@ export async function setComment(
 ) {
   const session = await need('ia.manage')
   await live(session.school.id, cohortId)
+  await courseInCohort(session.school.id, courseId, cohortId)
   await repo.ia.setComment(
     session.school.id, courseId, cohortId, studentId, text, session.user.name,
   )
@@ -69,6 +80,7 @@ export async function setTypedIntoIbis(
   // capability from marking, because it records an export-side fact.
   const session = await need('marks.transcribe')
   await live(session.school.id, cohortId)
+  await courseInCohort(session.school.id, courseId, cohortId)
   await repo.ia.setTypedIntoIbis(session.school.id, courseId, cohortId, studentId, on)
   refresh()
 }

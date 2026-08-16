@@ -119,8 +119,15 @@ export function viewsOf(studentId: string, data: CasData): ExperienceView[] {
     experience,
     entries: visibleThread(experience.id, data.entries),
     confirmedOutcomes: confirmedOutcomesOf(experience, data.entries),
+    // The NEWEST unused request — a re-request voids its predecessors, and the
+    // link the student is shown must be the one that can still sign.
     request:
-      data.requests.find((r) => r.experienceId === experience.id && !r.usedAt) ?? null,
+      data.requests
+        .filter((r) => r.experienceId === experience.id && !r.usedAt)
+        .reduce<(typeof data.requests)[number] | null>(
+          (best, r) => (best == null || r.sentAt >= best.sentAt ? r : best),
+          null,
+        ),
   }))
 }
 
@@ -229,7 +236,11 @@ export function deriveCasStates(
 
   for (const student of students) {
     const mine = experiencesOf(student.userId, data)
-    if (mine.length === 0 && data.interviews.every((i) => i.studentId !== student.userId)) {
+    if (
+      mine.length === 0 &&
+      data.interviews.every((i) => i.studentId !== student.userId) &&
+      data.completions.every((c) => c.studentId !== student.userId)
+    ) {
       // Nothing recorded at all. Absence is the record — no not_started rows.
       continue
     }

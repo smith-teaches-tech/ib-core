@@ -29,8 +29,15 @@ export interface Session {
 
 export async function getSession(): Promise<Session> {
   const jar = await cookies()
-  const userId = jar.get('dev_user')?.value ?? 'u_michael'
-  const user = (await repo.getUser(userId)) ?? (await repo.getUser('u_michael'))!
+  const cookieUser = jar.get('dev_user')?.value
+  let user = cookieUser ? await repo.getUser(cookieUser) : null
+  if (!user) {
+    // Fail closed in production: an absent or unknown cookie is NOT the admin.
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error('No authenticated user — dev identity only works outside production.')
+    }
+    user = (await repo.getUser('u_michael'))!
+  }
   const memberships = await repo.getMemberships(user.id)
 
   // Land in the last school used; fall back to the first membership.

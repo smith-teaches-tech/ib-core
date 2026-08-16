@@ -35,6 +35,20 @@ export function isArchived(cohort: Cohort): boolean {
 }
 
 /**
+ * The write gate the actions' live() helpers share. FAIL CLOSED: a ref that
+ * resolves to no cohort at this school is refused, not waved through — a bogus
+ * or other-school ref must never be a way around the archive lock.
+ */
+export function assertLiveCohort(cohort: Cohort | null): asserts cohort is Cohort {
+  if (!cohort) {
+    throw new Error('That does not resolve to a year group at this school — refusing to write.')
+  }
+  if (isArchived(cohort)) {
+    throw new Error(`${cohort.label} is archived — it is a record and cannot be changed.`)
+  }
+}
+
+/**
  * Live year groups first, the one graduating soonest at the front — that is the
  * one with an exam session bearing down on it. Archived years after, newest
  * first, because a recently finished cohort is the one still being asked about.

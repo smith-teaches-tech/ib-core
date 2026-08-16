@@ -594,7 +594,8 @@ export const fixtureRepository: Repository = {
   async getTrack(schoolId, studentUserId) {
     const student = STUDENTS.find((s) => s.userId === studentUserId)
     if (!student || student.schoolId !== schoolId) return null
-    const user = USERS.find((u) => u.id === studentUserId)!
+    const user = USERS.find((u) => u.id === studentUserId)
+    if (!user) return null
     return buildTrack(
       redact(student),
       user,

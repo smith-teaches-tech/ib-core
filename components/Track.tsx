@@ -1,4 +1,5 @@
 import type { StudentTrack } from '@/lib/types'
+import { todayRiyadh } from '@/lib/data/dates'
 
 /**
  * ZOOM 1 — one student, full detail.
@@ -18,7 +19,7 @@ export default function Track({
   const daysToExams = examDate
     ? Math.round(
         (new Date(examDate + 'T00:00:00Z').getTime() -
-          new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').getTime()) /
+          new Date(todayRiyadh() + 'T00:00:00Z').getTime()) /
           86_400_000,
       )
     : null

@@ -18,18 +18,21 @@ import { useState, useTransition } from 'react'
 import * as ia from '@/lib/ia/actions'
 import type { IaMarksView } from '@/lib/ia/types'
 
+/** A cell starting with = + - @ is a formula to a spreadsheet; defang it. */
+const defang = (s: string) => (/^[=+\-@]/.test(s) ? "'" + s : s)
+
 function csvOf(view: IaMarksView): string {
   const critHeads = view.criteria.map((c) => c.key)
   const head = ['session_number', 'candidate', ...critHeads, `total_of_${view.markMax}`, 'comment']
   const lines = view.rows.map((r) =>
     [
-      r.sessionNumber ?? '',
-      '"' + r.name.replace(/"/g, '""') + '"',
+      defang(r.sessionNumber ?? ''),
+      '"' + defang(r.name).replace(/"/g, '""') + '"',
       ...(view.criteria.length > 0
         ? r.criterionMarks.map((m) => (m == null ? '' : String(m)))
         : []),
       r.total == null ? '' : String(r.total),
-      '"' + (r.comment ?? '').replace(/"/g, '""') + '"',
+      '"' + defang(r.comment ?? '').replace(/"/g, '""') + '"',
     ].join(','),
   )
   return [head.join(','), ...lines].join('\n')

@@ -33,7 +33,7 @@ export interface PersonRow {
     sessionNumber: string | null
     personalCode: string | null
     state: 'missing' | 'unconfirmed' | 'confirmed'
-    /** Null unless the caller holds `identifiers.manage` — redacted in the repository. */
+    /** Null unless the caller holds `identifiers.distribute` — redacted in the repository. */
     resultsPin: string | null
     /** So a coordinator without the capability can still see one exists. */
     hasPin: boolean

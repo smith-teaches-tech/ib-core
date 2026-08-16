@@ -274,8 +274,10 @@ export function buildBoard(
   }
 
   // ---- rows -----------------------------------------------------------------
-  const rows: BoardRow[] = students.map((student) => {
-    const user = users.find((u) => u.id === student.userId)!
+  // A student with no User record is broken data; skip the row, don't crash the board.
+  const rows: BoardRow[] = students.flatMap((student) => {
+    const user = users.find((u) => u.id === student.userId)
+    if (!user) return []
     const mine = requirementsFor(student, defs, coursesByStudent.get(student.userId) ?? [])
     const cps = checkpointsFor(student.userId, mine, states)
 

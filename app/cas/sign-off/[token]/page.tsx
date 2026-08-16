@@ -36,11 +36,13 @@ export default async function SignOffPage({
           <span className="lock">🔗 Secure link · expires {prettyDate(view.request.expiresAt)}</span>
         </div>
         <div className="panel-b">
+          {/* A dead link shows its status and NOTHING else — the student's
+              reflections are not readable through a used or expired token. */}
           {used ? (
             <div className="note ok">
-              This experience has already been signed off
-              {view.request.usedAt ? ` on ${prettyDate(view.request.usedAt)}` : ''}. Nothing further
-              is needed — thank you.
+              This link is no longer active
+              {view.request.usedAt ? ` (closed on ${prettyDate(view.request.usedAt)})` : ''}. Nothing
+              further is needed — thank you.
             </div>
           ) : expired ? (
             <div className="note warn">
@@ -48,32 +50,32 @@ export default async function SignOffPage({
               send a fresh one.
             </div>
           ) : (
-            <div className="note">
-              {firstName} has asked you to review a CAS experience and confirm which learning
-              outcomes you saw evidence of. You do <b>not</b> need to confirm every outcome — only
-              the ones you actually observed. Please read the reflections and look at the evidence
-              first. No account needed.
-            </div>
-          )}
+            <>
+              <div className="note">
+                {firstName} has asked you to review a CAS experience and confirm which learning
+                outcomes you saw evidence of. You do <b>not</b> need to confirm every outcome — only
+                the ones you actually observed. Please read the reflections and look at the evidence
+                first. No account needed.
+              </div>
 
-          <h3 style={{ margin: '16px 0 2px' }}>{e.title}</h3>
-          <p className="mut" style={{ margin: '0 0 8px' }}>
-            {e.strands.map((s) => STRAND_LABEL[s]).join(' · ')} · submitted by {firstName}
-            {e.isProject && ' · CAS project'}
-          </p>
-          {e.description && <p>{e.description}</p>}
+              <h3 style={{ margin: '16px 0 2px' }}>{e.title}</h3>
+              <p className="mut" style={{ margin: '0 0 8px' }}>
+                {e.strands.map((s) => STRAND_LABEL[s]).join(' · ')} · submitted by {firstName}
+                {e.isProject && ' · CAS project'}
+              </p>
+              {e.description && <p>{e.description}</p>}
 
-          <div className="caps" style={{ marginTop: 12 }}>
-            Reflections &amp; evidence — view only, nothing is downloadable
-          </div>
-          <Thread entries={entries} />
+              <div className="caps" style={{ marginTop: 12 }}>
+                Reflections &amp; evidence — view only, nothing is downloadable
+              </div>
+              <Thread entries={entries} />
 
-          {!used && !expired && (
-            <SignOffForm
-              token={token}
-              claimed={e.claimedOutcomes}
-              studentName={firstName}
-            />
+              <SignOffForm
+                token={token}
+                claimed={e.claimedOutcomes}
+                studentName={firstName}
+              />
+            </>
           )}
         </div>
       </div>

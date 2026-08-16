@@ -38,8 +38,9 @@ export default async function Setup({
   const readOnly = cohort ? isArchived(cohort) : false
   const [courseRows, people] = await Promise.all([
     repo.setup.listCourseRows(school.id, cohort?.id ?? 'c15'),
-    // The PIN leaves the repository only for someone who may manage identifiers.
-    repo.setup.listPeople(school.id, session.can('identifiers.manage')),
+    // The PIN leaves the repository only for someone who may DISTRIBUTE it —
+    // managing identifiers is not the same as being trusted with credentials.
+    repo.setup.listPeople(school.id, session.can('identifiers.distribute')),
   ])
 
   const membership = memberships.find((m) => m.schoolId === school.id)

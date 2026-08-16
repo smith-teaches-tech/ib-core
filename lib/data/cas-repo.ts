@@ -7,6 +7,7 @@
 // authenticity trail (spine invariant #5), and a status change with no entry
 // behind it would be a change nobody can account for later.
 
+import { randomUUID } from 'crypto'
 import type { CasRepository } from './repository'
 import type { Student } from '../types'
 import { completionGate, summarise, viewsOf } from '../cas/derive'
@@ -14,10 +15,10 @@ import type {
   CasData, CasRosterRow, ExperienceStatus, Interview, LoKey, ThreadEntry,
 } from '../cas/types'
 import { INTERVIEW_LABEL, LO_LABEL } from '../cas/types'
+import { riyadhPlusDays, todayRiyadh } from './dates'
 
-const today = () => new Date().toISOString().slice(0, 10)
-const plusDays = (n: number) =>
-  new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10)
+const today = todayRiyadh
+const plusDays = riyadhPlusDays
 
 export function makeCasRepository(deps: {
   data: CasData
@@ -38,6 +39,17 @@ export function makeCasRepository(deps: {
   const find = (schoolId: string, experienceId: string) =>
     data.experiences.find((e) => e.id === experienceId && e.schoolId === schoolId) ?? null
 
+  // Everything school-scoped, so summaries and counts agree with the lists they
+  // sit next to. Entries and requests hang off experiences, which carry the scope.
+  const scoped = (schoolId: string): CasData => ({
+    ...data,
+    experiences: data.experiences.filter((e) => e.schoolId === schoolId),
+    interviews: data.interviews.filter((i) => i.schoolId === schoolId),
+    indicators: data.indicators.filter((i) => i.schoolId === schoolId),
+    notes: data.notes.filter((n) => n.schoolId === schoolId),
+    completions: data.completions.filter((c) => c.schoolId === schoolId),
+  })
+
   const loNames = (los: LoKey[]) =>
     los.map((l) => 'LO' + l.slice(2) + ' ' + (LO_LABEL.get(l)?.short ?? '')).join(', ')
 
@@ -47,31 +59,31 @@ export function makeCasRepository(deps: {
     async getStudentView(schoolId, studentUserId) {
       const name = deps.nameOf(studentUserId)
       if (!name) return null
+      const mine = scoped(schoolId)
       return {
         studentId: studentUserId,
         studentName: name,
-        summary: summarise(studentUserId, data),
-        experiences: viewsOf(studentUserId, data).filter((v) => v.experience.schoolId === schoolId),
-        interviews: data.interviews.filter(
-          (i) => i.studentId === studentUserId && i.schoolId === schoolId,
-        ),
-        notes: data.notes
-          .filter((n) => n.studentId === studentUserId && n.schoolId === schoolId)
+        summary: summarise(studentUserId, mine),
+        experiences: viewsOf(studentUserId, mine),
+        interviews: mine.interviews.filter((i) => i.studentId === studentUserId),
+        notes: mine.notes
+          .filter((n) => n.studentId === studentUserId)
           .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
       }
     },
 
     async getRoster(schoolId, cohortId) {
+      const mine = scoped(schoolId)
       const rows: CasRosterRow[] = []
       for (const s of deps.studentsIn(schoolId, cohortId)) {
         rows.push({
           studentId: s.userId,
           studentName: deps.nameOf(s.userId),
           sessionNumber: s.sessionNumber,
-          summary: summarise(s.userId, data),
-          experiences: viewsOf(s.userId, data),
-          interviews: data.interviews.filter((i) => i.studentId === s.userId),
-          notes: data.notes
+          summary: summarise(s.userId, mine),
+          experiences: viewsOf(s.userId, mine),
+          interviews: mine.interviews.filter((i) => i.studentId === s.userId),
+          notes: mine.notes
             .filter((n) => n.studentId === s.userId)
             .sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)),
         })
@@ -80,8 +92,9 @@ export function makeCasRepository(deps: {
     },
 
     async getTotals(schoolId, cohortId) {
+      const mine = scoped(schoolId)
       const students = deps.studentsIn(schoolId, cohortId)
-      const sums = students.map((s) => summarise(s.userId, data))
+      const sums = students.map((s) => summarise(s.userId, mine))
       return {
         students: students.length,
         atRisk: sums.filter((s) => s.indicator === 'at_risk').length,
@@ -150,9 +163,21 @@ export function makeCasRepository(deps: {
       })
     },
 
-    async editReflection(schoolId, entryId, body, authorName) {
+    async ownerOf(schoolId, experienceId) {
+      return find(schoolId, experienceId)?.studentId ?? null
+    },
+
+    async editReflection(schoolId, entryId, experienceId, body, authorName) {
       const prior = data.entries.find((e) => e.id === entryId)
-      if (!prior || !find(schoolId, prior.experienceId)) return
+      if (!prior || !find(schoolId, prior.experienceId)) {
+        throw new Error('That entry does not exist at this school.')
+      }
+      if (prior.experienceId !== experienceId) {
+        throw new Error('That entry does not belong to that experience.')
+      }
+      if (prior.kind !== 'reflection') {
+        throw new Error('Only reflections can be edited — nothing else in the thread is yours to rewrite.')
+      }
       // The prior version stays in the record. This is the whole reason edits
       // are modelled as a new entry rather than a mutation.
       const replacement = append({
@@ -178,11 +203,18 @@ export function makeCasRepository(deps: {
 
     async requestSupervisor(schoolId, experienceId, email, authorName) {
       const exp = find(schoolId, experienceId)
+      // A fresh link supersedes every earlier one: void anything still unsigned,
+      // so exactly one link can ever sign this experience off.
+      for (const r of data.requests) {
+        if (r.experienceId === experienceId && !r.usedAt) r.usedAt = today()
+      }
       const request = {
         id: 'sq_' + experienceId + '_' + data.requests.length,
         experienceId,
         email,
-        token: `${experienceId}-${Math.abs(hash(email + experienceId)).toString(16)}`,
+        // Random, not derived: a computable token is a guessable one, and a
+        // deterministic one collides with its own used or expired predecessors.
+        token: randomUUID(),
         sentAt: today(),
         expiresAt: plusDays(28),
       }
@@ -345,7 +377,8 @@ export function makeCasRepository(deps: {
       const request = data.requests.find((r) => r.token === token)
       if (!request || request.usedAt || request.expiresAt < today()) return false
       const exp = data.experiences.find((e) => e.id === request.experienceId)
-      if (!exp || input.confirmedOutcomes.length === 0 || !input.signature.trim()) return false
+      if (!exp || exp.status !== 'awaiting_signoff') return false
+      if (input.confirmedOutcomes.length === 0 || !input.signature.trim()) return false
 
       request.usedAt = today()
       exp.status = 'complete'
@@ -366,11 +399,4 @@ export function makeCasRepository(deps: {
       return true
     },
   }
-}
-
-/** Small, stable, and not a security boundary — real tokens come with real auth. */
-function hash(s: string): number {
-  let h = 0
-  for (let i = 0; i < s.length; i += 1) h = (h * 31 + s.charCodeAt(i)) | 0
-  return h
 }
