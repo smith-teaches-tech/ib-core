@@ -5,9 +5,9 @@ import type { BoardViewKind } from '@/lib/board'
 /**
  * ZOOM 3, v8 — TWO BOARDS SPLIT BY WHERE THE WORK GOES, AND NOTHING EXPANDS.
  *
- *   Sent to IB       only what IBIS or eCoursework will ask for. Six data
+ *   IB checklist     only what IBIS or eCoursework will ask for. Six data
  *                    columns; fits with no horizontal scroll.
- *   School records   IA files/marks/comments, EE supervision, TOK internals —
+ *   School tracking  IA files/marks/comments, EE supervision, TOK internals —
  *                    held by the school, sampled at most.
  *
  * v7's three in-place detail mechanisms (expanding lanes, drill-down rows, the
@@ -183,15 +183,17 @@ export default function BoardView({
   return (
     <div className="panel">
       <div className="panel-h">
+        {/* Labels only — the URL param values ('ib' / 'records') stay as they
+            were, so old bookmarks keep working. */}
         <span className="bseg btabs">
           <Link href={href({ view: 'ib' })} className={`btn ${controls.view === 'ib' ? 'on' : ''}`}>
-            Sent to IB
+            IB checklist
           </Link>
           <Link
             href={href({ view: 'records' })}
             className={`btn ${controls.view === 'records' ? 'on' : ''}`}
           >
-            School records
+            School tracking
           </Link>
         </span>
         <span className="mut bhint">
@@ -216,16 +218,26 @@ export default function BoardView({
             { value: 'all', text: `All ${board.rows.length}`, patch: { rows: 'all' } },
           ]}
         />
+        {/* TWO options, no counts (product decision, 2026-08). Clicking the
+            active one clears the filter — no "Anyone" button needed. The
+            whose-turn derivation underneath keeps all three buckets; only the
+            strip simplified. */}
         <Seg
           label="Waiting on"
           param="turn"
           controls={controls}
           href={href}
           options={[
-            { value: 'any', text: 'Anyone', patch: { turn: 'any' } },
-            { value: 'student', text: 'Students', patch: { turn: 'student' } },
-            { value: 'staff', text: 'Teachers', patch: { turn: 'staff' } },
-            { value: 'coordinator', text: 'You', patch: { turn: 'coordinator' } },
+            {
+              value: 'student',
+              text: 'Waiting on students',
+              patch: { turn: controls.turn === 'student' ? 'any' : 'student' },
+            },
+            {
+              value: 'staff',
+              text: 'Waiting on teachers',
+              patch: { turn: controls.turn === 'staff' ? 'any' : 'staff' },
+            },
           ]}
         />
         <Seg
@@ -360,7 +372,7 @@ export default function BoardView({
               The board is split by <b>where the work goes</b>. This tab holds only what has to reach
               IBIS or eCoursework — CAS confirmation, EE essay and RPF, TOK essay and TK/PPF, predicted
               grades. Whose-turn counts are scoped to these columns. IAs, marks and teacher comments
-              are on <b>School records</b>; the values behind the marks fractions are on <b>IA marks</b>.
+              are on <b>School tracking</b>; the values behind the marks fractions are on <b>IA marks</b>.
             </>
           ) : (
             <>

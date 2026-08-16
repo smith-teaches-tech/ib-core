@@ -14,6 +14,24 @@ import type { PersonRow } from '@/lib/setup/types'
 import ImportStudents from './ImportStudents'
 import Picker, { type PickerOption } from './Picker'
 
+/**
+ * "Biology SL" → "Bio SL": a compact chip label derived from the course name,
+ * so six courses fit on one visual line. Core names get their own initialisms;
+ * level and short tokens (HL, SL, AA, B…) survive untouched.
+ */
+const SHORT_NAMES: Record<string, string> = {
+  'Extended Essay': 'EE',
+  'Theory of Knowledge': 'TOK',
+}
+export function shortCourseLabel(name: string): string {
+  const special = SHORT_NAMES[name]
+  if (special) return special
+  return name
+    .split(/\s+/)
+    .map((w) => (w.length > 4 ? w.slice(0, 3) : w.replace(/\.$/, '')))
+    .join(' ')
+}
+
 export default function StudentsTab({
   people,
   sectionOptions,
@@ -106,21 +124,25 @@ export default function StudentsTab({
                 </td>
                 <td>
                   {p.enrolled.length === 0 && <span className="pill warn">Not enrolled</span>}
-                  {p.enrolled.map((e) => (
-                    <span key={e.sectionId} className="assigned">
-                      {e.label}
-                      {canEnrol && (
-                        <button
-                          className="mini"
-                          title="Remove from this course"
-                          disabled={pending}
-                          onClick={() => run(() => setup.unenrolStudent(p.user.id, e.sectionId))}
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </span>
-                  ))}
+                  {/* Compact abbreviated chips, wrapping in a constrained area,
+                      so a full diploma of nine courses keeps the row sleek. */}
+                  <span className="crsechips">
+                    {p.enrolled.map((e) => (
+                      <span key={e.sectionId} className="crsechip" title={e.label}>
+                        {shortCourseLabel(e.label)}
+                        {canEnrol && (
+                          <button
+                            className="mini"
+                            title={`Remove from ${e.label}`}
+                            disabled={pending}
+                            onClick={() => run(() => setup.unenrolStudent(p.user.id, e.sectionId))}
+                          >
+                            ✕
+                          </button>
+                        )}
+                      </span>
+                    ))}
+                  </span>
                 </td>
                 {canEnrol && (
                   <td>

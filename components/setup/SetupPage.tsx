@@ -27,6 +27,7 @@ export default function SetupPage({
   can,
   myCapabilities,
   myUserId,
+  districtTier,
 }: {
   courseRows: CourseRow[]
   people: PersonRow[]
@@ -45,15 +46,18 @@ export default function SetupPage({
   }
   myCapabilities: string[]
   myUserId: string
+  /** District-tier granter — the only tier that may hand out the district preset. */
+  districtTier: boolean
 }) {
   const [tab, setTab] = useState<Tab>('students')
 
-  // Sections, flattened into something a picker can search. The label carries
-  // the section letter only where the course has more than one.
+  // The courses this cohort runs, as picker options. Each carries its
+  // (invisible, exactly-one) section id — the write key the actions expect;
+  // the label is the course name and nothing else.
   const sectionOptions: PickerOption[] = courseRows.flatMap((r) =>
     r.sections.map((s) => ({
       id: s.section.id,
-      label: r.course.name + (r.sections.length > 1 ? ` — ${s.section.label}` : ''),
+      label: r.course.name,
       sub: `${r.course.subjectGroup} · ${s.students} enrolled`,
     })),
   )
@@ -66,7 +70,7 @@ export default function SetupPage({
   const TABS: [Tab, string][] = [
     ['students', `Students (${students.length})`],
     ['candidates', `IB identifiers${needIdentifiers ? ` (${needIdentifiers})` : ''}`],
-    ['courses', `Courses & sections (${courseRows.filter((r) => r.sections.length > 0).length})`],
+    ['courses', `Courses (${courseRows.filter((r) => r.sections.length > 0).length})`],
     ['teachers', `Teachers (${people.filter((p) => !p.isStudent).length})`],
     ['permissions', 'Permissions'],
   ]
@@ -140,6 +144,7 @@ export default function SetupPage({
               myCapabilities={myCapabilities}
               canAssign={can.roles}
               myUserId={myUserId}
+              districtTier={districtTier}
             />
           )}
         </div>

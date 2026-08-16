@@ -17,7 +17,7 @@ import type {
   TeachingAssignment, User,
 } from '../types'
 import type {
-  IaMarksRow, IaMarksView, MarkEvent, MarkEventRow, MarkUnlock,
+  IaMarksRow, IaMarksView, MarkEvent, MarkEventRow, MarkUnlock, SampleRequest,
 } from '../ia/types'
 import { iaTotal, templateOf } from '../templates'
 import { todayRiyadh } from './dates'
@@ -36,10 +36,11 @@ export function makeIaRepository(deps: {
   states: RequirementState[]
   events: MarkEvent[]
   unlocks: MarkUnlock[]
+  samples: SampleRequest[]
 }): IaRepository {
   const {
     courses, sections, enrollments, students, users, assignments, defs, states,
-    events, unlocks,
+    events, unlocks, samples,
   } = deps
 
   // Both scoped by school: a def or state reached with another school's id is a
@@ -330,6 +331,61 @@ export function makeIaRepository(deps: {
           prev: null, next: null, byUserId: userId, overrideReason: ended.reason,
         })
       }
+    },
+
+    // --------------------------------------------- the moderation sample
+
+    async getSampleRequest(schoolId, courseId, cohortId) {
+      return (
+        samples.find(
+          (s) =>
+            s.schoolId === schoolId && s.courseId === courseId && s.cohortId === cohortId,
+        ) ?? null
+      )
+    },
+
+    async saveSampleRequest(schoolId, courseId, cohortId, studentIds, by) {
+      const course = courses.find((c) => c.id === courseId && c.schoolId === schoolId)
+      if (!course) throw new Error('That course is not at this school.')
+      // Only candidates of THIS course × cohort can be sampled — anything else
+      // in the list is a client mistake and is dropped rather than stored.
+      const sectionIds = sectionIdsOf(courseId, cohortId)
+      const valid = [...new Set(studentIds)].filter((id) =>
+        enrollments.some((e) => e.studentId === id && sectionIds.includes(e.sectionId)),
+      )
+      // AT MOST ONE live per course + cohort: a new selection replaces the
+      // draft (and always lands as a draft — submission is its own act).
+      const existing = samples.find(
+        (s) => s.schoolId === schoolId && s.courseId === courseId && s.cohortId === cohortId,
+      )
+      if (existing) {
+        existing.studentIds = valid
+        existing.status = 'draft'
+        existing.submittedAt = undefined
+        existing.recordedBy = nameOf(by)
+        existing.recordedAt = new Date().toISOString()
+        return existing
+      }
+      const sample: SampleRequest = {
+        id: `sr_${courseId}_${cohortId}`,
+        schoolId, cohortId, courseId,
+        studentIds: valid,
+        recordedBy: nameOf(by),
+        recordedAt: new Date().toISOString(),
+        status: 'draft',
+      }
+      samples.push(sample)
+      return sample
+    },
+
+    async setSampleSubmitted(schoolId, courseId, cohortId, on, by) {
+      const sample = samples.find(
+        (s) => s.schoolId === schoolId && s.courseId === courseId && s.cohortId === cohortId,
+      )
+      if (!sample) throw new Error('No moderation sample is recorded for this course yet.')
+      sample.status = on ? 'submitted' : 'draft'
+      sample.submittedAt = on ? new Date().toISOString() : undefined
+      sample.recordedBy = nameOf(by)
     },
 
     async listMarkEvents(schoolId, courseId, cohortId) {

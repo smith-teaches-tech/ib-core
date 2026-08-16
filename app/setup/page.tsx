@@ -75,6 +75,8 @@ export default async function Setup({
         schoolName={school.name}
         myCapabilities={mine}
         myUserId={user.id}
+        // The district tier is a preset, not a school: one person, any school.
+        districtTier={memberships.some((m) => m.presetKey === 'district')}
         // An archived year is a record, not a workspace: every write capability
         // is withdrawn on the way in. The actions enforce it again server-side.
         can={{

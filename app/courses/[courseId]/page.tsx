@@ -5,6 +5,7 @@ import CasRoster from '@/components/cas/CasRoster'
 import CohortBar from '@/components/CohortBar'
 import MarkHistory from '@/components/ia/MarkHistory'
 import MarksGrid from '@/components/ia/MarksGrid'
+import SamplePanel from '@/components/ia/SamplePanel'
 import UnlockMarks from '@/components/ia/UnlockMarks'
 import StudentCas from '@/components/cas/StudentCas'
 import { repo } from '@/lib/data'
@@ -130,7 +131,7 @@ export default async function CoursePage({
 
         // The whole-student popout, teacher edition: names in the grid open
         // the same CandidatePanel the board uses, selection in the URL. Gated
-        // server-side — a teacher reaches only students in sections they are
+        // server-side — a teacher reaches only students in courses they are
         // assigned to, and IB identifiers leave only for identifier holders.
         const mayOpenCandidate = wantedCandidate
           ? coordinatorReader ||
@@ -147,6 +148,13 @@ export default async function CoursePage({
           isMarker || coordinatorReader
             ? await repo.ia.listMarkEvents(school.id, course.id, cohortId)
             : null
+
+        // The moderation sample: the MARKER (they know which candidates IBIS
+        // named for their course) and the coordinator tier see and record it.
+        const showSample = isMarker || coordinatorReader
+        const sample = showSample
+          ? await repo.ia.getSampleRequest(school.id, course.id, cohortId)
+          : null
 
         const baseHref = `/courses/${course.id}?cohort=${cohortId}`
         body = (
@@ -184,12 +192,20 @@ export default async function CoursePage({
                       : 'Read-only — no designated marker is set for this course.'
                     : undefined
               }
-              candidateHref={(id) => `${baseHref}&candidate=${id}`}
+              candidateBase={`${baseHref}&candidate=`}
             />
+            {showSample && (
+              <SamplePanel
+                view={view}
+                sample={sample}
+                canEdit={!readOnly && (isMarker || session.can('sample.import'))}
+                sessionLabel={cohort ? `M${String(cohort.gradYear).slice(-2)}` : 'M27'}
+              />
+            )}
             {events != null && <MarkHistory events={events} />}
             {wantedCandidate && !mayOpenCandidate && (
               <div className="note warn" style={{ marginTop: 14 }}>
-                Not your student — the panel opens only for students in your own sections.
+                Not your student — the panel opens only for students in your own courses.
               </div>
             )}
             {track && <CandidatePanel track={track} closeHref={baseHref} />}
@@ -199,7 +215,7 @@ export default async function CoursePage({
         body = (
           <>
             <h1>{course.name}</h1>
-            <div className="note">This course has no sections for {cohort?.label ?? 'this year group'} yet.</div>
+            <div className="note">This course is not running for {cohort?.label ?? 'this year group'} yet.</div>
           </>
         )
       }

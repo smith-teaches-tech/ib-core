@@ -2,8 +2,8 @@
 
 // New year group — two starts, one rule.
 //
-// CLONE copies STRUCTURE from an existing cohort: courses (their sections),
-// who teaches them (markership included), and fresh requirement definitions
+// CLONE copies STRUCTURE from an existing cohort: the courses it runs, who
+// teaches them (markership included), and fresh requirement definitions
 // instantiated from the CURRENT IA templates. SCRATCH creates an empty cohort
 // and courses arrive later through Add & assign. Neither ever copies
 // students, enrolments, marks or recorded states — work belongs to the year
@@ -102,7 +102,7 @@ export default function CreateCohort({
 
         <p className="mut" style={{ fontSize: 12, margin: '10px 0' }}>
           {mode === 'clone'
-            ? 'Cloning copies courses, sections and teacher assignments, and instantiates fresh requirement definitions from the current IA templates. It never copies students, enrolments, marks or recorded states.'
+            ? 'Cloning copies the courses the year group runs and their teacher assignments (markership included), and instantiates fresh requirement definitions from the current IA templates. It never copies students, enrolments, marks or recorded states.'
             : 'An empty year group — add courses and sections through Add & assign, exactly as usual.'}
         </p>
 

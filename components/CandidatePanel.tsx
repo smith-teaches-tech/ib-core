@@ -101,7 +101,7 @@ export default function CandidatePanel({
         <div className="sp-b">
           <div className="sp-sec">
             <h4>
-              Sent to IB <span className="tag ib">uploaded / confirmed / typed</span>
+              IB checklist <span className="tag ib">uploaded / confirmed / typed</span>
             </h4>
             {item('cas.complete', 'CAS complete')}
             {item('ee.final', 'EE — final essay')}
@@ -133,7 +133,7 @@ export default function CandidatePanel({
 
           <div className="sp-sec">
             <h4>
-              School records <span className="tag int">not sent to IB unless sampled</span>
+              School tracking <span className="tag int">not sent to IB unless sampled</span>
             </h4>
             <table className="sp-ia">
               <thead>

@@ -52,7 +52,7 @@ export default async function AllCourses({
                 <tr>
                   <th style={{ width: 200 }}>Course</th>
                   <th>Level</th>
-                  <th>Sections</th>
+                  <th>Running</th>
                   <th>Students</th>
                   <th>Teachers</th>
                 </tr>
@@ -74,29 +74,22 @@ export default async function AllCourses({
                         {r.sections.length === 0 ? (
                           <span className="pill grey">Not running</span>
                         ) : (
-                          r.sections.map((s) => (
-                            <span key={s.section.id} className="pill grey" style={{ marginRight: 4 }}>
-                              {s.section.label}
-                            </span>
-                          ))
+                          <span className="pill ok">this year</span>
                         )}
                       </td>
                       <td>{r.students || <span className="mut">—</span>}</td>
                       <td>
-                        {/* One chip per teacher PER SECTION. A teacher who takes
-                            both Biology SL groups appears twice, so the key has to
-                            carry the section — and the label has to as well, or the
-                            two chips read as an accidental duplicate. */}
+                        {/* One chip per teacher of the course — ★ marks the
+                            one designated marker. */}
                         {r.sections.flatMap((s) =>
                           s.teachers.map((t) => (
                             <span
-                              key={s.section.id + ':' + t.userId}
+                              key={t.userId}
                               className="pill ok"
                               style={{ marginRight: 4 }}
-                              title={t.isDesignatedMarker ? 'Designated marker' : 'Teaches this section'}
+                              title={t.isDesignatedMarker ? 'Designated marker' : 'Teaches this course'}
                             >
                               {t.name}
-                              {r.sections.length > 1 && ` ${s.section.label}`}
                               {t.isDesignatedMarker ? ' ★' : ''}
                             </span>
                           )),

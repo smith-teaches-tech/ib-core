@@ -9,6 +9,7 @@ import Link from 'next/link'
 import CohortBar from '@/components/CohortBar'
 import MarkHistory from '@/components/ia/MarkHistory'
 import MarksGrid from '@/components/ia/MarksGrid'
+import SamplePanel from '@/components/ia/SamplePanel'
 import Shell from '@/components/Shell'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
@@ -91,6 +92,16 @@ export default async function MarksPage({
                 : undefined
             }
           />
+          {/* The coordinator's copy of the moderation-sample panel — same
+              entity the marker sees on the course page. */}
+          {session.can('sample.import') && (
+            <SamplePanel
+              view={view}
+              sample={await repo.ia.getSampleRequest(school.id, view.course.id, cohortId)}
+              canEdit={!readOnly}
+              sessionLabel={cohort ? `M${String(cohort.gradYear).slice(-2)}` : 'M27'}
+            />
+          )}
           {session.can('marks.transcribe') && (
             <MarkHistory
               events={await repo.ia.listMarkEvents(school.id, view.course.id, cohortId)}

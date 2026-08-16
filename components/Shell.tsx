@@ -42,6 +42,11 @@ export default async function Shell({
 
   const schools = await repo.listSchools()
   const mySchools = schools.filter((s) => session.memberships.some((m) => m.schoolId === s.id))
+  // The school switcher belongs to the DISTRICT TIER alone — the one district
+  // coordinator moves between schools; an IB coordinator lives in theirs.
+  // (A school-tier user with one membership never had it; this makes the rule
+  // hold even for a hypothetical school-tier user with two.)
+  const districtTier = session.memberships.some((m) => m.presetKey === 'district')
   const documents = await repo.listDocuments(session.school.id, session.user.id)
 
   return (
@@ -51,7 +56,7 @@ export default async function Shell({
           IB&nbsp;Core <span>· {session.school.name}</span>
         </Link>
 
-        {mySchools.length > 1 && (
+        {districtTier && mySchools.length > 1 && (
           <form action="/api/dev/school" method="POST">
             <select name="schoolId" defaultValue={session.school.id}>
               {mySchools.map((s) => (

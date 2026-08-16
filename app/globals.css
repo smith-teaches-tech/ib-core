@@ -695,3 +695,35 @@ details.archived .navrow { opacity: .75; }
 .chip.on .n{color:#cfe3e0}
 /* the marks grid has ONE header row — don't inherit the two-row sticky offset */
 .board.marks tr.bcols th{top:0}
+
+/* ---- students tab: compact course chips (one sleek row) ---------------- */
+.crsechips{display:inline-flex;flex-wrap:wrap;gap:3px;max-width:340px;vertical-align:middle}
+.crsechip{display:inline-flex;align-items:center;gap:2px;background:#eef1f4;border-radius:5px;
+  padding:1px 3px 1px 6px;font-size:11px;font-weight:600;color:#5b6470;white-space:nowrap;line-height:1.5}
+
+/* ---- teacher-comment overlay (IA/EE/TOK comments are paragraphs) ------- */
+.cmtprev{display:inline-flex;align-items:center;gap:3px;border:0;background:transparent;
+  cursor:pointer;padding:0;font:inherit;max-width:220px;text-align:left}
+.cmtprev:hover .cmt{color:var(--ink)}
+.cmtprev .cmt{cursor:pointer}
+.cmtmore{color:var(--brand);font-weight:800;font-size:12px;flex:none}
+.cmtback{position:fixed;inset:0;background:rgba(15,23,32,.35);z-index:60;
+  display:flex;align-items:center;justify-content:center}
+.cmtcard{background:#fff;border:1px solid var(--line);border-radius:12px;
+  box-shadow:0 18px 50px rgba(15,23,32,.25);width:min(560px,calc(100vw - 40px));
+  padding:14px 16px}
+.cmtcard-h{display:flex;align-items:center;margin-bottom:10px;font-size:13px}
+.cmtcard-h .spacer{flex:1}
+.cmtarea{width:100%;border:1px solid var(--line);border-radius:8px;font:inherit;
+  font-size:13px;line-height:1.55;padding:8px 10px;resize:vertical;box-sizing:border-box}
+.cmtarea:focus{outline:0;border-color:var(--brand)}
+.cmtfull{font-size:13px;line-height:1.6;white-space:pre-wrap;max-height:50vh;overflow:auto}
+
+/* ---- moderation sample panel ------------------------------------------- */
+.samplerows{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:2px 14px}
+.samplerow{display:flex;align-items:center;gap:7px;font-size:12.5px;padding:3px 6px;
+  border-radius:7px;cursor:pointer}
+.samplerow:hover{background:#f4f6f8}
+.samplerow.on{background:var(--brand-soft)}
+.samplerow .sn{font-variant-numeric:tabular-nums;color:var(--muted);width:34px;flex:none}
+.samplerow .nm{font-weight:600}

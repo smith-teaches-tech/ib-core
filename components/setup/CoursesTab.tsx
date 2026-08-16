@@ -2,10 +2,12 @@
 
 // The catalogue, and which of it this cohort actually runs.
 //
-// The distinction the screen has to make clear, because it is the model: a
-// COURSE belongs to the school and outlives cohorts; a SECTION is a group within
-// it for one cohort. So "we offer Chem HL this year" is a section, not a course,
-// and dropping a course next year deletes nothing.
+// COURSES ARE THE WHOLE VOCABULARY HERE (product decision, 2026-08): Skyward
+// and Google Classroom own class groupings; this system tracks IB
+// requirements, which attach to courses. A course either runs for a year
+// group or it does not — there is nothing smaller to manage, and no A/B
+// labels anywhere. (Internally one invisible section per course carries the
+// cohort; no screen shows it.)
 
 import { useState, useTransition } from 'react'
 import * as setup from '@/lib/setup/actions'
@@ -50,12 +52,24 @@ export default function CoursesTab({
   const running = rows.filter((r) => r.sections.length > 0)
   const dormant = rows.filter((r) => r.sections.length === 0)
 
+  const remove = (r: CourseRow) => {
+    if (
+      !window.confirm(
+        `Remove ${r.course.name} from ${cohortLabel}? This removes the course, its requirements ` +
+          'and enrolments for this cohort. If any work has been recorded it will refuse.',
+      )
+    ) {
+      return
+    }
+    run(() => setup.removeCourse(r.course.id, cohortId))
+  }
+
   return (
     <>
       <div className="note">
-        A <b>course</b> belongs to the school. A <b>section</b> is a group within it for one cohort.
-        Adding a course to {cohortLabel} creates its first section — the catalogue itself does not
-        change, so a course you skip this year is still there next year.
+        A <b>course</b> belongs to the school; running it for {cohortLabel} is a per-year decision.
+        A course you skip this year is still in the catalogue next year. Class groupings live in
+        Skyward and Google Classroom — here a course is one group, full stop.
       </div>
 
       {canSections && (
@@ -173,90 +187,86 @@ export default function CoursesTab({
               <th>Group</th>
               <th>Level</th>
               <th>IA rubric</th>
-              <th>Sections</th>
-              <th>Students</th>
               <th>Teachers</th>
-              {canSections && <th />}
+              <th>Marker</th>
+              <th>Students</th>
+              {canCatalogue && <th />}
             </tr>
           </thead>
           <tbody>
-            {running.map((r) => (
-              <tr key={r.course.id}>
-                <td className="name">{r.course.name}</td>
-                <td className="mut">{r.course.subjectGroup}</td>
-                <td>{r.course.level ? <span className="pill info">{r.course.level}</span> : <span className="mut">—</span>}</td>
-                <td>
-                  {r.course.type === 'subject' ? (
-                    <span
-                      className={`pill ${templateOf(r.course.iaTemplateKey).verify ? 'gold' : 'grey'}`}
-                      title={`${templateOf(r.course.iaTemplateKey).component} — ${templateOf(r.course.iaTemplateKey).guide}${templateOf(r.course.iaTemplateKey).verify ? ' · ' + templateOf(r.course.iaTemplateKey).verify : ''}`}
-                    >
-                      /{templateOf(r.course.iaTemplateKey).markMax}
-                      {templateOf(r.course.iaTemplateKey).criteria.length > 0
-                        ? ` · ${templateOf(r.course.iaTemplateKey).criteria.length} crit.`
-                        : ' · total only'}
-                    </span>
-                  ) : (
-                    <span className="mut">—</span>
-                  )}
-                </td>
-                <td>
-                  {r.sections.map((s) => (
-                    <span key={s.section.id} className="pill grey" style={{ marginRight: 4 }}>
-                      {s.section.label} · {s.students}
-                    </span>
-                  ))}
-                </td>
-                <td><b>{r.students}</b></td>
-                <td>
-                  {r.sections.every((s) => s.teachers.length === 0) ? (
-                    <span className="pill warn">None assigned</span>
-                  ) : (
-                    // Per teacher PER SECTION — see the note in app/courses/page.tsx.
-                    r.sections.flatMap((s) =>
-                      s.teachers.map((t) => (
+            {running.map((r) => {
+              const teachers = r.sections.flatMap((s) => s.teachers)
+              const marker = teachers.find((t) => t.isDesignatedMarker)
+              return (
+                <tr key={r.course.id}>
+                  <td className="name">{r.course.name}</td>
+                  <td className="mut">{r.course.subjectGroup}</td>
+                  <td>{r.course.level ? <span className="pill info">{r.course.level}</span> : <span className="mut">—</span>}</td>
+                  <td>
+                    {r.course.type === 'subject' ? (
+                      <span
+                        className={`pill ${templateOf(r.course.iaTemplateKey).verify ? 'gold' : 'grey'}`}
+                        title={`${templateOf(r.course.iaTemplateKey).component} — ${templateOf(r.course.iaTemplateKey).guide}${templateOf(r.course.iaTemplateKey).verify ? ' · ' + templateOf(r.course.iaTemplateKey).verify : ''}`}
+                      >
+                        /{templateOf(r.course.iaTemplateKey).markMax}
+                        {templateOf(r.course.iaTemplateKey).criteria.length > 0
+                          ? ` · ${templateOf(r.course.iaTemplateKey).criteria.length} crit.`
+                          : ' · total only'}
+                      </span>
+                    ) : (
+                      <span className="mut">—</span>
+                    )}
+                  </td>
+                  <td>
+                    {teachers.length === 0 ? (
+                      <span className="pill warn">None assigned</span>
+                    ) : (
+                      teachers.map((t) => (
                         <span
-                          key={s.section.id + ':' + t.userId}
+                          key={t.userId}
                           className="pill ok"
                           style={{ marginRight: 4 }}
-                          title={t.isDesignatedMarker ? 'Designated marker' : 'Teaches this section'}
+                          title={t.isDesignatedMarker ? 'Designated marker' : 'Teaches this course'}
                         >
                           {t.name}
-                          {r.sections.length > 1 && ` ${s.section.label}`}
-                          {t.isDesignatedMarker ? ' ★' : ''}
                         </span>
-                      )),
-                    )
-                  )}
-                </td>
-                {canSections && (
-                  <td>
-                    <button
-                      className="btn sm ghost"
-                      disabled={pending}
-                      onClick={() =>
-                        run(() =>
-                          setup.addSection(
-                            r.course.id,
-                            cohortId,
-                            String.fromCharCode(65 + r.sections.length),
-                          ),
-                        )
-                      }
-                    >
-                      + section
-                    </button>
+                      ))
+                    )}
                   </td>
-                )}
-              </tr>
-            ))}
+                  <td>
+                    {marker ? (
+                      <span className="pill info" title="The teacher the IB holds responsible for this course's marks">
+                        ★ {marker.name}
+                      </span>
+                    ) : (
+                      <span className="pill warn">none set</span>
+                    )}
+                  </td>
+                  <td><b>{r.students}</b></td>
+                  {canCatalogue && (
+                    <td>
+                      <button
+                        className="btn sm ghost"
+                        disabled={pending}
+                        title="Remove this course from this cohort — refused if any work has been recorded"
+                        onClick={() => remove(r)}
+                      >
+                        ✕ remove
+                      </button>
+                    </td>
+                  )}
+                </tr>
+              )
+            })}
           </tbody>
         </table>
       </div>
 
       <p className="mut" style={{ fontSize: 12, marginTop: 10 }}>
-        ★ marks the designated marker — the teacher the IB holds responsible for that section&rsquo;s
-        marks. Set it on the Teachers tab.
+        ★ marks the designated marker — the teacher the IB holds responsible for the course&rsquo;s
+        marks; there is always exactly one. Assign teachers and set the marker on the Teachers tab.
+        Removing a course is refused the moment any work is recorded against it — archive the cohort
+        instead.
       </p>
     </>
   )

@@ -72,16 +72,21 @@ const SUBMISSION: CapabilityKey[] = [
 ]
 const COMMS: CapabilityKey[] = ['announcements.post', 'documents.manage', 'summaries.print']
 
+/**
+ * TWO COORDINATOR TIERS, locked in (product decision, 2026-08): exactly one
+ * DISTRICT COORDINATOR, who can switch schools; IB COORDINATORS live in one
+ * school each. The names below are the product's names for them.
+ */
 export const PRESETS: Record<PresetKey, { label: string; capabilities: CapabilityKey[] }> = {
   // The district coordinator holds everything, always. Not reducible.
-  district: { label: 'District IB Coordinator', capabilities: ALL },
+  district: { label: 'District coordinator', capabilities: ALL },
   school_full: {
-    label: 'School coordinator — full',
+    label: 'IB coordinator — full',
     capabilities: [...SETUP, 'roles.assign', ...COMMS, ...MODULES, ...SUBMISSION, 'session.configure', 'trail.view'],
   },
   // Recommended default: can do the whole job, cannot do the irreversible parts alone.
   school_standard: {
-    label: 'School coordinator — standard',
+    label: 'IB coordinator — standard',
     capabilities: [...SETUP, ...COMMS, ...MODULES, ...SUBMISSION],
   },
   setup_only: { label: 'Setup only', capabilities: [...SETUP, 'summaries.print'] },

@@ -85,6 +85,29 @@ export interface MarkEventRow {
 }
 
 /**
+ * The IBIS moderation sample for one course × cohort.
+ *
+ * The flow it records: the coordinator enters every candidate's total into
+ * IBIS; IBIS names the sampled candidates; the school uploads those
+ * candidates' IA files and scores to eCoursework. At most ONE of these lives
+ * per course + cohort — saving a new selection replaces the draft, and
+ * amending a submitted one reopens it as a draft.
+ */
+export interface SampleRequest {
+  id: string
+  schoolId: string
+  cohortId: string
+  courseId: string
+  /** The sampled candidates, by user id. */
+  studentIds: string[]
+  recordedBy: string
+  recordedAt: string
+  status: 'draft' | 'submitted'
+  /** Set when status is 'submitted' — when it was marked done in eCoursework. */
+  submittedAt?: string
+}
+
+/**
  * A coordinator's temporary permission to edit a course's marks. Not an event:
  * this is operational state (it expires, it can be ended early); the acts of
  * unlocking and relocking are what land on the trail.

@@ -21,7 +21,7 @@ import { makeSetupRepository } from './setup-repo'
 import { GROUP_CHOICES, GROUP_KEYS, SIXTH_SUBJECT, catalogueFor } from './catalogue'
 import { templateOf } from '../templates'
 import { makeIaRepository } from './ia-repo'
-import type { MarkEvent, MarkUnlock } from '../ia/types'
+import type { MarkEvent, MarkUnlock, SampleRequest } from '../ia/types'
 import { pinned } from './pin'
 import { sortCohorts } from '../cohorts'
 
@@ -70,26 +70,26 @@ export const COURSES: Course[] = pinned('ibCourses', () => catalogueFor('dhahran
 const NOT_RUNNING = new Set(['germ_a_sl', 'fr_b_hl', 'econ_hl'])
 
 /**
- * One section per running course, plus a second for the two biggest — which is
- * the only reason Section exists as its own object. A course with a single
- * section shows its label nowhere in the UI.
- */
-/**
- * A section belongs to ONE cohort. Two live cohorts therefore mean two sets of
+ * EXACTLY ONE section per running course per cohort — the invisible
+ * implementation detail. Skyward and Google Classroom own class groupings;
+ * this system tracks IB requirements, which are per COURSE. Section survives
+ * internally only because it is what carries the cohort, and nothing
+ * user-facing ever shows a section label again (product decision, 2026-08).
+ *
+ * A section still belongs to ONE cohort: two live cohorts mean two sets of
  * sections over the same catalogue — which is what makes Biology SL for the
  * Class of 2027 and Biology SL for the Class of 2028 different groups, with
  * different students and, potentially, different teachers.
  */
 export const SECTIONS: Section[] = pinned('ibSections', () =>
   DHAHRAN_COHORTS.flatMap((cohortId) =>
-    COURSES.filter((c) => !NOT_RUNNING.has(c.id)).flatMap((c) =>
-      c.id === 'eng_hl' || c.id === 'bio_sl'
-        ? [
-            { id: `${c.id}_${cohortId}_a`, schoolId: 'dhahran', courseId: c.id, cohortId, label: 'A' },
-            { id: `${c.id}_${cohortId}_b`, schoolId: 'dhahran', courseId: c.id, cohortId, label: 'B' },
-          ]
-        : [{ id: `${c.id}_${cohortId}_a`, schoolId: 'dhahran', courseId: c.id, cohortId, label: 'A' }],
-    ),
+    COURSES.filter((c) => !NOT_RUNNING.has(c.id)).map((c) => ({
+      id: `${c.id}_${cohortId}_a`,
+      schoolId: 'dhahran',
+      courseId: c.id,
+      cohortId,
+      label: 'A',
+    })),
   ),
 )
 
@@ -210,10 +210,11 @@ export const MEMBERSHIPS: Membership[] = pinned('ibMemberships', () => [
  * Which is why reassigning a teacher moves no student records at all.
  */
 export const TEACHING_ASSIGNMENTS: TeachingAssignment[] = pinned('ibAssignments', () => [
-  // Class of 2027 — graduating next
+  // Class of 2027 — graduating next. Biology SL is co-taught: Farouk is the
+  // one designated marker, Silva reads. (The old two-section split merged into
+  // the single implicit section; exactly one marker survived the merge.)
   { teacherId: 'u_farouk', sectionId: 'bio_sl_c15_a', isDesignatedMarker: true },
-  { teacherId: 'u_farouk', sectionId: 'bio_sl_c15_b', isDesignatedMarker: true },
-  { teacherId: 'u_silva', sectionId: 'bio_sl_c15_b', isDesignatedMarker: false }, // co-taught
+  { teacherId: 'u_silva', sectionId: 'bio_sl_c15_a', isDesignatedMarker: false }, // co-taught
   { teacherId: 'u_silva', sectionId: 'busman_sl_c15_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'tok_c15_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'cas_c15_a', isDesignatedMarker: true },
@@ -507,6 +508,17 @@ function allStates(): RequirementState[] {
   return [...REQUIREMENT_STATES, ...deriveCasStates(STUDENTS, REQUIREMENT_DEFS, CAS_DATA)]
 }
 
+/**
+ * The IA audit trail and unlock records — runtime-written, so pinned. Both
+ * start empty: fixtures fake a mid-year school, but a fabricated audit trail
+ * would be a lie about who changed what, which is the one thing it exists to
+ * never be. Sample requests (the IBIS moderation sample) are runtime-written
+ * too, so they are pinned for the same reason.
+ */
+export const MARK_EVENTS: MarkEvent[] = pinned('ibMarkEvents', () => [])
+const MARK_UNLOCKS: MarkUnlock[] = pinned('ibMarkUnlocks', () => [])
+export const SAMPLE_REQUESTS: SampleRequest[] = pinned('ibSampleRequests', () => [])
+
 const setupRepository = makeSetupRepository({
   courses: COURSES,
   sections: SECTIONS,
@@ -517,16 +529,11 @@ const setupRepository = makeSetupRepository({
   assignments: TEACHING_ASSIGNMENTS,
   defs: REQUIREMENT_DEFS,
   cohorts: COHORTS,
+  // Remove-course refuses whenever recorded work exists — it needs to SEE the
+  // recorded work to refuse honestly.
+  states: REQUIREMENT_STATES,
+  events: MARK_EVENTS,
 })
-
-/**
- * The IA audit trail and unlock records — runtime-written, so pinned. Both
- * start empty: fixtures fake a mid-year school, but a fabricated audit trail
- * would be a lie about who changed what, which is the one thing it exists to
- * never be.
- */
-export const MARK_EVENTS: MarkEvent[] = pinned('ibMarkEvents', () => [])
-const MARK_UNLOCKS: MarkUnlock[] = pinned('ibMarkUnlocks', () => [])
 
 const iaRepository = makeIaRepository({
   courses: COURSES,
@@ -539,6 +546,7 @@ const iaRepository = makeIaRepository({
   states: REQUIREMENT_STATES,
   events: MARK_EVENTS,
   unlocks: MARK_UNLOCKS,
+  samples: SAMPLE_REQUESTS,
 })
 
 const casRepository = makeCasRepository({

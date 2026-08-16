@@ -51,7 +51,7 @@ export default function ImportStudents({
   if (!canImport) {
     return (
       <div className="note warn">
-        <b>You cannot import students at this school.</b> The district IB coordinator grants this
+        <b>You cannot import students at this school.</b> The District coordinator grants this
         under <b>Permissions</b>. Nothing here is hidden from you — you simply have not been given
         the <code>students.add</code> capability.
       </div>

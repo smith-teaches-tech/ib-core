@@ -55,7 +55,7 @@ export const COORDINATOR_PAGES: NavPage[] = [
   {
     href: '/',
     label: 'Check work',
-    hint: 'The readiness board — sent to IB, school records',
+    hint: 'The readiness board — IB checklist, school tracking',
     ready: true,
   },
   {

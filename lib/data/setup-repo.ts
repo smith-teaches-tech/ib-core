@@ -9,9 +9,10 @@
 
 import type { SetupRepository } from './repository'
 import type {
-  Cohort, Course, Enrollment, Membership, RequirementDef, Section, Student,
-  TeachingAssignment, User,
+  Cohort, Course, Enrollment, Membership, RequirementDef, RequirementState,
+  Section, Student, TeachingAssignment, User,
 } from '../types'
+import type { MarkEvent } from '../ia/types'
 import { resolveCapabilities } from '../capabilities'
 import { templateOf } from '../templates'
 import { normaliseSessionNumber, parseIdentifiers, parseRoster } from '../setup/parse'
@@ -30,9 +31,13 @@ export function makeSetupRepository(deps: {
   assignments: TeachingAssignment[]
   defs: RequirementDef[]
   cohorts: Cohort[]
+  /** Read-only here — removeCourse refuses whenever these reference the course. */
+  states: RequirementState[]
+  events: MarkEvent[]
 }): SetupRepository {
   const {
     courses, sections, enrollments, users, students, memberships, assignments, defs, cohorts,
+    states, events,
   } = deps
 
   const uniqueId = (base: string, taken: (id: string) => boolean) => {
@@ -46,6 +51,20 @@ export function makeSetupRepository(deps: {
   const sectionAt = (schoolId: string, sectionId: string) => {
     const section = sections.find((s) => s.id === sectionId && s.schoolId === schoolId)
     if (!section) throw new Error('That section is not at this school.')
+    return section
+  }
+
+  /**
+   * THE IMPLICIT SECTION — exactly one per course per cohort, and the whole
+   * of what "Section" means to a user now (which is: nothing). Course-level
+   * operations resolve through this; a course with no section simply does not
+   * run for that year group.
+   */
+  const implicitSection = (schoolId: string, cohortId: string, courseId: string) => {
+    const section = sections.find(
+      (s) => s.schoolId === schoolId && s.cohortId === cohortId && s.courseId === courseId,
+    )
+    if (!section) throw new Error('That course does not run for that year group.')
     return section
   }
 
@@ -144,18 +163,13 @@ export function makeSetupRepository(deps: {
           const user = users.find((u) => u.id === membership.userId)!
           const student = students.find((s) => s.userId === membership.userId) ?? null
 
-          // A section's display name only carries its label where the course has
-          // more than one IN THE SAME COHORT — a single-section course shows the
-          // label nowhere, and a sibling in another year is not a sibling here.
+          // A section IS its course now (exactly one per course per cohort),
+          // so its display name is the course name and nothing else — no A/B
+          // label anywhere in the product.
           const nameOf = (sectionId: string) => {
             const section = sections.find((s) => s.id === sectionId)
             const course = courses.find((c) => c.id === section?.courseId)
-            const many = section
-              ? sections.filter(
-                  (x) => x.courseId === section.courseId && x.cohortId === section.cohortId,
-                ).length > 1
-              : false
-            return (course?.name ?? sectionId) + (many && section ? ` ${section.label}` : '')
+            return course?.name ?? sectionId
           }
           return {
             user,
@@ -251,9 +265,66 @@ export function makeSetupRepository(deps: {
     },
 
     async addSection(schoolId, courseId, cohortId, label) {
+      // ONE section per course per cohort — the invariant that makes sections
+      // invisible. Asking to run a course that already runs returns the
+      // existing section rather than minting a second group.
+      const existing = sections.find(
+        (s) => s.schoolId === schoolId && s.courseId === courseId && s.cohortId === cohortId,
+      )
+      if (existing) return existing.id
       const id = uniqueId(courseId + '_' + slug(label), (x) => sections.some((s) => s.id === x))
       sections.push({ id, schoolId, courseId, cohortId, label: label.trim() || 'A' })
       return id
+    },
+
+    async removeCourse(schoolId, courseId, cohortId) {
+      const course = courses.find((c) => c.id === courseId && c.schoolId === schoolId)
+      if (!course) throw new Error('That course is not at this school.')
+      const courseDefs = defs.filter(
+        (d) =>
+          d.schoolId === schoolId && d.cohortId === cohortId &&
+          d.scope.kind === 'course' && d.scope.courseId === courseId,
+      )
+      // The refusal, and it is the whole safety of the feature: any recorded
+      // work — marks, files, comments, or a mark event in the audit trail —
+      // means this course carries history that belongs to its year.
+      const defIds = new Set(courseDefs.map((d) => d.id))
+      const hasStates = states.some((s) => defIds.has(s.requirementDefId))
+      const hasEvents = events.some(
+        (e) => e.schoolId === schoolId && e.courseId === courseId && e.cohortId === cohortId,
+      )
+      if (hasStates || hasEvents) {
+        throw new Error(
+          'Recorded work exists for this course — archive the cohort instead of removing it.',
+        )
+      }
+
+      const mine = sections.filter(
+        (s) => s.schoolId === schoolId && s.courseId === courseId && s.cohortId === cohortId,
+      )
+      const mineIds = new Set(mine.map((s) => s.id))
+      for (let i = enrollments.length - 1; i >= 0; i--) {
+        if (mineIds.has(enrollments[i].sectionId)) enrollments.splice(i, 1)
+      }
+      for (let i = assignments.length - 1; i >= 0; i--) {
+        if (mineIds.has(assignments[i].sectionId)) assignments.splice(i, 1)
+      }
+      for (let i = sections.length - 1; i >= 0; i--) {
+        if (mineIds.has(sections[i].id)) sections.splice(i, 1)
+      }
+      for (let i = defs.length - 1; i >= 0; i--) {
+        if (defIds.has(defs[i].id)) defs.splice(i, 1)
+      }
+      // The catalogue entry outlives cohorts — unless nobody runs it anywhere
+      // any more, in which case removing the course removes the course.
+      const stillRuns = sections.some((s) => s.courseId === courseId)
+      const stillDefined = defs.some(
+        (d) => d.scope.kind === 'course' && d.scope.courseId === courseId,
+      )
+      if (!stillRuns && !stillDefined) {
+        const at = courses.findIndex((c) => c.id === courseId)
+        if (at >= 0) courses.splice(at, 1)
+      }
     },
 
     async enrolStudent(schoolId, studentId, sectionId) {
@@ -265,6 +336,22 @@ export function makeSetupRepository(deps: {
     async unenrolStudent(schoolId, studentId, sectionId) {
       sectionAt(schoolId, sectionId)
       const at = enrollments.findIndex((e) => e.studentId === studentId && e.sectionId === sectionId)
+      if (at >= 0) enrollments.splice(at, 1)
+    },
+
+    // ---- course-level operations — the section resolves internally --------
+
+    async enrolInCourse(schoolId, cohortId, courseId, studentId) {
+      const section = implicitSection(schoolId, cohortId, courseId)
+      if (enrollments.some((e) => e.studentId === studentId && e.sectionId === section.id)) return
+      enrollments.push({ studentId, sectionId: section.id })
+    },
+
+    async unenrolFromCourse(schoolId, cohortId, courseId, studentId) {
+      const section = implicitSection(schoolId, cohortId, courseId)
+      const at = enrollments.findIndex(
+        (e) => e.studentId === studentId && e.sectionId === section.id,
+      )
       if (at >= 0) enrollments.splice(at, 1)
     },
 
@@ -308,10 +395,49 @@ export function makeSetupRepository(deps: {
 
     async setDesignatedMarker(schoolId, teacherId, sectionId, on) {
       sectionAt(schoolId, sectionId)
-      for (const a of assignments.filter((x) => x.sectionId === sectionId)) {
-        // Exactly one marker per section — that is who the IB holds responsible.
+      const mine = assignments.filter((x) => x.sectionId === sectionId)
+      // Clearing the LAST marker is refused outright: writes are marker-only
+      // (lib/ia/authorize.ts), so a markerless course is an unmarkable course.
+      if (
+        !on &&
+        mine.some((a) => a.teacherId === teacherId && a.isDesignatedMarker) &&
+        !mine.some((a) => a.teacherId !== teacherId && a.isDesignatedMarker)
+      ) {
+        throw new Error(
+          'A course needs a designated marker — set another teacher as marker instead of clearing this one.',
+        )
+      }
+      for (const a of mine) {
+        // Exactly one marker per course — that is who the IB holds responsible.
         if (a.teacherId === teacherId) a.isDesignatedMarker = on
         else if (on) a.isDesignatedMarker = false
+      }
+    },
+
+    async assignTeacherToCourse(schoolId, cohortId, courseId, teacherId) {
+      const section = implicitSection(schoolId, cohortId, courseId)
+      if (assignments.some((a) => a.teacherId === teacherId && a.sectionId === section.id)) return
+      const first = !assignments.some((a) => a.sectionId === section.id)
+      assignments.push({ teacherId, sectionId: section.id, isDesignatedMarker: first })
+    },
+
+    async unassignTeacherFromCourse(schoolId, cohortId, courseId, teacherId) {
+      const section = implicitSection(schoolId, cohortId, courseId)
+      const at = assignments.findIndex(
+        (a) => a.teacherId === teacherId && a.sectionId === section.id,
+      )
+      if (at >= 0) assignments.splice(at, 1)
+    },
+
+    async setCourseMarker(schoolId, cohortId, courseId, teacherId) {
+      const section = implicitSection(schoolId, cohortId, courseId)
+      // Setting THE marker assigns the teacher if they were not already —
+      // markership implies teaching the course.
+      if (!assignments.some((a) => a.teacherId === teacherId && a.sectionId === section.id)) {
+        assignments.push({ teacherId, sectionId: section.id, isDesignatedMarker: false })
+      }
+      for (const a of assignments.filter((x) => x.sectionId === section.id)) {
+        a.isDesignatedMarker = a.teacherId === teacherId
       }
     },
 
@@ -483,6 +609,49 @@ export function makeSetupRepository(deps: {
       }).has(capability)
       if (granted && !fromPreset) m.addedCapabilities.push(capability)
       if (!granted && fromPreset) m.removedCapabilities.push(capability)
+    },
+
+    async setPreset(schoolId, userId, presetKey) {
+      const m = memberships.find((x) => x.userId === userId && x.schoolId === schoolId)
+      if (!m) throw new Error('That person has no membership at this school.')
+
+      const isStudent = m.roles.includes('student')
+      if (isStudent && presetKey !== 'student') {
+        throw new Error('A student membership takes only the student preset.')
+      }
+      if (!isStudent && presetKey === 'student') {
+        throw new Error('The student preset is for students.')
+      }
+
+      // EXACTLY ONE district coordinator, enforced at the data layer rather
+      // than only in the screen. Michael's two memberships are one person —
+      // the guard is per USER, so holding the tier at both schools is fine.
+      if (
+        presetKey === 'district' &&
+        memberships.some((x) => x.presetKey === 'district' && x.userId !== userId)
+      ) {
+        throw new Error(
+          'There is already a district coordinator — transfer instead. (A transfer flow is future work.)',
+        )
+      }
+
+      m.presetKey = presetKey
+      // Deviations were recorded RELATIVE TO the old preset; under a new one
+      // they would mean something different, so a preset change clears them.
+      m.addedCapabilities = []
+      m.removedCapabilities = []
+
+      // Keep the tier roles in step with the preset — the pages dispatch
+      // coordinator views on them. Specialist roles (cas_coordinator, …) are
+      // the person's jobs and survive a preset change untouched.
+      m.roles = m.roles.filter(
+        (r) => r !== 'district_coordinator' && r !== 'school_coordinator',
+      )
+      if (presetKey === 'district') m.roles.unshift('district_coordinator')
+      else if (presetKey === 'school_full' || presetKey === 'school_standard') {
+        m.roles.unshift('school_coordinator')
+      }
+      if (m.roles.length === 0) m.roles.push('teacher')
     },
   }
 }

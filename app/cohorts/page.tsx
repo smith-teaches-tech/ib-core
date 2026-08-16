@@ -47,7 +47,16 @@ export default async function CohortsPage() {
         asking about it.
       </p>
 
-      <div className="panel">
+      {/* Creation FIRST — the reason a coordinator opens this page is usually
+          "start the next year", so the form sits above the list. */}
+      <CreateCohort
+        sources={ordered.map((s) => ({
+          id: s.cohort.id,
+          label: cohortTitle(s.cohort) + (isArchived(s.cohort) ? ' (archived)' : ''),
+        }))}
+      />
+
+      <div className="panel" style={{ marginTop: 14 }}>
         <div className="panel-h">
           <h2>Year groups</h2>
         </div>
@@ -93,13 +102,6 @@ export default async function CohortsPage() {
           )}
         </div>
       </div>
-
-      <CreateCohort
-        sources={ordered.map((s) => ({
-          id: s.cohort.id,
-          label: cohortTitle(s.cohort) + (isArchived(s.cohort) ? ' (archived)' : ''),
-        }))}
-      />
     </Shell>
   )
 }

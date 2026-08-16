@@ -10,8 +10,8 @@
 import { revalidatePath } from 'next/cache'
 import { repo } from '../data'
 import { getSession } from '../session'
-import { canGrant } from '../capabilities'
-import type { CapabilityKey } from '../types'
+import { PRESETS, canGrant } from '../capabilities'
+import type { CapabilityKey, PresetKey } from '../types'
 import { assertLiveCohort } from '../cohorts'
 import type { ImportRow } from './types'
 
@@ -94,6 +94,19 @@ export async function addSection(courseId: string, cohortId: string, label: stri
   return id
 }
 
+/**
+ * Remove a course from a cohort — its requirements, enrolments and teacher
+ * assignments with it. The repository refuses whenever recorded work exists
+ * (marks, files, comments, or anything on the audit trail): that history is
+ * archived with its cohort, never deleted.
+ */
+export async function removeCourse(courseId: string, cohortId: string) {
+  const session = await need('catalogue.manage')
+  await live(session.school.id, { cohortId })
+  await repo.setup.removeCourse(session.school.id, courseId, cohortId)
+  refresh()
+}
+
 export async function enrolStudent(studentId: string, sectionId: string) {
   const session = await need('enrolment.manage')
   await live(session.school.id, { sectionId })
@@ -167,6 +180,43 @@ export async function setCapability(
   }
 
   await repo.setup.setCapability(session.school.id, userId, capability, granted)
+  refresh()
+}
+
+/**
+ * Change a person's preset — the role layer the Permissions tab now manages.
+ *
+ * THE SAME NO-ESCALATION RULE AS setCapability, applied to the whole preset:
+ * every capability the preset contains must be one the granter could grant
+ * individually. So the district preset is assignable only by a district-tier
+ * user (it contains capabilities nobody else holds), and a school coordinator
+ * cannot hand out more than they have. The repository adds two guards of its
+ * own: student/staff kinds cannot cross, and there is exactly ONE district
+ * coordinator.
+ */
+export async function setPreset(userId: string, presetKey: PresetKey) {
+  const session = await getSession()
+
+  if (!session.can('roles.assign')) {
+    throw new Error('You do not have permission to assign roles (roles.assign).')
+  }
+  if (userId === session.user.id) {
+    throw new Error('You cannot change your own permissions.')
+  }
+
+  const districtTier = session.memberships.some((m) => m.presetKey === 'district')
+  if (presetKey === 'district' && !districtTier) {
+    throw new Error('Only the district coordinator can assign the district tier.')
+  }
+  for (const capability of PRESETS[presetKey].capabilities) {
+    if (!canGrant(session.memberships, capability, session.school.id)) {
+      throw new Error(
+        `That preset includes a capability you do not hold yourself (${capability}).`,
+      )
+    }
+  }
+
+  await repo.setup.setPreset(session.school.id, userId, presetKey)
   refresh()
 }
 

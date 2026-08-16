@@ -10,6 +10,7 @@
     "checkpoint": "tsc -p tsconfig.checkpoint.json && node .checkpoint-build/scripts/cas-checkpoint.js"
   },
   "dependencies": {
+    "jszip": "^3.10.1",
     "next": "^15.5.7",
     "react": "19.1.0",
     "react-dom": "19.1.0"

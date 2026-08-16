@@ -15,7 +15,7 @@
 // one recording — see claude/IB-IA-Marks-Spec.md.
 
 import Link from 'next/link'
-import { useState, useTransition } from 'react'
+import { useEffect, useState, useTransition } from 'react'
 import * as ia from '@/lib/ia/actions'
 import type { IaMarksView } from '@/lib/ia/types'
 
@@ -44,7 +44,7 @@ export default function MarksGrid({
   editable,
   canTranscribe,
   readOnlyReason,
-  candidateHref,
+  candidateBase,
 }: {
   view: IaMarksView
   editable: boolean
@@ -53,12 +53,17 @@ export default function MarksGrid({
   /** Set when the cohort is archived — explains why nothing is editable. */
   readOnlyReason?: string
   /**
-   * When set, candidate names link here — the whole-student side panel, same
-   * pattern as the board. The page gates who may actually open it.
+   * When set, candidate names link to `candidateBase + studentId` — the
+   * whole-student side panel, same pattern as the board. A STRING, not a
+   * function: this component is a client component and a server page cannot
+   * hand a function across the boundary. The page gates who may open it.
    */
-  candidateHref?: (studentId: string) => string
+  candidateBase?: string
 }) {
   const [error, setError] = useState<string | null>(null)
+  // IA/EE/TOK comments are PARAGRAPHS, so the cell shows a one-line preview
+  // and the full text opens in an overlay with a real textarea — editable for
+  // whoever may write (marker / active override), read-only for everyone else.
   const [commentFor, setCommentFor] = useState<string | null>(null)
   const [commentDraft, setCommentDraft] = useState('')
   const [pending, start] = useTransition()
@@ -73,6 +78,23 @@ export default function MarksGrid({
       }
     })
   }
+
+  const openComment = (studentId: string, current: string | null) => {
+    setCommentDraft(current ?? '')
+    setCommentFor(studentId)
+  }
+
+  // Esc dismisses the overlay from anywhere; click-outside is the backdrop.
+  useEffect(() => {
+    if (commentFor == null) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setCommentFor(null)
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [commentFor])
+
+  const overlayRow = commentFor ? (view.rows.find((r) => r.studentId === commentFor) ?? null) : null
 
   const totalOnly = view.criteria.length === 0
   const marked = view.rows.filter((r) => r.total != null).length
@@ -181,10 +203,10 @@ export default function MarksGrid({
                 <tr key={r.studentId} className={dim ? 'dim' : undefined}>
                   <td className="sn idc">{r.sessionNumber ?? '—'}</td>
                   <td className="nm idc">
-                    {candidateHref ? (
+                    {candidateBase ? (
                       <Link
                         className="candlink"
-                        href={candidateHref(r.studentId)}
+                        href={candidateBase + r.studentId}
                         title="Open this candidate's whole file"
                       >
                         {r.name}
@@ -268,49 +290,23 @@ export default function MarksGrid({
                   </td>
 
                   <td style={{ textAlign: 'left', maxWidth: 220 }}>
-                    {commentFor === r.studentId ? (
-                      <span className="row" style={{ flexWrap: 'nowrap' }}>
-                        <input
-                          className="cmtin"
-                          autoFocus
-                          defaultValue={r.comment ?? ''}
-                          onChange={(e) => setCommentDraft(e.target.value)}
-                          disabled={pending}
-                        />
-                        <button
-                          className="btn sm pri"
-                          disabled={pending}
-                          onClick={() =>
-                            run(async () => {
-                              await ia.setComment(view.course.id, view.cohortId, r.studentId, commentDraft)
-                              setCommentFor(null)
-                            })
-                          }
-                        >
-                          Save
-                        </button>
-                      </span>
-                    ) : r.comment ? (
-                      <span
-                        className="cmt"
-                        title={r.comment + (editable ? ' — click to edit' : '')}
-                        onClick={() => {
-                          if (editable) {
-                            setCommentDraft(r.comment ?? '')
-                            setCommentFor(r.studentId)
-                          }
-                        }}
+                    {r.comment ? (
+                      // One-line preview with a clear "there's more" affordance;
+                      // the full paragraph lives in the overlay.
+                      <button
+                        type="button"
+                        className="cmtprev"
+                        title={editable ? 'Open the full comment — edit' : 'Open the full comment'}
+                        onClick={() => openComment(r.studentId, r.comment)}
                       >
-                        {r.comment}
-                      </span>
+                        <span className="cmt">{r.comment}</span>
+                        <span className="cmtmore">…</span>
+                      </button>
                     ) : r.total != null ? (
                       editable ? (
                         <button
                           className="btn sm ghost"
-                          onClick={() => {
-                            setCommentDraft('')
-                            setCommentFor(r.studentId)
-                          }}
+                          onClick={() => openComment(r.studentId, null)}
                         >
                           + add
                         </button>
@@ -395,6 +391,70 @@ export default function MarksGrid({
           <b>{view.guide}</b>
         </div>
       </div>
+
+      {/* The comment overlay — a plain fixed-position card, no new deps.
+          Click-outside (the backdrop) and Esc both close it. Saving goes
+          through the same setComment action, which appends its MarkEvent. */}
+      {overlayRow && (
+        <div className="cmtback" onMouseDown={() => setCommentFor(null)}>
+          <div
+            className="cmtcard"
+            role="dialog"
+            aria-label={`Teacher comment — ${overlayRow.name}`}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="cmtcard-h">
+              <b>{overlayRow.name}</b>
+              <span className="mut" style={{ marginLeft: 6 }}>
+                — teacher comment{editable ? '' : ' (read-only)'}
+              </span>
+              <span className="spacer" />
+              <button className="mini" title="Close (Esc)" onClick={() => setCommentFor(null)}>
+                ✕
+              </button>
+            </div>
+            {editable ? (
+              <>
+                <textarea
+                  className="cmtarea"
+                  autoFocus
+                  rows={8}
+                  placeholder="Justify the marks per criterion — moderators say it materially helps."
+                  value={commentDraft}
+                  disabled={pending}
+                  onChange={(e) => setCommentDraft(e.target.value)}
+                />
+                <div className="row" style={{ marginTop: 8 }}>
+                  <button
+                    className="btn sm pri"
+                    disabled={pending}
+                    onClick={() =>
+                      run(async () => {
+                        await ia.setComment(
+                          view.course.id, view.cohortId, overlayRow.studentId, commentDraft,
+                        )
+                        setCommentFor(null)
+                      })
+                    }
+                  >
+                    Save
+                  </button>
+                  <button className="btn sm ghost" disabled={pending} onClick={() => setCommentFor(null)}>
+                    Cancel
+                  </button>
+                  <span className="mut" style={{ fontSize: 11.5 }}>
+                    Every save lands on the audit trail.
+                  </span>
+                </div>
+              </>
+            ) : (
+              <div className="cmtfull">
+                {overlayRow.comment ?? <span className="mut">No comment recorded.</span>}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }

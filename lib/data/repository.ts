@@ -25,8 +25,8 @@ import type {
 import type {
   CohortSummary, CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
 } from '../setup/types'
-import type { IaMarksView, MarkEventRow, MarkUnlock } from '../ia/types'
-import type { CapabilityKey, Cohort } from '../types'
+import type { IaMarksView, MarkEventRow, MarkUnlock, SampleRequest } from '../ia/types'
+import type { CapabilityKey, Cohort, PresetKey } from '../types'
 
 export interface CohortSpaces {
   cohort: Cohort
@@ -163,6 +163,25 @@ export interface IaRepository {
   relockMarks(schoolId: string, courseId: string, userId: string): Promise<void>
   /** The append-only trail for one course × cohort, newest first, names resolved. */
   listMarkEvents(schoolId: string, courseId: string, cohortId: string): Promise<MarkEventRow[]>
+
+  // ---- the IBIS moderation sample ----
+  /** The one live SampleRequest for this course × cohort, or null. */
+  getSampleRequest(schoolId: string, courseId: string, cohortId: string): Promise<SampleRequest | null>
+  /**
+   * Record which candidates IBIS sampled. AT MOST ONE lives per course +
+   * cohort: saving replaces the existing selection and always lands as a
+   * draft. Ids that are not candidates of this course are dropped.
+   */
+  saveSampleRequest(
+    schoolId: string, courseId: string, cohortId: string, studentIds: string[], by: string,
+  ): Promise<SampleRequest>
+  /**
+   * Mark the sample as submitted in eCoursework (timestamped), or reopen a
+   * submitted one as a draft — the "amend" action.
+   */
+  setSampleSubmitted(
+    schoolId: string, courseId: string, cohortId: string, on: boolean, by: string,
+  ): Promise<void>
 }
 
 /**
@@ -215,7 +234,8 @@ export interface SetupRepository {
   createCohort(schoolId: string, label: string, gradYear: number): Promise<string>
 
   /**
-   * Copy a cohort's STRUCTURE into another: courses (their sections), teacher
+   * Copy a cohort's STRUCTURE into another: the courses it runs (each with
+   * its one implicit section), teacher
    * assignments (markership included), and fresh RequirementDefs instantiated
    * from the CURRENT IA templates — the same path addCourse uses. NEVER
    * students, enrolments, marks or states: recorded work belongs to the year
@@ -255,15 +275,44 @@ export interface SetupRepository {
     },
     cohortId: string,
   ): Promise<string>
+  /**
+   * Make a course run for a cohort. SECTIONS ARE AN INVISIBLE IMPLEMENTATION
+   * DETAIL now (product decision, 2026-08): exactly one exists per course per
+   * cohort, so this is idempotent — asking again returns the existing one.
+   * The label is kept for the type's sake and shown nowhere.
+   */
   addSection(schoolId: string, courseId: string, cohortId: string, label: string): Promise<string>
+  /**
+   * Remove a course from a cohort: its requirement defs, its implicit
+   * section, enrolments and teacher assignments. REFUSES if any recorded
+   * work exists (a RequirementState against its defs, or a MarkEvent) —
+   * recorded work is archived with its cohort, never deleted. The catalogue
+   * entry itself is deleted only when no other cohort still runs it.
+   */
+  removeCourse(schoolId: string, courseId: string, cohortId: string): Promise<void>
   enrolStudent(schoolId: string, studentId: string, sectionId: string): Promise<void>
   unenrolStudent(schoolId: string, studentId: string, sectionId: string): Promise<void>
+  // Course-level operations — the section resolves internally. These are what
+  // new UI should call; the section-level methods above stay for anything that
+  // already holds a section id (the two are equivalent now).
+  enrolInCourse(schoolId: string, cohortId: string, courseId: string, studentId: string): Promise<void>
+  unenrolFromCourse(schoolId: string, cohortId: string, courseId: string, studentId: string): Promise<void>
 
   // ---- staff ----
   inviteTeacher(schoolId: string, name: string, email: string): Promise<string>
   assignTeacher(schoolId: string, teacherId: string, sectionId: string): Promise<void>
   unassignTeacher(schoolId: string, teacherId: string, sectionId: string): Promise<void>
+  /**
+   * Exactly-one-marker semantics: turning a marker ON clears every other
+   * marker of the course; turning the LAST marker OFF is refused — writes are
+   * marker-only, so a markerless course would be unmarkable.
+   */
   setDesignatedMarker(schoolId: string, teacherId: string, sectionId: string, on: boolean): Promise<void>
+  // Course-level twins of the three above.
+  assignTeacherToCourse(schoolId: string, cohortId: string, courseId: string, teacherId: string): Promise<void>
+  unassignTeacherFromCourse(schoolId: string, cohortId: string, courseId: string, teacherId: string): Promise<void>
+  /** Make this teacher THE marker of the course (assigning them if needed). */
+  setCourseMarker(schoolId: string, cohortId: string, courseId: string, teacherId: string): Promise<void>
 
   // ---- delegation ----
   /**
@@ -276,6 +325,20 @@ export interface SetupRepository {
   setCapability(
     schoolId: string, userId: string, capability: CapabilityKey, granted: boolean,
   ): Promise<void>
+
+  /**
+   * Change a membership's preset — the role layer above the per-capability
+   * deviations. Deviations are CLEARED on a preset change: they were recorded
+   * relative to the old preset and would mean something different under the
+   * new one.
+   *
+   * TWO GUARDS live here, not only in the action:
+   *   - a student membership takes only the student preset, and vice versa;
+   *   - there is exactly ONE district coordinator. Assigning the district
+   *     preset while another live district-tier membership exists throws —
+   *     "transfer instead" (a transfer flow is future work).
+   */
+  setPreset(schoolId: string, userId: string, presetKey: PresetKey): Promise<void>
 }
 
 /**

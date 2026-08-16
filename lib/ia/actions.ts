@@ -135,3 +135,50 @@ export async function relockMarks(courseId: string) {
   await repo.ia.relockMarks(session.school.id, courseId, session.user.id)
   refresh()
 }
+
+// ---------------------------------------------------------------------------
+// The IBIS moderation sample
+// ---------------------------------------------------------------------------
+
+/**
+ * Who may touch a course's sample: its DESIGNATED MARKER (they know which
+ * candidates IBIS named for their course) or a `sample.import` holder — the
+ * coordinator tier. Re-checked here, whatever the screen showed.
+ */
+async function allowSample(session: Session, courseId: string, cohortId: string) {
+  const marker = await repo.ia.isMarkerFor(
+    session.school.id, courseId, cohortId, session.user.id,
+  )
+  if (!marker && !session.can('sample.import')) {
+    throw new Error(
+      'Only the designated marker or a coordinator with sample.import records the moderation sample.',
+    )
+  }
+}
+
+export async function saveSampleRequest(
+  courseId: string,
+  cohortId: string,
+  studentIds: string[],
+) {
+  const session = await getSession()
+  await live(session.school.id, cohortId)
+  await courseInCohort(session.school.id, courseId, cohortId)
+  await allowSample(session, courseId, cohortId)
+  await repo.ia.saveSampleRequest(
+    session.school.id, courseId, cohortId, studentIds, session.user.id,
+  )
+  refresh()
+}
+
+/** Flip the sample to submitted-in-eCoursework (or reopen it — the "amend"). */
+export async function setSampleSubmitted(courseId: string, cohortId: string, on: boolean) {
+  const session = await getSession()
+  await live(session.school.id, cohortId)
+  await courseInCohort(session.school.id, courseId, cohortId)
+  await allowSample(session, courseId, cohortId)
+  await repo.ia.setSampleSubmitted(
+    session.school.id, courseId, cohortId, on, session.user.id,
+  )
+  refresh()
+}

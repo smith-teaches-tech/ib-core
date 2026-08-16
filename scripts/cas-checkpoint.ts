@@ -7,13 +7,14 @@
 // Run: npm run checkpoint
 
 import {
-  COHORTS, COURSES, ENROLLMENTS, REQUIREMENT_DEFS, REQUIREMENT_STATES, SECTIONS,
-  STUDENTS, TEACHING_ASSIGNMENTS, fixtureRepository as repo,
+  COHORTS, COURSES, ENROLLMENTS, MEMBERSHIPS, REQUIREMENT_DEFS, REQUIREMENT_STATES,
+  SAMPLE_REQUESTS, SECTIONS, STUDENTS, TEACHING_ASSIGNMENTS, fixtureRepository as repo,
 } from '../lib/data/fixtures'
 import { assertLiveCohort, isArchived, sortCohorts } from '../lib/cohorts'
 import { CAS_DATA } from '../lib/data/cas-fixtures'
 import { summarise } from '../lib/cas/derive'
 import { marksWriteGrant } from '../lib/ia/authorize'
+import { matchSessionNumbers } from '../lib/ia/sample'
 import { iaTotal, templateOf } from '../lib/templates'
 
 const fail: string[] = []
@@ -393,9 +394,9 @@ async function main() {
   // decision, and the repository for everything it records.
   console.log('\n9. Marks authorization, audit trail, redaction, cohort cloning')
 
-  // (a) Only the designated marker writes. Silva co-teaches bio_sl_c15_b but
-  // is not its marker; Farouk marks both Biology SL sections.
-  const bioB = ENROLLMENTS.find((e) => e.sectionId === 'bio_sl_c15_b')!.studentId
+  // (a) Only the designated marker writes. Silva co-teaches Biology SL (the
+  // course's ONE implicit section) but is not its marker; Farouk is.
+  const bioB = ENROLLMENTS.find((e) => e.sectionId === 'bio_sl_c15_a')!.studentId
   const noCap = () => false
   const silvaGrant = await marksWriteGrant(repo.ia, noCap, 'dhahran', 'bio_sl', 'c15', bioB, 'u_silva')
   const faroukGrant = await marksWriteGrant(repo.ia, noCap, 'dhahran', 'bio_sl', 'c15', bioB, 'u_farouk')
@@ -519,7 +520,157 @@ async function main() {
   )!
   check(
     !(await repo.teachesStudent('dhahran', 'u_silva', notSilvas.userId)),
-    'and Silva cannot reach a student outside his own sections',
+    'and Silva cannot reach a student outside his own courses',
+  )
+
+  // 10 — the coordinator-dashboard simplification (2026-08): sections are an
+  // invisible implementation detail, courses carry everything user-facing.
+  console.log('\n10. Course-level operations, remove-course, the sample, the district guard')
+
+  // (a) Course-level wrappers resolve the implicit section internally, and
+  // markership keeps exactly-one semantics.
+  const physSec = SECTIONS.find((s) => s.courseId === 'phys_sl' && s.cohortId === 'c16')!
+  const stray = STUDENTS.find(
+    (s) =>
+      s.cohortId === 'c16' &&
+      !ENROLLMENTS.some((e) => e.studentId === s.userId && e.sectionId === physSec.id),
+  )!
+  await repo.setup.enrolInCourse('dhahran', 'c16', 'phys_sl', stray.userId)
+  check(
+    ENROLLMENTS.some((e) => e.studentId === stray.userId && e.sectionId === physSec.id),
+    'enrolInCourse lands on the course\'s one implicit section',
+  )
+  await repo.setup.unenrolFromCourse('dhahran', 'c16', 'phys_sl', stray.userId)
+  check(
+    !ENROLLMENTS.some((e) => e.studentId === stray.userId && e.sectionId === physSec.id),
+    'unenrolFromCourse removes it again',
+  )
+
+  await repo.setup.assignTeacherToCourse('dhahran', 'c16', 'phys_sl', 'u_silva')
+  check(
+    TEACHING_ASSIGNMENTS.some(
+      (a) => a.sectionId === physSec.id && a.teacherId === 'u_silva' && a.isDesignatedMarker,
+    ),
+    'the first teacher assigned to a course becomes its designated marker',
+  )
+  await repo.setup.setCourseMarker('dhahran', 'c16', 'phys_sl', 'u_farouk')
+  check(
+    TEACHING_ASSIGNMENTS.some(
+      (a) => a.sectionId === physSec.id && a.teacherId === 'u_farouk' && a.isDesignatedMarker,
+    ) &&
+      !TEACHING_ASSIGNMENTS.some(
+        (a) => a.sectionId === physSec.id && a.teacherId === 'u_silva' && a.isDesignatedMarker,
+      ),
+    'setCourseMarker moves the ONE markership — setting the new clears the old',
+  )
+  let lastMarkerThrew = false
+  try {
+    await repo.setup.setDesignatedMarker('dhahran', 'u_farouk', physSec.id, false)
+  } catch {
+    lastMarkerThrew = true
+  }
+  check(lastMarkerThrew, 'clearing the LAST marker is refused — a markerless course is unmarkable')
+  await repo.setup.unassignTeacherFromCourse('dhahran', 'c16', 'phys_sl', 'u_silva')
+  check(
+    !TEACHING_ASSIGNMENTS.some((a) => a.sectionId === physSec.id && a.teacherId === 'u_silva'),
+    'unassignTeacherFromCourse removes the assignment',
+  )
+
+  // (b) Remove-course: refused the moment recorded work exists; clean removal
+  // otherwise. Biology SL c15 carries states AND mark events by now; the ESS
+  // course added in section 7 carries nothing.
+  let removeThrew = false
+  try {
+    await repo.setup.removeCourse('dhahran', 'bio_sl', 'c15')
+  } catch {
+    removeThrew = true
+  }
+  check(removeThrew, 'removing a course with recorded work is refused — archive the cohort instead')
+  check(
+    SECTIONS.some((s) => s.courseId === 'bio_sl' && s.cohortId === 'c15') &&
+      REQUIREMENT_DEFS.some((d) => d.cohortId === 'c15' && d.key === 'bio_sl.mark'),
+    'and the refusal deleted nothing',
+  )
+  await repo.setup.removeCourse('dhahran', newId, 'c16')
+  check(
+    !SECTIONS.some((s) => s.courseId === newId) &&
+      !REQUIREMENT_DEFS.some(
+        (d) => d.scope.kind === 'course' && d.scope.courseId === newId,
+      ) &&
+      !ENROLLMENTS.some((e) => e.sectionId === `${newId}_a`),
+    'a course with nothing recorded removes cleanly — defs, implicit section and enrolments',
+  )
+  check(
+    !COURSES.some((c) => c.id === newId),
+    'and leaves the catalogue too, since no other cohort runs it',
+  )
+
+  // (c) The moderation sample: paste-matching maps session numbers (any
+  // format) to the right students, flags unknowns, and persists as the ONE
+  // SampleRequest per course + cohort.
+  const mvSample = (await repo.ia.getMarksView('dhahran', 'bio_sl', 'c15'))!
+  const cands = mvSample.rows.map((r) => ({
+    studentId: r.studentId,
+    sessionNumber: r.sessionNumber,
+  }))
+  // Rows whose session number is unique in this course — the import in 8(d)
+  // deliberately created a duplicate 0002, which must not make this flaky.
+  const uniq = mvSample.rows.filter(
+    (r) =>
+      r.sessionNumber != null &&
+      mvSample.rows.filter((x) => x.sessionNumber === r.sessionNumber).length === 1,
+  )
+  const [ra, rb] = uniq
+  const pasted = `IBIS sample:\n  candidate ${Number(ra.sessionNumber)};${rb.sessionNumber}\n  9999`
+  const match = matchSessionNumbers(pasted, cands)
+  check(
+    match.studentIds.length === 2 &&
+      match.studentIds[0] === ra.studentId && match.studentIds[1] === rb.studentId,
+    'pasted session numbers — unpadded, any separators — match the right students',
+  )
+  check(
+    match.unknown.length === 1 && match.unknown[0] === '9999',
+    'a number matching no candidate is flagged "no candidate", never dropped silently',
+  )
+  const saved = await repo.ia.saveSampleRequest(
+    'dhahran', 'bio_sl', 'c15', [...match.studentIds, 'not_a_student'], 'u_michael',
+  )
+  check(
+    saved.status === 'draft' &&
+      saved.studentIds.length === 2 && !saved.studentIds.includes('not_a_student'),
+    'the selection persists as a draft SampleRequest, non-candidates dropped',
+  )
+  await repo.ia.setSampleSubmitted('dhahran', 'bio_sl', 'c15', true, 'u_michael')
+  const submitted = await repo.ia.getSampleRequest('dhahran', 'bio_sl', 'c15')
+  check(
+    submitted != null && submitted.status === 'submitted' && submitted.submittedAt != null,
+    'marking it submitted stamps the timestamp',
+  )
+  await repo.ia.saveSampleRequest('dhahran', 'bio_sl', 'c15', [ra.studentId], 'u_michael')
+  check(
+    SAMPLE_REQUESTS.filter((s) => s.courseId === 'bio_sl' && s.cohortId === 'c15').length === 1 &&
+      (await repo.ia.getSampleRequest('dhahran', 'bio_sl', 'c15'))!.status === 'draft',
+    'amending replaces the ONE live request per course + cohort and reopens it as a draft',
+  )
+
+  // (d) Exactly one district coordinator — the repo-level guard, so no screen
+  // can create a second however it is asked.
+  let districtMsg = ''
+  try {
+    await repo.setup.setPreset('dhahran', 'u_okonjo', 'district')
+  } catch (e) {
+    districtMsg = e instanceof Error ? e.message : String(e)
+  }
+  check(
+    districtMsg.includes('already a district coordinator'),
+    'a second district-tier assignment is refused — transfer instead',
+  )
+  await repo.setup.setPreset('dhahran', 'u_okonjo', 'school_full')
+  const okonjo = MEMBERSHIPS.find((m) => m.userId === 'u_okonjo' && m.schoolId === 'dhahran')!
+  check(
+    okonjo.presetKey === 'school_full' &&
+      okonjo.addedCapabilities.length === 0 && okonjo.removedCapabilities.length === 0,
+    'a legitimate preset change lands and clears deviations recorded against the old preset',
   )
 
   console.log('\n' + '='.repeat(60))

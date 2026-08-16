@@ -15,22 +15,31 @@
 
 import { useState, useTransition } from 'react'
 import * as setup from '@/lib/setup/actions'
-import { CAPABILITIES } from '@/lib/capabilities'
+import { CAPABILITIES, PRESETS } from '@/lib/capabilities'
+import type { PresetKey } from '@/lib/types'
 import type { PersonRow } from '@/lib/setup/types'
 
 /** The two Michael named, first and framed plainly. */
 const HEADLINE = ['students.add', 'teachers.invite']
+
+/** Staff presets, least privileged first. `student` is not on this menu. */
+const STAFF_PRESETS: PresetKey[] = [
+  'observer', 'setup_only', 'teacher', 'school_standard', 'school_full', 'district',
+]
 
 export default function PermissionsTab({
   people,
   myCapabilities,
   canAssign,
   myUserId,
+  districtTier,
 }: {
   people: PersonRow[]
   myCapabilities: string[]
   canAssign: boolean
   myUserId: string
+  /** Only the district tier may hand out the district preset. */
+  districtTier: boolean
 }) {
   const [error, setError] = useState<string | null>(null)
   const [showAll, setShowAll] = useState(false)
@@ -40,6 +49,14 @@ export default function PermissionsTab({
   const shown = showAll
     ? CAPABILITIES
     : CAPABILITIES.filter((c) => HEADLINE.includes(c.key))
+
+  // No escalation, mirrored from the server action: a preset is offerable only
+  // if every capability it contains is one the granter holds. The district
+  // preset additionally needs the district tier — and the server refuses a
+  // second district coordinator outright.
+  const offerable = (key: PresetKey) =>
+    (key !== 'district' || districtTier) &&
+    PRESETS[key].capabilities.every((c) => myCapabilities.includes(c))
 
   const toggle = (userId: string, key: string, on: boolean) => {
     setError(null)
@@ -52,11 +69,22 @@ export default function PermissionsTab({
     })
   }
 
+  const changePreset = (userId: string, key: PresetKey) => {
+    setError(null)
+    start(async () => {
+      try {
+        await setup.setPreset(userId, key)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Something went wrong.')
+      }
+    })
+  }
+
   if (!canAssign) {
     return (
       <div className="note warn">
-        <b>Only a coordinator who can assign roles sees this.</b> At ISG that is the district IB
-        coordinator. It is deliberately not something a school coordinator can grant themselves.
+        <b>Only a coordinator who can assign roles sees this.</b> At ISG that is the District
+        coordinator. It is deliberately not something an IB coordinator can grant themselves.
       </div>
     )
   }
@@ -64,9 +92,12 @@ export default function PermissionsTab({
   return (
     <>
       <div className="note">
-        <b>What each person at this school may do.</b> A tick you cannot set is a capability{' '}
-        <i>you</i> do not hold — nobody can grant what they do not have themselves, which is what
-        keeps the district tier meaningful. Your own row is not shown, for the same reason.
+        <b>What each person at this school may do.</b> Pick a <b>role</b> per person — the preset
+        that carries their capabilities — and fine-tune below with the per-capability grid. A role
+        or tick you cannot set contains a capability <i>you</i> do not hold — nobody can grant what
+        they do not have themselves, which is what keeps the district tier meaningful. There is
+        exactly one <b>District coordinator</b>; every school has its own <b>IB coordinator</b>.
+        Your own row is not shown, for the same reason.
       </div>
 
       <div className="row" style={{ margin: '12px 0' }}>
@@ -87,7 +118,7 @@ export default function PermissionsTab({
           <thead>
             <tr>
               <th style={{ width: 170 }}>Person</th>
-              <th style={{ width: 150 }}>Preset</th>
+              <th style={{ width: 200 }}>Role</th>
               {shown.map((c) => (
                 <th key={c.key} title={c.key}>
                   {c.label}
@@ -105,7 +136,24 @@ export default function PermissionsTab({
                     {p.roles.map((r) => r.replace(/_/g, ' ')).join(' · ')}
                   </div>
                 </td>
-                <td className="mut">{p.membership.presetKey.replace(/_/g, ' ')}</td>
+                <td>
+                  <select
+                    value={p.membership.presetKey}
+                    disabled={pending}
+                    onChange={(e) => changePreset(p.user.id, e.target.value as PresetKey)}
+                    title="The person's role — the preset their capabilities come from. Changing it clears any per-capability overrides below."
+                  >
+                    {STAFF_PRESETS.map((key) => (
+                      <option
+                        key={key}
+                        value={key}
+                        disabled={!offerable(key) && key !== p.membership.presetKey}
+                      >
+                        {PRESETS[key].label}
+                      </option>
+                    ))}
+                  </select>
+                </td>
                 {shown.map((c) => {
                   const on = p.capabilities.includes(c.key)
                   const mine = myCapabilities.includes(c.key)
@@ -142,8 +190,11 @@ export default function PermissionsTab({
       </div>
 
       <p className="mut" style={{ fontSize: 12, marginTop: 10 }}>
-        A dot marks a setting that differs from the person&rsquo;s preset. Everything else follows
-        the preset and will keep following it if the preset changes.
+        A dot marks a setting that differs from the person&rsquo;s role. Everything else follows
+        the role and will keep following it if the role&rsquo;s preset changes. Changing someone&rsquo;s
+        role clears their per-capability overrides — they were set against the old role. The{' '}
+        <b>District coordinator</b> role can be held by exactly one person; assigning it to a second
+        is refused (transfer is future work).
       </p>
     </>
   )

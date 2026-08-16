@@ -3,9 +3,9 @@
 // Teachers, and what they teach.
 //
 // One uniform way to be attached to anything: a TeachingAssignment onto a
-// Section. That is what makes handing TOK to a different teacher a one-row
-// change, and it is why the bug where a teacher saw every section is
-// structurally impossible rather than merely fixed.
+// course's (invisible, exactly-one) section. That is what makes handing TOK to
+// a different teacher a one-row change, and it is why the bug where a teacher
+// saw every course is structurally impossible rather than merely fixed.
 
 import { useState, useTransition } from 'react'
 import * as setup from '@/lib/setup/actions'
@@ -79,7 +79,7 @@ export default function TeachersTab({
         </div>
       ) : (
         <div className="note warn">
-          <b>You cannot invite teachers at this school.</b> The district IB coordinator grants this
+          <b>You cannot invite teachers at this school.</b> The District coordinator grants this
           under <b>Permissions</b>.
         </div>
       )}
@@ -94,7 +94,7 @@ export default function TeachersTab({
               <th>Email</th>
               <th>Roles</th>
               <th>Teaches</th>
-              {canAssign && <th style={{ width: 250 }}>Assign to a section</th>}
+              {canAssign && <th style={{ width: 250 }}>Assign to a course</th>}
             </tr>
           </thead>
           <tbody>
@@ -121,7 +121,7 @@ export default function TeachersTab({
                         <>
                           <button
                             className="mini"
-                            title="Designated marker — the teacher the IB holds responsible for this section's marks"
+                            title="Designated marker — the teacher the IB holds responsible for this course's marks"
                             disabled={pending}
                             onClick={() => run(() => setup.setDesignatedMarker(p.user.id, t.sectionId, true))}
                           >
@@ -129,7 +129,7 @@ export default function TeachersTab({
                           </button>
                           <button
                             className="mini"
-                            title="Remove from this section"
+                            title="Remove from this course"
                             disabled={pending}
                             onClick={() => run(() => setup.unassignTeacher(p.user.id, t.sectionId))}
                           >
