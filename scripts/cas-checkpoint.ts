@@ -6,10 +6,14 @@
 //
 // Run: npm run checkpoint
 
-import { COHORTS, COURSES, REQUIREMENT_DEFS, REQUIREMENT_STATES, fixtureRepository as repo } from '../lib/data/fixtures'
+import {
+  COHORTS, COURSES, ENROLLMENTS, REQUIREMENT_DEFS, REQUIREMENT_STATES, SECTIONS,
+  STUDENTS, TEACHING_ASSIGNMENTS, fixtureRepository as repo,
+} from '../lib/data/fixtures'
 import { assertLiveCohort, isArchived, sortCohorts } from '../lib/cohorts'
 import { CAS_DATA } from '../lib/data/cas-fixtures'
 import { summarise } from '../lib/cas/derive'
+import { marksWriteGrant } from '../lib/ia/authorize'
 import { iaTotal, templateOf } from '../lib/templates'
 
 const fail: string[] = []
@@ -380,6 +384,142 @@ async function main() {
   check(
     nums.length > 1 && nums.every((n, i) => i === 0 || Number(nums[i - 1]) <= Number(n)),
     `marks-grid rows sit in true numeric session order (${nums.length} registered candidates)`,
+  )
+
+  // 9 — marks authorization, the audit trail, identifier redaction, cohort cloning
+  //
+  // The server actions need request scope, so what runs here is exactly what
+  // they delegate to: marksWriteGrant (lib/ia/authorize.ts) for the write
+  // decision, and the repository for everything it records.
+  console.log('\n9. Marks authorization, audit trail, redaction, cohort cloning')
+
+  // (a) Only the designated marker writes. Silva co-teaches bio_sl_c15_b but
+  // is not its marker; Farouk marks both Biology SL sections.
+  const bioB = ENROLLMENTS.find((e) => e.sectionId === 'bio_sl_c15_b')!.studentId
+  const noCap = () => false
+  const silvaGrant = await marksWriteGrant(repo.ia, noCap, 'dhahran', 'bio_sl', 'c15', bioB, 'u_silva')
+  const faroukGrant = await marksWriteGrant(repo.ia, noCap, 'dhahran', 'bio_sl', 'c15', bioB, 'u_farouk')
+  check(!silvaGrant.allowed, 'co-teacher Silva (assigned, not marker) is refused the write path')
+  check(
+    faroukGrant.allowed && faroukGrant.overrideReason == null,
+    'designated marker Farouk is allowed, with no override attached',
+  )
+  check(
+    (await repo.ia.isMarkerFor('dhahran', 'bio_sl', 'c15', 'u_farouk', bioB)) &&
+      !(await repo.ia.isMarkerFor('dhahran', 'bio_sl', 'c15', 'u_silva', bioB)),
+    'isMarkerFor agrees: marker of the section containing the student, co-teacher not',
+  )
+
+  // (b) The coordinator override: capability + reasoned, unexpired unlock.
+  const canOverride = (c: string) => c === 'marks.override'
+  const beforeUnlock = await marksWriteGrant(repo.ia, canOverride, 'dhahran', 'bio_sl', 'c15', bioB, 'u_okonjo')
+  check(!beforeUnlock.allowed, 'the marks.override capability ALONE does not grant writes — an unlock is required')
+  let blankReasonThrew = false
+  try {
+    await repo.ia.unlockMarks('dhahran', 'bio_sl', 'c15', 'u_okonjo', '   ')
+  } catch {
+    blankReasonThrew = true
+  }
+  check(blankReasonThrew, 'an unlock with a blank reason is refused')
+  const REASON = 'Marker on leave — moderation deadline'
+  await repo.ia.unlockMarks('dhahran', 'bio_sl', 'c15', 'u_okonjo', REASON)
+  const duringUnlock = await marksWriteGrant(repo.ia, canOverride, 'dhahran', 'bio_sl', 'c15', bioB, 'u_okonjo')
+  check(
+    duringUnlock.allowed && duringUnlock.overrideReason === REASON,
+    'an unexpired unlock permits the write and hands back its reason',
+  )
+  await repo.ia.setCriterionMark('dhahran', 'bio_sl', 'c15', bioB, 0, 4, 'u_okonjo')
+  let trail = await repo.ia.listMarkEvents('dhahran', 'bio_sl', 'c15')
+  check(
+    trail[0].kind === 'mark' && trail[0].overrideReason === REASON && trail[0].byName === 'C. Okonjo',
+    'the resulting MarkEvent carries the override reason and who wrote it',
+  )
+  check(trail.some((e) => e.kind === 'unlock' && e.overrideReason === REASON), 'and the unlock itself is on the trail')
+  await repo.ia.relockMarks('dhahran', 'bio_sl', 'u_okonjo')
+  const afterRelock = await marksWriteGrant(repo.ia, canOverride, 'dhahran', 'bio_sl', 'c15', bioB, 'u_okonjo')
+  check(!afterRelock.allowed, 'relocking ends the override early')
+  check(
+    (await repo.ia.listMarkEvents('dhahran', 'bio_sl', 'c15'))[0].kind === 'relock',
+    'and leaves its own event',
+  )
+
+  // (c) Every write appends exactly one event, with correct prev → next.
+  const mvB = (await repo.ia.getMarksView('dhahran', 'bio_sl', 'c15'))!
+  const rowB = mvB.rows.find((r) => r.studentId === bioB)!
+  const prevVal = rowB.criterionMarks[1] ?? null
+  const trailBefore = (await repo.ia.listMarkEvents('dhahran', 'bio_sl', 'c15')).length
+  await repo.ia.setCriterionMark('dhahran', 'bio_sl', 'c15', bioB, 1, 6, 'u_farouk')
+  trail = await repo.ia.listMarkEvents('dhahran', 'bio_sl', 'c15')
+  check(trail.length === trailBefore + 1, 'a mark write appends exactly one event')
+  check(
+    trail[0].kind === 'mark' && trail[0].criterion === mvB.criteria[1].key &&
+      trail[0].prev === prevVal && trail[0].next === 6 && trail[0].overrideReason == null,
+    `the event records ${mvB.criteria[1].key}: ${prevVal ?? '—'} → 6, by the marker, no override`,
+  )
+  await repo.ia.setComment('dhahran', 'bio_sl', 'c15', bioB, 'Justified per criterion.', 'u_farouk')
+  trail = await repo.ia.listMarkEvents('dhahran', 'bio_sl', 'c15')
+  check(
+    trail[0].kind === 'comment' && trail[0].next === 'Justified per criterion.',
+    'a comment write appends its own event carrying the new text',
+  )
+
+  // (d) Cloning a cohort's structure — and ONLY its structure.
+  const cloneId = await repo.setup.createCohort('dhahran', 'Class of 2029', 2029)
+  await repo.setup.cloneCohortStructure('dhahran', 'c15', cloneId)
+  const srcSecs = SECTIONS.filter((s) => s.cohortId === 'c15')
+  const newSecs = SECTIONS.filter((s) => s.cohortId === cloneId)
+  check(
+    newSecs.length === srcSecs.length,
+    `the clone recreates every section (${newSecs.length} of ${srcSecs.length})`,
+  )
+  const newSecIds = new Set(newSecs.map((s) => s.id))
+  const srcAssign = TEACHING_ASSIGNMENTS.filter((a) => srcSecs.some((s) => s.id === a.sectionId))
+  const newAssign = TEACHING_ASSIGNMENTS.filter((a) => newSecIds.has(a.sectionId))
+  check(
+    newAssign.length === srcAssign.length &&
+      newAssign.some((a) => a.teacherId === 'u_farouk' && a.isDesignatedMarker),
+    `teacher assignments come across, markership included (${newAssign.length})`,
+  )
+  const cloneMark = REQUIREMENT_DEFS.find((d) => d.cohortId === cloneId && d.key === 'bio_sl.mark')
+  check(
+    cloneMark != null && cloneMark.criteria?.length === 4 && cloneMark.markMax === 24 &&
+      cloneMark.id === `${cloneId}:bio_sl.mark`,
+    'fresh IA defs are instantiated from the current templates, versioned to the new cohort',
+  )
+  check(!ENROLLMENTS.some((e) => newSecIds.has(e.sectionId)), 'zero enrolments cloned')
+  const cloneDefIds = new Set(
+    REQUIREMENT_DEFS.filter((d) => d.cohortId === cloneId).map((d) => d.id),
+  )
+  check(
+    !REQUIREMENT_STATES.some((s) => cloneDefIds.has(s.requirementDefId)),
+    'zero recorded states cloned',
+  )
+  check(!isArchived(COHORTS.find((c) => c.id === cloneId)!), 'the new cohort arrives live')
+
+  // (e) Identifier redaction at the track boundary — fail closed.
+  const redacted = await repo.getTrack('dhahran', 'st01')
+  check(
+    redacted != null && redacted.student.sessionNumber == null &&
+      redacted.student.personalCode == null && redacted.student.resultsPin == null,
+    'a track fetched without the identifiers capability carries no session number, personal code or PIN',
+  )
+  const withIds = await repo.getTrack('dhahran', 'st01', { includeIdentifiers: true })
+  check(
+    withIds!.student.sessionNumber != null && withIds!.student.resultsPin == null,
+    'an identifier holder gets the numbers — and the PIN still never leaves through a track',
+  )
+  check(await repo.teachesStudent('dhahran', 'u_farouk', bioB), 'the panel gate: Farouk teaches that Biology student')
+  const silvaSecs = new Set(
+    TEACHING_ASSIGNMENTS.filter((a) => a.teacherId === 'u_silva').map((a) => a.sectionId),
+  )
+  const notSilvas = STUDENTS.find(
+    (st) =>
+      st.cohortId === 'c15' &&
+      !ENROLLMENTS.some((e) => e.studentId === st.userId && silvaSecs.has(e.sectionId)),
+  )!
+  check(
+    !(await repo.teachesStudent('dhahran', 'u_silva', notSilvas.userId)),
+    'and Silva cannot reach a student outside his own sections',
   )
 
   console.log('\n' + '='.repeat(60))

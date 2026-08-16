@@ -49,11 +49,68 @@ export function makeSetupRepository(deps: {
     return section
   }
 
+  /**
+   * THE def-instantiation path — a subject course's IA requirement set for one
+   * cohort, from its TEMPLATE FAMILY: the right rubric and the right mark
+   * maximum, not a guessed /25. addCourse and cloneCohortStructure both come
+   * through here, so there is exactly one place template logic lives.
+   */
+  const instantiateIaDefs = (
+    course: { id: string; name: string; iaTemplateKey?: string },
+    cohortId: string,
+    schoolId: string,
+  ) => {
+    const t = templateOf(course.iaTemplateKey)
+    const order = defs.reduce((n, d) => Math.max(n, d.order), 0)
+    defs.push(
+      {
+        id: `${cohortId}:${course.id}.file`, schoolId, cohortId,
+        scope: { kind: 'course', courseId: course.id },
+        key: course.id + '.file', label: `${course.name} — ${t.component}`,
+        lane: 'Internal assessment',
+        order: order + 1, recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework',
+      },
+      {
+        id: `${cohortId}:${course.id}.mark`, schoolId, cohortId,
+        scope: { kind: 'course', courseId: course.id },
+        key: course.id + '.mark', label: course.name + ' — mark', lane: 'Internal assessment',
+        order: order + 2, recordedBy: 'staff', artifact: 'mark',
+        markMax: t.markMax,
+        criteria: t.criteria.length > 0 ? t.criteria : undefined,
+        exportTarget: 'ibis_ia_marks',
+      },
+      {
+        id: `${cohortId}:${course.id}.comment`, schoolId, cohortId,
+        scope: { kind: 'course', courseId: course.id },
+        key: course.id + '.comment', label: course.name + ' — teacher comment',
+        lane: 'Internal assessment',
+        order: order + 3, recordedBy: 'staff', artifact: 'text',
+      },
+    )
+  }
+
   return {
     // ------------------------------------------------------------- reads
 
     async listCohorts(schoolId) {
       return cohorts.filter((c) => c.schoolId === schoolId)
+    },
+
+    async listCohortSummaries(schoolId) {
+      return cohorts
+        .filter((c) => c.schoolId === schoolId)
+        .map((cohort) => {
+          const mine = sections.filter(
+            (s) => s.cohortId === cohort.id && s.schoolId === schoolId,
+          )
+          return {
+            cohort,
+            students: students.filter(
+              (s) => s.cohortId === cohort.id && s.schoolId === schoolId,
+            ).length,
+            courses: new Set(mine.map((s) => s.courseId)).size,
+          }
+        })
     },
 
     async listCourseRows(schoolId, cohortId) {
@@ -187,27 +244,7 @@ export function makeSetupRepository(deps: {
       // downstream, so its IA defs are instantiated FROM ITS TEMPLATE FAMILY —
       // the right rubric and the right mark maximum, not a guessed /25. A family
       // whose criterion split is unconfirmed arrives total-only and says so.
-      const order = defs.reduce((n, d) => Math.max(n, d.order), 0)
-      defs.push(
-        {
-          id: `${cohortId}:${id}.file`, schoolId, cohortId, scope: { kind: 'course', courseId: id },
-          key: id + '.file', label: `${input.name} — ${t.component}`, lane: 'Internal assessment',
-          order: order + 1, recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework',
-        },
-        {
-          id: `${cohortId}:${id}.mark`, schoolId, cohortId, scope: { kind: 'course', courseId: id },
-          key: id + '.mark', label: input.name + ' — mark', lane: 'Internal assessment',
-          order: order + 2, recordedBy: 'staff', artifact: 'mark',
-          markMax: t.markMax,
-          criteria: t.criteria.length > 0 ? t.criteria : undefined,
-          exportTarget: 'ibis_ia_marks',
-        },
-        {
-          id: `${cohortId}:${id}.comment`, schoolId, cohortId, scope: { kind: 'course', courseId: id },
-          key: id + '.comment', label: input.name + ' — teacher comment', lane: 'Internal assessment',
-          order: order + 3, recordedBy: 'staff', artifact: 'text',
-        },
-      )
+      instantiateIaDefs({ id, name: input.name.trim(), iaTemplateKey: t.key }, cohortId, schoolId)
 
       sections.push({ id: id + '_a', schoolId, courseId: id, cohortId, label: 'A' })
       return id
@@ -293,6 +330,71 @@ export function makeSetupRepository(deps: {
     async setCohortArchived(schoolId, cohortId, archived) {
       const cohort = cohorts.find((c) => c.id === cohortId && c.schoolId === schoolId)
       if (cohort) cohort.archived = archived
+    },
+
+    async createCohort(schoolId, label, gradYear) {
+      const name = label.trim()
+      if (!name) throw new Error('A cohort needs a label — "Class of 2029" is the convention.')
+      if (!Number.isInteger(gradYear) || gradYear < 2000 || gradYear > 2100) {
+        throw new Error('The graduating year should be a four-digit year.')
+      }
+      const mine = cohorts.filter((c) => c.schoolId === schoolId)
+      if (mine.some((c) => c.label.toLowerCase() === name.toLowerCase())) {
+        throw new Error('A cohort with that label already exists at this school.')
+      }
+      // The school's own running cohort number continues the sequence — the
+      // two names ISG already uses, no third invented.
+      const numbers = mine.map((c) => c.number).filter((n): n is number => n != null)
+      const id = uniqueId(
+        'c' + String(gradYear).slice(-2),
+        (x) => cohorts.some((c) => c.id === x),
+      )
+      cohorts.push({
+        id, schoolId, label: name,
+        number: numbers.length > 0 ? Math.max(...numbers) + 1 : null,
+        gradYear,
+        // Live from birth — nothing archives itself (lib/cohorts.ts).
+        archived: false,
+      })
+      return id
+    },
+
+    async cloneCohortStructure(schoolId, fromCohortId, toCohortId) {
+      const from = cohorts.find((c) => c.id === fromCohortId && c.schoolId === schoolId)
+      const to = cohorts.find((c) => c.id === toCohortId && c.schoolId === schoolId)
+      if (!from || !to) throw new Error('Both year groups must be at this school.')
+
+      const srcSections = sections.filter(
+        (s) => s.cohortId === fromCohortId && s.schoolId === schoolId,
+      )
+
+      // STRUCTURE ONLY. Fresh IA defs come from the CURRENT templates via the
+      // same path addCourse uses — a rubric that changed between sessions
+      // versions forward here, never backwards. Students, enrolments, marks
+      // and states are never copied: recorded work belongs to its own year.
+      for (const courseId of [...new Set(srcSections.map((s) => s.courseId))]) {
+        const course = courses.find((c) => c.id === courseId && c.schoolId === schoolId)
+        if (
+          course && course.type === 'subject' &&
+          !defs.some((d) => d.cohortId === toCohortId && d.key === courseId + '.mark')
+        ) {
+          instantiateIaDefs(course, toCohortId, schoolId)
+        }
+      }
+
+      for (const src of srcSections) {
+        const id = uniqueId(
+          `${src.courseId}_${toCohortId}_${slug(src.label)}`,
+          (x) => sections.some((s) => s.id === x),
+        )
+        sections.push({ id, schoolId, courseId: src.courseId, cohortId: toCohortId, label: src.label })
+        // The same people teach it until somebody says otherwise — markership
+        // included, because a section without a designated marker is a gap the
+        // marks screen would flag all year.
+        for (const a of assignments.filter((x) => x.sectionId === src.id)) {
+          assignments.push({ teacherId: a.teacherId, sectionId: id, isDesignatedMarker: a.isDesignatedMarker })
+        }
+      }
     },
 
     // ------------------------------------------------- IB identifiers

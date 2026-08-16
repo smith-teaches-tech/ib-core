@@ -32,6 +32,13 @@ export const COORDINATOR_PAGES: NavPage[] = [
     ready: true,
   },
   {
+    href: '/cohorts',
+    label: 'Cohorts',
+    hint: 'Create, clone and archive year groups',
+    ready: true,
+    capability: 'cohorts.manage',
+  },
+  {
     href: '/announcements',
     label: 'Send announcements',
     hint: 'Not built yet',

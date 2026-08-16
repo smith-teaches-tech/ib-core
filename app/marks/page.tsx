@@ -7,6 +7,7 @@
 
 import Link from 'next/link'
 import CohortBar from '@/components/CohortBar'
+import MarkHistory from '@/components/ia/MarkHistory'
 import MarksGrid from '@/components/ia/MarksGrid'
 import Shell from '@/components/Shell'
 import { repo } from '@/lib/data'
@@ -79,16 +80,23 @@ export default async function MarksPage({
       </div>
 
       {view ? (
-        <MarksGrid
-          view={view}
-          editable={false}
-          canTranscribe={session.can('marks.transcribe') && !readOnly}
-          readOnlyReason={
-            readOnly
-              ? `${cohort?.label} is archived — a record, not a workspace.`
-              : undefined
-          }
-        />
+        <>
+          <MarksGrid
+            view={view}
+            editable={false}
+            canTranscribe={session.can('marks.transcribe') && !readOnly}
+            readOnlyReason={
+              readOnly
+                ? `${cohort?.label} is archived — a record, not a workspace.`
+                : undefined
+            }
+          />
+          {session.can('marks.transcribe') && (
+            <MarkHistory
+              events={await repo.ia.listMarkEvents(school.id, view.course.id, cohortId)}
+            />
+          )}
+        </>
       ) : (
         <div className="note">No subject courses are running for this year group yet.</div>
       )}

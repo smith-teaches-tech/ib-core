@@ -42,6 +42,7 @@ export const CAPABILITIES: Capability[] = [
   { key: 'identifiers.manage', group: 'IB submission', label: 'Manage candidate identifiers' },
   { key: 'identifiers.distribute', group: 'IB submission', label: 'Distribute identifiers to students' },
   { key: 'marks.transcribe', group: 'IB submission', label: 'Run the mark transcription companion' },
+  { key: 'marks.override', group: 'IB submission', label: 'Unlock IA mark editing (reason required)' },
   { key: 'sample.import', group: 'IB submission', label: 'Import the moderation sample' },
   { key: 'ecoursework.status', group: 'IB submission', label: 'Record eCoursework submission status' },
   { key: 'pack.school', group: 'IB submission', label: 'Build school packs' },
@@ -66,7 +67,7 @@ const SETUP: CapabilityKey[] = [
 ]
 const MODULES: CapabilityKey[] = ['cas.manage', 'ee.manage', 'tok.manage', 'ia.manage', 'pg.manage']
 const SUBMISSION: CapabilityKey[] = [
-  'identifiers.manage', 'identifiers.distribute', 'marks.transcribe',
+  'identifiers.manage', 'identifiers.distribute', 'marks.transcribe', 'marks.override',
   'sample.import', 'ecoursework.status', 'pack.school', 'pack.ib',
 ]
 const COMMS: CapabilityKey[] = ['announcements.post', 'documents.manage', 'summaries.print']

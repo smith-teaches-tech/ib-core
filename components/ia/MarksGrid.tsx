@@ -14,6 +14,7 @@
 // moderation sample). Recording at criterion grain here answers both asks with
 // one recording — see claude/IB-IA-Marks-Spec.md.
 
+import Link from 'next/link'
 import { useState, useTransition } from 'react'
 import * as ia from '@/lib/ia/actions'
 import type { IaMarksView } from '@/lib/ia/types'
@@ -43,6 +44,7 @@ export default function MarksGrid({
   editable,
   canTranscribe,
   readOnlyReason,
+  candidateHref,
 }: {
   view: IaMarksView
   editable: boolean
@@ -50,6 +52,11 @@ export default function MarksGrid({
   canTranscribe: boolean
   /** Set when the cohort is archived — explains why nothing is editable. */
   readOnlyReason?: string
+  /**
+   * When set, candidate names link here — the whole-student side panel, same
+   * pattern as the board. The page gates who may actually open it.
+   */
+  candidateHref?: (studentId: string) => string
 }) {
   const [error, setError] = useState<string | null>(null)
   const [commentFor, setCommentFor] = useState<string | null>(null)
@@ -173,7 +180,20 @@ export default function MarksGrid({
               return (
                 <tr key={r.studentId} className={dim ? 'dim' : undefined}>
                   <td className="sn idc">{r.sessionNumber ?? '—'}</td>
-                  <td className="nm idc">{r.name}</td>
+                  <td className="nm idc">
+                    {candidateHref ? (
+                      <Link
+                        className="candlink"
+                        href={candidateHref(r.studentId)}
+                        title="Open this candidate's whole file"
+                      >
+                        {r.name}
+                        <span className="chev">›</span>
+                      </Link>
+                    ) : (
+                      r.name
+                    )}
+                  </td>
 
                   {totalOnly ? (
                     <td className="lanesep">

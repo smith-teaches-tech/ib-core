@@ -1,4 +1,4 @@
-import ArchiveCohort from '@/components/setup/ArchiveCohort'
+import Link from 'next/link'
 import CohortBar from '@/components/CohortBar'
 import Shell from '@/components/Shell'
 import SetupPage from '@/components/setup/SetupPage'
@@ -53,7 +53,15 @@ export default async function Setup({
         current={cohort?.id ?? ''}
         href={(id) => `/setup?cohort=${id}`}
       />
-      <ArchiveCohort cohort={cohort} canArchive={session.can('cohort.archive')} />
+      {/* Cohort lifecycle has ONE home now — creating, cloning and archiving
+          year groups all live on /cohorts, so there are not two archive
+          buttons to drift apart. */}
+      {session.can('cohorts.manage') && (
+        <p className="mut" style={{ fontSize: 12, margin: '0 0 14px' }}>
+          Creating, cloning and archiving year groups lives on{' '}
+          <Link href="/cohorts"><b>Cohorts</b></Link>.
+        </p>
+      )}
       {readOnly && (
         <div className="note gold" style={{ marginBottom: 14 }}>
           <b>{cohort?.label} is archived.</b> You can read it; nothing can be changed.

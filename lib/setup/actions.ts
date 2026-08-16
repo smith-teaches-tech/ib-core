@@ -200,6 +200,29 @@ export async function importIdentifiers(text: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Cohort lifecycle — the /cohorts screen
+// ---------------------------------------------------------------------------
+
+/**
+ * A new year group — empty, or with the STRUCTURE of an existing one cloned in
+ * (courses, sections, teacher assignments, fresh defs from the current IA
+ * templates). Never students, enrolments, marks or states.
+ */
+export async function createCohort(
+  label: string,
+  gradYear: number,
+  cloneFromCohortId: string | null,
+) {
+  const session = await need('cohorts.manage')
+  const id = await repo.setup.createCohort(session.school.id, label, gradYear)
+  if (cloneFromCohortId) {
+    await repo.setup.cloneCohortStructure(session.school.id, cloneFromCohortId, id)
+  }
+  refresh()
+  return id
+}
+
+// ---------------------------------------------------------------------------
 // Archiving — a decision, not a date
 // ---------------------------------------------------------------------------
 

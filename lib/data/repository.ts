@@ -23,9 +23,9 @@ import type {
   InterviewKind, LoKey, Strand, SupervisorRequest, SupervisorView,
 } from '../cas/types'
 import type {
-  CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
+  CohortSummary, CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
 } from '../setup/types'
-import type { IaMarksView } from '../ia/types'
+import type { IaMarksView, MarkEventRow, MarkUnlock } from '../ia/types'
 import type { CapabilityKey, Cohort } from '../types'
 
 export interface CohortSpaces {
@@ -48,6 +48,12 @@ export interface Repository {
   /** The courses a staff member is actually assigned to teach. */
   myCourses(schoolId: string, userId: string): Promise<Course[]>
   /**
+   * The candidate-panel gate for teachers: does this teacher hold ANY
+   * assignment (marker or co-teacher) to a section this student is enrolled
+   * in? A teacher opens the whole-student panel only through this.
+   */
+  teachesStudent(schoolId: string, teacherId: string, studentId: string): Promise<boolean>
+  /**
    * "My spaces", GROUPED BY COHORT — because two year groups run at once and a
    * teacher may take both. Same derivation for everyone: a student's spaces come
    * from their enrolments, a teacher's from their assignments, and both resolve
@@ -56,7 +62,19 @@ export interface Repository {
   mySpaces(schoolId: string, userId: string): Promise<CohortSpaces[]>
 
   // The two views over the spine — same data, different zoom
-  getTrack(schoolId: string, studentUserId: string): Promise<StudentTrack | null>
+  /**
+   * `includeIdentifiers` is the ONLY way a session number or personal code
+   * leaves through a track, and it is gated on `identifiers.manage` at the
+   * call site (a student's own home page is the one exception — their own
+   * record). FAIL CLOSED: omitted means redacted. The results PIN never
+   * leaves through a track at all. Redaction happens here rather than in the
+   * panel, because a component that forgets is a leak.
+   */
+  getTrack(
+    schoolId: string,
+    studentUserId: string,
+    opts?: { includeIdentifiers?: boolean },
+  ): Promise<StudentTrack | null>
   /**
    * The coordinator board. `options` is PRESENTATION ONLY — which lanes are
    * expanded, and whether to filter to export-blocking requirements. It selects
@@ -115,7 +133,36 @@ export interface IaRepository {
    */
   setTypedIntoIbis(
     schoolId: string, courseId: string, cohortId: string, studentId: string, on: boolean,
+    by: string,
   ): Promise<void>
+
+  // ---- authorization & the audit trail ----
+  /**
+   * Marker-only writes: is this user the DESIGNATED MARKER of a section of
+   * this course, in this cohort — optionally one that contains this student?
+   * Co-teachers are read-only. The write authorization the actions apply
+   * (lib/ia/authorize.ts) is built on this.
+   */
+  isMarkerFor(
+    schoolId: string, courseId: string, cohortId: string, userId: string, studentId?: string,
+  ): Promise<boolean>
+  /**
+   * The caller's unexpired unlock for this course, or null. Expiry is
+   * enforced HERE, on every read — the auto re-lock, not a timer.
+   */
+  activeUnlock(schoolId: string, courseId: string, userId: string): Promise<MarkUnlock | null>
+  /**
+   * The coordinator override: reason required and non-empty, expires 30
+   * minutes on. Appends an 'unlock' event; every write made while it holds
+   * carries the reason on its own event.
+   */
+  unlockMarks(
+    schoolId: string, courseId: string, cohortId: string, userId: string, reason: string,
+  ): Promise<MarkUnlock>
+  /** End an unlock early. Appends a 'relock' event. */
+  relockMarks(schoolId: string, courseId: string, userId: string): Promise<void>
+  /** The append-only trail for one course × cohort, newest first, names resolved. */
+  listMarkEvents(schoolId: string, courseId: string, cohortId: string): Promise<MarkEventRow[]>
 }
 
 /**
@@ -130,6 +177,8 @@ export interface IaRepository {
 export interface SetupRepository {
   // ---- reads ----
   listCohorts(schoolId: string): Promise<Cohort[]>
+  /** The cohorts screen's list — each year group with what it contains. */
+  listCohortSummaries(schoolId: string): Promise<CohortSummary[]>
   listCourseRows(schoolId: string, cohortId: string): Promise<CourseRow[]>
   /**
    * `includePins` is the ONLY way a results PIN leaves this repository, and it
@@ -161,6 +210,18 @@ export interface SetupRepository {
    * see lib/cohorts.ts for why automatic archiving was a bad idea.
    */
   setCohortArchived(schoolId: string, cohortId: string, archived: boolean): Promise<void>
+
+  /** A new year group, live from birth. Structure and people come later. */
+  createCohort(schoolId: string, label: string, gradYear: number): Promise<string>
+
+  /**
+   * Copy a cohort's STRUCTURE into another: courses (their sections), teacher
+   * assignments (markership included), and fresh RequirementDefs instantiated
+   * from the CURRENT IA templates — the same path addCourse uses. NEVER
+   * students, enrolments, marks or states: recorded work belongs to the year
+   * it happened in.
+   */
+  cloneCohortStructure(schoolId: string, fromCohortId: string, toCohortId: string): Promise<void>
 
   // ---- IB identifiers ----
   /**

@@ -1,8 +1,11 @@
 import { notFound } from 'next/navigation'
 import Shell from '@/components/Shell'
+import CandidatePanel from '@/components/CandidatePanel'
 import CasRoster from '@/components/cas/CasRoster'
 import CohortBar from '@/components/CohortBar'
+import MarkHistory from '@/components/ia/MarkHistory'
 import MarksGrid from '@/components/ia/MarksGrid'
+import UnlockMarks from '@/components/ia/UnlockMarks'
 import StudentCas from '@/components/cas/StudentCas'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
@@ -22,10 +25,10 @@ export default async function CoursePage({
   searchParams,
 }: {
   params: Promise<{ courseId: string }>
-  searchParams: Promise<{ cohort?: string }>
+  searchParams: Promise<{ cohort?: string; candidate?: string }>
 }) {
   const { courseId } = await params
-  const wantedCohort = (await searchParams).cohort
+  const { cohort: wantedCohort, candidate: wantedCandidate } = await searchParams
   const session = await getSession()
   const { user, school, memberships } = session
   const roles = memberships.find((m) => m.schoolId === school.id)?.roles ?? []
@@ -51,12 +54,16 @@ export default async function CoursePage({
   const current = course.id + '@' + (cohort?.id ?? '')
   const readOnly = cohort ? isArchived(cohort) : false
 
-  // You can only open a course you are actually attached to.
-  if (!isCoordinator && attached.length === 0) {
+  // Who reads ANY course: the coordinator tier, identified by capability
+  // rather than role — `marks.transcribe` / `marks.override` holders keep read
+  // access to the whole catalogue. Everyone else opens only what they are
+  // attached to (a teacher's assignments, a student's enrolments).
+  const coordinatorReader = session.can('marks.transcribe') || session.can('marks.override')
+  if (!coordinatorReader && attached.length === 0) {
     return (
       <Shell session={session} spaces={spaces} current={current}>
         <h1>{course.name}</h1>
-        <div className="note warn">You are not attached to this course.</div>
+        <div className="note warn">Not your course — you are not assigned to it.</div>
       </Shell>
     )
   }
@@ -107,37 +114,95 @@ export default async function CoursePage({
     // templates (IB-Course-Templates.md §1): what differs between Chemistry HL
     // and Visual Arts SL is the requirement set rendered into it, not the page.
     const cohortId = cohort?.id ?? 'c15'
-    if (!isStudent && session.can('ia.manage')) {
+    if (!isStudent && (session.can('ia.manage') || coordinatorReader)) {
       const view = await repo.ia.getMarksView(school.id, course.id, cohortId)
-      body = view ? (
-        <>
-          <h1>{course.name}</h1>
-          <p className="sub">
-            {course.subjectGroup}
-            {course.level ? ` · ${course.level}` : ''} — internal assessment, entered per criterion.
-            The total derives, and the moderation sample&rsquo;s criterion form is answered the day
-            IBIS asks.
-          </p>
-          <CohortBar
-            cohorts={isCoordinator ? cohorts : attached.map((g) => g.cohort)}
-            current={cohortId}
-            href={(id) => `/courses/${course.id}?cohort=${id}`}
-          />
-          <MarksGrid
-            view={view}
-            editable={session.can('ia.manage') && !readOnly}
-            canTranscribe={false}
-            readOnlyReason={
-              readOnly ? `${cohort?.label} is archived — a record, not a workspace.` : undefined
-            }
-          />
-        </>
-      ) : (
-        <>
-          <h1>{course.name}</h1>
-          <div className="note">This course has no sections for {cohort?.label ?? 'this year group'} yet.</div>
-        </>
-      )
+      if (view) {
+        // Marker-only writes: the grid is editable for the DESIGNATED MARKER,
+        // and for a `marks.override` holder only while their reasoned,
+        // 30-minute unlock is live. Co-teachers read. The actions re-check all
+        // of this server-side (lib/ia/authorize.ts) — this is presentation.
+        const isMarker = await repo.ia.isMarkerFor(school.id, course.id, cohortId, user.id)
+        const overrideHolder = !isMarker && session.can('marks.override')
+        const unlock = overrideHolder
+          ? await repo.ia.activeUnlock(school.id, course.id, user.id)
+          : null
+        const editable = !readOnly && (isMarker || unlock != null)
+
+        // The whole-student popout, teacher edition: names in the grid open
+        // the same CandidatePanel the board uses, selection in the URL. Gated
+        // server-side — a teacher reaches only students in sections they are
+        // assigned to, and IB identifiers leave only for identifier holders.
+        const mayOpenCandidate = wantedCandidate
+          ? coordinatorReader ||
+            (await repo.teachesStudent(school.id, user.id, wantedCandidate))
+          : false
+        const track =
+          wantedCandidate && mayOpenCandidate
+            ? await repo.getTrack(school.id, wantedCandidate, {
+                includeIdentifiers: session.can('identifiers.manage'),
+              })
+            : null
+
+        const events =
+          isMarker || coordinatorReader
+            ? await repo.ia.listMarkEvents(school.id, course.id, cohortId)
+            : null
+
+        const baseHref = `/courses/${course.id}?cohort=${cohortId}`
+        body = (
+          <>
+            <h1>{course.name}</h1>
+            <p className="sub">
+              {course.subjectGroup}
+              {course.level ? ` · ${course.level}` : ''} — internal assessment, entered per criterion.
+              The total derives, and the moderation sample&rsquo;s criterion form is answered the day
+              IBIS asks.
+            </p>
+            <CohortBar
+              cohorts={isCoordinator ? cohorts : attached.map((g) => g.cohort)}
+              current={cohortId}
+              href={(id) => `/courses/${course.id}?cohort=${id}`}
+            />
+            {overrideHolder && !readOnly && (
+              <UnlockMarks
+                courseId={course.id}
+                cohortId={cohortId}
+                unlock={unlock ? { reason: unlock.reason, expiresAt: unlock.expiresAt } : null}
+                markerName={view.marker}
+              />
+            )}
+            <MarksGrid
+              view={view}
+              editable={editable}
+              canTranscribe={false}
+              readOnlyReason={
+                readOnly
+                  ? `${cohort?.label} is archived — a record, not a workspace.`
+                  : !editable
+                    ? view.marker
+                      ? `Read-only — ${view.marker} is the designated marker for this course.`
+                      : 'Read-only — no designated marker is set for this course.'
+                    : undefined
+              }
+              candidateHref={(id) => `${baseHref}&candidate=${id}`}
+            />
+            {events != null && <MarkHistory events={events} />}
+            {wantedCandidate && !mayOpenCandidate && (
+              <div className="note warn" style={{ marginTop: 14 }}>
+                Not your student — the panel opens only for students in your own sections.
+              </div>
+            )}
+            {track && <CandidatePanel track={track} closeHref={baseHref} />}
+          </>
+        )
+      } else {
+        body = (
+          <>
+            <h1>{course.name}</h1>
+            <div className="note">This course has no sections for {cohort?.label ?? 'this year group'} yet.</div>
+          </>
+        )
+      }
     } else {
       body = (
         <>

@@ -39,3 +39,64 @@ export interface IaMarksView {
   marker: string | null
   rows: IaMarksRow[]
 }
+
+// ---------------------------------------------------------------------------
+// The audit trail — APPEND-ONLY. Events are never edited and never deleted.
+// ---------------------------------------------------------------------------
+
+export type MarkEventKind = 'mark' | 'comment' | 'transcribe' | 'unlock' | 'relock'
+
+/**
+ * One recorded change to a course's marks. Every write through the IA
+ * repository appends exactly one of these; nothing anywhere mutates one.
+ *
+ * `at` is a FULL ISO instant, deliberately unlike the spine's date-only
+ * stamps — an audit trail needs the minute, not just the school day.
+ */
+export interface MarkEvent {
+  id: string
+  schoolId: string
+  cohortId: string
+  courseId: string
+  /** Null for unlock/relock — those are course-level acts, not per-student. */
+  studentId: string | null
+  kind: MarkEventKind
+  /** The criterion key for mark events ('A', 'B1', …), or 'total' for a total-only family. */
+  criterion?: string
+  prev: string | number | null
+  next: string | number | null
+  byUserId: string
+  at: string
+  /** Set when the write rode a coordinator unlock rather than markership. */
+  overrideReason?: string
+}
+
+/** The same event with names resolved, ready to list. Newest first. */
+export interface MarkEventRow {
+  id: string
+  at: string
+  kind: MarkEventKind
+  byName: string
+  studentName: string | null
+  criterion: string | null
+  prev: string | number | null
+  next: string | number | null
+  overrideReason: string | null
+}
+
+/**
+ * A coordinator's temporary permission to edit a course's marks. Not an event:
+ * this is operational state (it expires, it can be ended early); the acts of
+ * unlocking and relocking are what land on the trail.
+ */
+export interface MarkUnlock {
+  id: string
+  schoolId: string
+  cohortId: string
+  courseId: string
+  userId: string
+  reason: string
+  createdAt: string
+  /** createdAt + 30 minutes. Enforced on every read — the auto re-lock. */
+  expiresAt: string
+}

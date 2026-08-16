@@ -21,6 +21,7 @@ import { makeSetupRepository } from './setup-repo'
 import { GROUP_CHOICES, GROUP_KEYS, SIXTH_SUBJECT, catalogueFor } from './catalogue'
 import { templateOf } from '../templates'
 import { makeIaRepository } from './ia-repo'
+import type { MarkEvent, MarkUnlock } from '../ia/types'
 import { pinned } from './pin'
 import { sortCohorts } from '../cohorts'
 
@@ -518,6 +519,15 @@ const setupRepository = makeSetupRepository({
   cohorts: COHORTS,
 })
 
+/**
+ * The IA audit trail and unlock records — runtime-written, so pinned. Both
+ * start empty: fixtures fake a mid-year school, but a fabricated audit trail
+ * would be a lie about who changed what, which is the one thing it exists to
+ * never be.
+ */
+export const MARK_EVENTS: MarkEvent[] = pinned('ibMarkEvents', () => [])
+const MARK_UNLOCKS: MarkUnlock[] = pinned('ibMarkUnlocks', () => [])
+
 const iaRepository = makeIaRepository({
   courses: COURSES,
   sections: SECTIONS,
@@ -527,6 +537,8 @@ const iaRepository = makeIaRepository({
   assignments: TEACHING_ASSIGNMENTS,
   defs: REQUIREMENT_DEFS,
   states: REQUIREMENT_STATES,
+  events: MARK_EVENTS,
+  unlocks: MARK_UNLOCKS,
 })
 
 const casRepository = makeCasRepository({
@@ -573,6 +585,20 @@ export const fixtureRepository: Repository = {
     return COURSES.filter((c) => c.schoolId === schoolId && courseIds.has(c.id))
   },
 
+  async teachesStudent(schoolId, teacherId, studentId) {
+    // ANY assignment, marker or not — a co-teacher sees the whole student too.
+    // The relationship is teacher ↔ section ↔ enrolment, never teacher ↔ student.
+    const mySections = new Set(
+      TEACHING_ASSIGNMENTS.filter((t) => t.teacherId === teacherId).map((t) => t.sectionId),
+    )
+    return ENROLLMENTS.some(
+      (e) =>
+        e.studentId === studentId &&
+        mySections.has(e.sectionId) &&
+        SECTIONS.some((s) => s.id === e.sectionId && s.schoolId === schoolId),
+    )
+  },
+
   async mySpaces(schoolId, userId) {
     // Sections reached either way — enrolled in, or assigned to teach.
     const sectionIds = new Set([
@@ -591,13 +617,19 @@ export const fixtureRepository: Repository = {
       .filter((g) => g.courses.length > 0)
   },
 
-  async getTrack(schoolId, studentUserId) {
+  async getTrack(schoolId, studentUserId, opts) {
     const student = STUDENTS.find((s) => s.userId === studentUserId)
     if (!student || student.schoolId !== schoolId) return null
     const user = USERS.find((u) => u.id === studentUserId)
     if (!user) return null
+    // FAIL CLOSED: session number and personal code leave only when the caller
+    // said `includeIdentifiers` — gated on `identifiers.manage` at the call
+    // site. The PIN never leaves a track at all (redact()).
+    const visible = opts?.includeIdentifiers
+      ? redact(student)
+      : { ...redact(student), sessionNumber: null, personalCode: null }
     return buildTrack(
-      redact(student),
+      visible,
       user,
       REQUIREMENT_DEFS,
       coursesOf(studentUserId, ENROLLMENTS, SECTIONS, COURSES),

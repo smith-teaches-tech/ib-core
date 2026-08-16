@@ -46,7 +46,8 @@ export default async function HomePage({
   let body: React.ReactNode
 
   if (isStudent) {
-    const track = await repo.getTrack(school.id, user.id)
+    // Their OWN record — the one case identifiers show without a capability.
+    const track = await repo.getTrack(school.id, user.id, { includeIdentifiers: true })
     // The header and exam date come from the student's OWN cohort — two year
     // groups run at once, and a hardcoded year is wrong for one of them.
     const myCohort = track
@@ -89,7 +90,9 @@ export default async function HomePage({
     // The open panel — a candidate of THIS cohort, or nothing.
     const track =
       controls.candidate && board.rows.some((r) => r.student.userId === controls.candidate)
-        ? await repo.getTrack(school.id, controls.candidate)
+        ? await repo.getTrack(school.id, controls.candidate, {
+            includeIdentifiers: session.can('identifiers.manage'),
+          })
         : null
 
     // The cohort chips carry the rest of the view with them, and the board's own

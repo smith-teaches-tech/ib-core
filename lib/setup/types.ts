@@ -6,8 +6,17 @@
 // Membership, Student. Everything below is a projection assembled on read.
 
 import type {
-  CapabilityKey, Course, Membership, RoleKey, Section, User,
+  CapabilityKey, Cohort, Course, Membership, RoleKey, Section, User,
 } from '../types'
+
+/** One row of the cohorts screen — a year group and what it contains. */
+export interface CohortSummary {
+  cohort: Cohort
+  /** Students belonging to the cohort, enrolled or not. */
+  students: number
+  /** Distinct courses with at least one section this cohort — what it runs. */
+  courses: number
+}
 
 export interface SectionRow {
   section: Section
