@@ -40,7 +40,7 @@ export default async function Setup({
     repo.setup.listCourseRows(school.id, cohort?.id ?? 'c15'),
     // The PIN leaves the repository only for someone who may DISTRIBUTE it —
     // managing identifiers is not the same as being trusted with credentials.
-    repo.setup.listPeople(school.id, session.can('identifiers.distribute')),
+    repo.setup.listPeople(school.id, session.can('identifiers.distribute'), cohort?.id),
   ])
 
   const membership = memberships.find((m) => m.schoolId === school.id)

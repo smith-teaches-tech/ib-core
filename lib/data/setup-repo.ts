@@ -156,7 +156,9 @@ export function makeSetupRepository(deps: {
         })
     },
 
-    async listPeople(schoolId, includePins = false) {
+    async listPeople(schoolId, includePins = false, cohortId) {
+      const inCohort = (sectionId: string) =>
+        cohortId == null || sections.some((s) => s.id === sectionId && s.cohortId === cohortId)
       return memberships
         .filter((m) => m.schoolId === schoolId)
         .map<PersonRow>((membership) => {
@@ -191,10 +193,10 @@ export function makeSetupRepository(deps: {
                 }
               : null,
             teaches: assignments
-              .filter((a) => a.teacherId === membership.userId)
+              .filter((a) => a.teacherId === membership.userId && inCohort(a.sectionId))
               .map((a) => ({ sectionId: a.sectionId, label: nameOf(a.sectionId) })),
             enrolled: enrollments
-              .filter((e) => e.studentId === membership.userId)
+              .filter((e) => e.studentId === membership.userId && inCohort(e.sectionId))
               .map((e) => ({ sectionId: e.sectionId, label: nameOf(e.sectionId) }))
               .sort((a, b) => a.label.localeCompare(b.label)),
           }

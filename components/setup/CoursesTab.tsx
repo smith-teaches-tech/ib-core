@@ -195,7 +195,19 @@ export default function CoursesTab({
           </thead>
           <tbody>
             {running.map((r) => {
-              const teachers = r.sections.flatMap((s) => s.teachers)
+              // Dedupe by user — a teacher can only appear once per course, even
+              // if stale or multi-section state hands us two assignment rows.
+              // Marker status wins over a plain assignment.
+              const teachers = [
+                ...r.sections
+                  .flatMap((s) => s.teachers)
+                  .reduce((m, t) => {
+                    const prior = m.get(t.userId)
+                    if (!prior || (t.isDesignatedMarker && !prior.isDesignatedMarker)) m.set(t.userId, t)
+                    return m
+                  }, new Map<string, { userId: string; name: string; isDesignatedMarker: boolean }>())
+                  .values(),
+              ]
               const marker = teachers.find((t) => t.isDesignatedMarker)
               return (
                 <tr key={r.course.id}>

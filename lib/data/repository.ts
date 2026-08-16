@@ -204,7 +204,9 @@ export interface SetupRepository {
    * is gated on `identifiers.distribute` at the call site. Redaction happens
    * here rather than in a component, because a component that forgets is a leak.
    */
-  listPeople(schoolId: string, includePins?: boolean): Promise<PersonRow[]>
+  /** cohortId scopes the teaches/enrolled chips to one year group — archived
+   *  cohorts' assignments stay in the data as history but are never listed. */
+  listPeople(schoolId: string, includePins?: boolean, cohortId?: string): Promise<PersonRow[]>
   /** Pure parse + collision check. Nothing is written; the screen previews this. */
   previewImport(schoolId: string, text: string): Promise<ImportPreview>
 
