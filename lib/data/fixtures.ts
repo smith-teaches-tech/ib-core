@@ -21,6 +21,7 @@ import { makeSetupRepository } from './setup-repo'
 import { GROUP_CHOICES, GROUP_KEYS, SIXTH_SUBJECT, catalogueFor } from './catalogue'
 import { templateOf } from '../templates'
 import { makeIaRepository } from './ia-repo'
+import { makeExportRepository } from './export-repo'
 import type { MarkEvent, MarkUnlock, SampleRequest } from '../ia/types'
 import { pinned } from './pin'
 import { sortCohorts } from '../cohorts'
@@ -549,6 +550,18 @@ const iaRepository = makeIaRepository({
   samples: SAMPLE_REQUESTS,
 })
 
+const exportRepository = makeExportRepository({
+  cohorts: COHORTS,
+  courses: COURSES,
+  sections: SECTIONS,
+  enrollments: ENROLLMENTS,
+  students: STUDENTS,
+  users: USERS,
+  defs: REQUIREMENT_DEFS,
+  states: REQUIREMENT_STATES,
+  samples: SAMPLE_REQUESTS,
+})
+
 const casRepository = makeCasRepository({
   data: CAS_DATA,
   nextExperienceId: casCounters.nextExperienceId,
@@ -663,6 +676,7 @@ export const fixtureRepository: Repository = {
   cas: casRepository,
   setup: setupRepository,
   ia: iaRepository,
+  export: exportRepository,
 
   async listDocuments(schoolId, forUserId) {
     const isStudent = roleOf(forUserId, schoolId).includes('student')

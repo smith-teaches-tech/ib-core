@@ -727,3 +727,17 @@ details.archived .navrow { opacity: .75; }
 .samplerow.on{background:var(--brand-soft)}
 .samplerow .sn{font-variant-numeric:tabular-nums;color:var(--muted);width:34px;flex:none}
 .samplerow .nm{font-weight:600}
+
+/* ---- download for IBIS (the upload board) ------------------------------ */
+.xjob{display:flex;align-items:center;gap:10px;padding:9px 2px;border-bottom:1px solid #f0f3f6;flex-wrap:wrap}
+.xjob:last-child{border-bottom:0}
+.xjl{font-weight:600;font-size:13px;min-width:230px;flex:1}
+.xjl .crs{display:block;font-size:11.5px;color:var(--muted);font-weight:400}
+.xfrac{display:inline-block;min-width:40px;text-align:center;padding:2px 7px;border-radius:6px;
+  font-weight:700;font-variant-numeric:tabular-nums;font-size:12px;border:1px solid var(--line)}
+.xfrac.ok{background:var(--ok-soft);color:var(--ok);border-color:#c7e6d5}
+.xfrac.mid{background:var(--gold-soft);color:var(--gold);border-color:#ecdcb8}
+.xfrac.zero{background:#f2f4f6;color:var(--muted)}
+.xmiss{font-size:11.5px;color:var(--muted);font-weight:400;margin-top:2px}
+.xmiss summary{cursor:pointer;color:var(--warn);font-weight:600}
+.xmissrow{padding:1px 0 1px 12px;font-variant-numeric:tabular-nums}

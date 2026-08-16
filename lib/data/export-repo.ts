@@ -1,0 +1,381 @@
+// The fixture implementation of ExportRepository — Download for IBIS's data.
+//
+// A factory handed the spine arrays, like the CAS, setup and IA ones. Almost
+// everything here is a PROJECTION: the upload board is RequirementDef ×
+// RequirementState × SampleRequest, re-read on every call, nothing cached and
+// nothing stored (spine invariant #2). The one write is setJobSubmitted, which
+// stamps exportStatus — eCoursework's own word, on the export axis — onto the
+// states a pack was built from; the school record is untouched.
+//
+// File BYTES are still a stub (lib/storage.ts). What is real is the pipeline:
+// which slots exist, which are filled, what each file will be named, and what
+// the CSVs contain. When storage lands, the packs pick up real bytes without
+// this file's shape changing.
+
+import type { ExportRepository } from './repository'
+import type {
+  Cohort, Course, Enrollment, RequirementDef, RequirementState, Section, Student, User,
+} from '../types'
+import type { SampleRequest } from '../ia/types'
+import type {
+  CohortJob, IaFileGroup, PackRow, SampleJob, TypedJob, UploadBoardView,
+} from '../export/types'
+import { iaTotal } from '../templates'
+
+const COMPLETE = new Set(['submitted', 'marked', 'released'])
+
+/** The course name as a filename fragment: "Art HL" → "ArtHL". */
+const compact = (name: string) => name.replace(/[^A-Za-z0-9]+/g, '')
+
+export function makeExportRepository(deps: {
+  cohorts: Cohort[]
+  courses: Course[]
+  sections: Section[]
+  enrollments: Enrollment[]
+  students: Student[]
+  users: User[]
+  defs: RequirementDef[]
+  states: RequirementState[]
+  samples: SampleRequest[]
+}): ExportRepository {
+  const {
+    cohorts, courses, sections, enrollments, students, users, defs, states, samples,
+  } = deps
+
+  const defFor = (schoolId: string, cohortId: string, key: string) => {
+    const d = defs.find((x) => x.cohortId === cohortId && x.key === key) ?? null
+    if (d && d.schoolId !== schoolId) {
+      throw new Error('That requirement definition is not at this school.')
+    }
+    return d
+  }
+
+  const stateFor = (schoolId: string, studentId: string, defId: string) =>
+    states.find(
+      (s) => s.schoolId === schoolId && s.studentId === studentId && s.requirementDefId === defId,
+    ) ?? null
+
+  const nameOf = (userId: string) => users.find((u) => u.id === userId)?.name ?? userId
+
+  /** IBIS candidate order: session number ascending, unregistered last by name. */
+  const sessionOrder = (a: Student, b: Student) =>
+    a.sessionNumber == null && b.sessionNumber == null
+      ? nameOf(a.userId).localeCompare(nameOf(b.userId))
+      : a.sessionNumber == null
+        ? 1
+        : b.sessionNumber == null
+          ? -1
+          : a.sessionNumber.localeCompare(b.sessionNumber)
+
+  const enrolledIn = (schoolId: string, courseId: string, cohortId: string) => {
+    const sectionIds = sections
+      .filter((s) => s.schoolId === schoolId && s.courseId === courseId && s.cohortId === cohortId)
+      .map((s) => s.id)
+    return students
+      .filter(
+        (st) =>
+          st.schoolId === schoolId &&
+          st.cohortId === cohortId &&
+          enrollments.some((e) => e.studentId === st.userId && sectionIds.includes(e.sectionId)),
+      )
+      .sort(sessionOrder)
+  }
+
+  /**
+   * One candidate's slot across the def(s) that feed it. A single-def job is
+   * the normal case; TK/PPF spans three text defs and is `present` only when
+   * all three are typed — the official form carries all three interactions.
+   */
+  const rowFor = (
+    schoolId: string,
+    st: Student,
+    jobDefs: RequirementDef[],
+    fileName: string,
+    source: PackRow['source'],
+    detailWord: string,
+  ): PackRow => {
+    const sts = jobDefs.map((d) => stateFor(schoolId, st.userId, d.id))
+    const done = sts.filter((s) => s != null && COMPLETE.has(s.recordStatus)).length
+    const present = done === jobDefs.length
+    return {
+      studentId: st.userId,
+      name: nameOf(st.userId),
+      sessionNumber: st.sessionNumber,
+      fileName,
+      present,
+      submitted: present && sts.every((s) => s?.exportStatus === 'submitted'),
+      source,
+      detail:
+        present || jobDefs.length === 1
+          ? null
+          : `${done} of ${jobDefs.length} ${detailWord}`,
+    }
+  }
+
+  /** 'g6:<courseId>' cohort jobs — Group 6 IA components upload for EVERY candidate. */
+  const groupSixCourses = (schoolId: string, cohortId: string) =>
+    courses.filter(
+      (c) =>
+        c.schoolId === schoolId &&
+        c.type === 'subject' &&
+        c.subjectGroup.startsWith('Group 6') &&
+        enrolledIn(schoolId, c.id, cohortId).length > 0,
+    )
+
+  /** The def keys behind a cohort-job key — the single place the mapping lives. */
+  const jobDefKeys = (jobKey: string): string[] | null => {
+    if (jobKey === 'ee.essay') return ['ee.final']
+    if (jobKey === 'ee.rppf') return ['ee.rpf']
+    if (jobKey === 'tok.essay') return ['tok.essay']
+    if (jobKey === 'tok.tkppf') return ['tok.ppf1', 'tok.ppf2', 'tok.ppf3']
+    if (jobKey.startsWith('g6:')) return [jobKey.slice(3) + '.file']
+    return null
+  }
+
+  const jobCourseId = (jobKey: string) =>
+    jobKey.startsWith('g6:') ? jobKey.slice(3) : jobKey.startsWith('ee.') ? 'ee' : 'tok'
+
+  const buildCohortJob = (
+    schoolId: string,
+    cohortId: string,
+    sessionLabel: string,
+    jobKey: string,
+    label: string,
+    kind: CohortJob['kind'],
+    formNote: string | null,
+    component: string,
+    ext: string,
+  ): CohortJob | null => {
+    const keys = jobDefKeys(jobKey)!
+    const jobDefs = keys
+      .map((k) => defFor(schoolId, cohortId, k))
+      .filter((d): d is RequirementDef => d != null)
+    if (jobDefs.length !== keys.length) return null
+    const roster = enrolledIn(schoolId, jobCourseId(jobKey), cohortId)
+    const rows = roster.map((st) =>
+      rowFor(
+        schoolId, st, jobDefs,
+        `${st.sessionNumber ?? 'no-session-number'}_${component}.${ext}`,
+        kind === 'forms' ? 'generated' : 'uploaded',
+        'typed',
+      ),
+    )
+    const ready = rows.filter((r) => r.present).length
+    return {
+      key: jobKey, label,
+      covers: `${rows.length} candidate${rows.length === 1 ? '' : 's'}`,
+      kind, formNote,
+      ready, total: rows.length,
+      submitted: ready > 0 && rows.filter((r) => r.present).every((r) => r.submitted),
+      zipName: `${component}_${sessionLabel}.zip`,
+      csvName: `${component}_roster.csv`,
+      rows,
+    }
+  }
+
+  return {
+    async getUploadBoard(schoolId, cohortId) {
+      const cohort = cohorts.find((c) => c.id === cohortId && c.schoolId === schoolId)
+      if (!cohort) return null
+      const sessionLabel = `M${String(cohort.gradYear).slice(-2)}`
+
+      // ------------------------------------------------ whole-cohort jobs
+      const cohortJobs: CohortJob[] = []
+      const push = (j: CohortJob | null) => { if (j) cohortJobs.push(j) }
+      push(buildCohortJob(schoolId, cohortId, sessionLabel, 'ee.essay',
+        'EE — final essay', 'files', null, 'EE_essay', 'pdf'))
+      push(buildCohortJob(schoolId, cohortId, sessionLabel, 'ee.rppf',
+        'EE — RPPF', 'forms',
+        'Official EE/RPPF form, filled from the typed reflections — nobody re-types it',
+        'EE_RPPF', 'pdf'))
+      push(buildCohortJob(schoolId, cohortId, sessionLabel, 'tok.essay',
+        'TOK — essay', 'files', null, 'TOK_essay', 'pdf'))
+      push(buildCohortJob(schoolId, cohortId, sessionLabel, 'tok.tkppf',
+        'TOK — TK/PPF', 'forms',
+        'Official TK/PPF form, filled from the three typed interactions',
+        'TOK_TKPPF', 'pdf'))
+      for (const c of groupSixCourses(schoolId, cohortId)) {
+        push(buildCohortJob(schoolId, cohortId, sessionLabel, 'g6:' + c.id,
+          `${c.name} — portfolio (Group 6)`, 'files', null,
+          `${compact(c.name)}_portfolio`, 'zip'))
+      }
+
+      // ------------------------------------------------ moderation samples
+      const subjectCourses = courses.filter(
+        (c) => c.schoolId === schoolId && c.type === 'subject' &&
+          enrolledIn(schoolId, c.id, cohortId).length > 0,
+      )
+      const sampleOf = (courseId: string) =>
+        samples.find(
+          (s) => s.schoolId === schoolId && s.courseId === courseId && s.cohortId === cohortId,
+        ) ?? null
+
+      const projectSample = (
+        req: SampleRequest | null,
+        filePresent: (studentId: string) => boolean,
+      ): SampleJob['sample'] =>
+        req == null
+          ? null
+          : {
+              size: req.studentIds.length,
+              filesReady: req.studentIds.filter(filePresent).length,
+              status: req.status,
+              recordedAt: req.recordedAt,
+              submittedAt: req.submittedAt ?? null,
+            }
+
+      const sampleJobs: SampleJob[] = subjectCourses
+        .filter((c) => !c.subjectGroup.startsWith('Group 6'))
+        .map<SampleJob>((c) => {
+          const roster = enrolledIn(schoolId, c.id, cohortId)
+          const markDef = defFor(schoolId, cohortId, c.id + '.mark')
+          const fileDef = defFor(schoolId, cohortId, c.id + '.file')
+          const marksIn = markDef == null
+            ? 0
+            : roster.filter(
+                (st) => iaTotal(markDef.criteria, stateFor(schoolId, st.userId, markDef.id)) != null,
+              ).length
+          const filePresent = (studentId: string) => {
+            if (!fileDef) return false
+            const s = stateFor(schoolId, studentId, fileDef.id)
+            return s != null && COMPLETE.has(s.recordStatus)
+          }
+          return {
+            courseId: c.id, courseName: c.name, kind: 'ia',
+            enrolled: roster.length, marksIn,
+            sample: projectSample(sampleOf(c.id), filePresent),
+            pickerHref: `/marks?cohort=${cohortId}&course=${c.id}`,
+          }
+        })
+        .sort((a, b) => a.courseName.localeCompare(b.courseName))
+
+      // The TOK exhibition is moderated the same way — teacher-marked, sampled.
+      {
+        const roster = enrolledIn(schoolId, 'tok', cohortId)
+        if (roster.length > 0) {
+          const markDef = defFor(schoolId, cohortId, 'tok.exhmark')
+          const fileDef = defFor(schoolId, cohortId, 'tok.exh')
+          const marksIn = markDef == null
+            ? 0
+            : roster.filter((st) => {
+                const s = stateFor(schoolId, st.userId, markDef.id)
+                return s?.mark != null
+              }).length
+          const filePresent = (studentId: string) => {
+            if (!fileDef) return false
+            const s = stateFor(schoolId, studentId, fileDef.id)
+            return s != null && COMPLETE.has(s.recordStatus)
+          }
+          sampleJobs.push({
+            courseId: 'tok', courseName: 'TOK exhibition', kind: 'tok_exhibition',
+            enrolled: roster.length, marksIn,
+            sample: projectSample(sampleOf('tok'), filePresent),
+            // The paste-and-pack picker lives with the marks grid, which is
+            // subject-course only today. The TOK module brings its own.
+            pickerHref: null,
+          })
+        }
+      }
+
+      // ------------------------------------------------ typed by hand
+      const iaRoster = subjectCourses.map((c) => ({
+        course: c,
+        roster: enrolledIn(schoolId, c.id, cohortId),
+        markDef: defFor(schoolId, cohortId, c.id + '.mark'),
+      }))
+      const iaTotalSlots = iaRoster.reduce((a, r) => a + r.roster.length, 0)
+      const iaTyped = iaRoster.reduce(
+        (a, r) =>
+          a +
+          (r.markDef == null
+            ? 0
+            : r.roster.filter(
+                (st) => stateFor(schoolId, st.userId, r.markDef!.id)?.exportStatus === 'submitted',
+              ).length),
+        0,
+      )
+      const cohortStudents = students
+        .filter((st) => st.schoolId === schoolId && st.cohortId === cohortId)
+        .sort(sessionOrder)
+      const pgDef = defFor(schoolId, cohortId, 'ib.pg')
+      const pgDone = pgDef == null
+        ? 0
+        : cohortStudents.filter((st) => {
+            const s = stateFor(schoolId, st.userId, pgDef.id)
+            return s != null && COMPLETE.has(s.recordStatus)
+          }).length
+
+      const typedJobs: TypedJob[] = [
+        {
+          key: 'ia_marks',
+          label: 'IA marks',
+          detail: 'per course, IBIS candidate order — the transcription view ticks as you type',
+          done: iaTyped, total: iaTotalSlots,
+          href: `/marks?cohort=${cohortId}`,
+        },
+        {
+          key: 'predicted',
+          label: 'Predicted grades',
+          detail: 'six subjects + EE + TOK letters per candidate — module not built yet',
+          done: pgDone, total: cohortStudents.length,
+          href: '/',
+        },
+      ]
+
+      // ------------------------------------------------ all-IAs download data
+      const iaFiles: IaFileGroup[] = iaRoster
+        .map<IaFileGroup | null>(({ course, roster }) => {
+          const fileDef = defFor(schoolId, cohortId, course.id + '.file')
+          if (!fileDef) return null
+          return {
+            courseId: course.id,
+            courseName: course.name,
+            compact: compact(course.name),
+            rows: roster.map((st) =>
+              rowFor(
+                schoolId, st, [fileDef],
+                `${st.sessionNumber ?? 'no-session-number'}_${compact(course.name)}_IA.pdf`,
+                'uploaded', 'typed',
+              ),
+            ),
+          }
+        })
+        .filter((g): g is IaFileGroup => g != null)
+        .sort((a, b) => a.courseName.localeCompare(b.courseName))
+
+      return {
+        cohortId, sessionLabel,
+        candidates: cohortStudents.length,
+        cohortJobs, sampleJobs, typedJobs, iaFiles,
+      }
+    },
+
+    async setJobSubmitted(schoolId, cohortId, jobKey, on) {
+      const cohort = cohorts.find((c) => c.id === cohortId && c.schoolId === schoolId)
+      if (!cohort) throw new Error('That year group is not at this school.')
+      if (cohort.archived) {
+        throw new Error(`${cohort.label} is archived — a record, not a workspace.`)
+      }
+      const keys = jobDefKeys(jobKey)
+      if (!keys) throw new Error('Unknown upload job.')
+      const jobDefs = keys
+        .map((k) => defFor(schoolId, cohortId, k))
+        .filter((d): d is RequirementDef => d != null)
+      if (jobDefs.length !== keys.length) {
+        throw new Error('That upload job does not exist for this year group.')
+      }
+      // Only COMPLETE slots are stamped: what was actually in the pack. A
+      // missing candidate's absent state stays absent — non-submission is its
+      // own recorded act in eCoursework, not something this button invents.
+      for (const st of enrolledIn(schoolId, jobCourseId(jobKey), cohortId)) {
+        const sts = jobDefs.map((d) => stateFor(schoolId, st.userId, d.id))
+        if (!sts.every((s) => s != null && COMPLETE.has(s.recordStatus))) continue
+        for (const s of sts) {
+          // Unticking stores NOTHING — a stored copy of a derivable fact is
+          // exactly what invariant #2 forbids (same rule as setTypedIntoIbis).
+          s!.exportStatus = on ? 'submitted' : undefined
+        }
+      }
+    },
+  }
+}

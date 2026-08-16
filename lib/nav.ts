@@ -68,8 +68,8 @@ export const COORDINATOR_PAGES: NavPage[] = [
   {
     href: '/export',
     label: 'Download for IBIS',
-    hint: 'Not built yet — the point of the product',
-    ready: false,
+    hint: 'Upload packs, moderation samples, what gets typed by hand',
+    ready: true,
     capability: 'pack.school',
   },
 ]

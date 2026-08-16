@@ -673,6 +673,130 @@ async function main() {
     'a legitimate preset change lands and clears deviations recorded against the old preset',
   )
 
+  // -------------------------------------------------------------------------
+  // 11 — Download for IBIS. The upload board is a PROJECTION over defs, states
+  // and SampleRequests (IB-Export-and-Samples.md §4: the spine needed nothing
+  // new); its one write stamps only the export axis, and only what was in the
+  // pack.
+  // -------------------------------------------------------------------------
+  console.log('\n11. Download for IBIS — the upload board')
+  const DONE_11 = new Set(['submitted', 'marked', 'released'])
+  const board11 = await repo.export.getUploadBoard('dhahran', 'c15')
+  if (!board11) return check(false, 'upload board built for c15')
+  const jobKeys11 = board11.cohortJobs.map((j) => j.key)
+  const g6Set = new Set(
+    COURSES.filter(
+      (c) => c.type === 'subject' && c.subjectGroup.startsWith('Group 6'),
+    ).map((c) => c.id),
+  )
+  check(
+    ['ee.essay', 'ee.rppf', 'tok.essay', 'tok.tkppf'].every((k) => jobKeys11.includes(k)) &&
+      jobKeys11.some((k) => k.startsWith('g6:')) &&
+      jobKeys11.filter((k) => k.startsWith('g6:')).every((k) => g6Set.has(k.slice(3))),
+    'cohort jobs: the four core packs plus one per running Group 6 course',
+  )
+  check(
+    board11.sampleJobs.every((s) => !g6Set.has(s.courseId)) &&
+      board11.sampleJobs.some((s) => s.kind === 'tok_exhibition'),
+    'Group 6 uploads for every candidate, never sampled; the exhibition is sampled',
+  )
+
+  const essayJob = board11.cohortJobs.find((j) => j.key === 'ee.essay')!
+  const sns11 = essayJob.rows
+    .map((r) => r.sessionNumber)
+    .filter((x): x is string => x != null)
+  check(
+    essayJob.rows.every(
+      (r) => r.fileName === `${r.sessionNumber ?? 'no-session-number'}_EE_essay.pdf`,
+    ) && sns11.every((v, i) => i === 0 || sns11[i - 1] <= v),
+    'pack rows carry sessionNo_Component names, in IBIS candidate order',
+  )
+
+  const eeFinalDef = REQUIREMENT_DEFS.find((d) => d.cohortId === 'c15' && d.key === 'ee.final')!
+  check(
+    essayJob.ready ===
+      essayJob.rows.filter((r) =>
+        REQUIREMENT_STATES.some(
+          (s) =>
+            s.requirementDefId === eeFinalDef.id &&
+            s.studentId === r.studentId &&
+            DONE_11.has(s.recordStatus),
+        ),
+      ).length,
+    'ready counts derive from RequirementStates — nothing is stored to make the board',
+  )
+
+  const ppfJob = board11.cohortJobs.find((j) => j.key === 'tok.tkppf')!
+  const ppfDefs11 = ['tok.ppf1', 'tok.ppf2', 'tok.ppf3'].map(
+    (k) => REQUIREMENT_DEFS.find((d) => d.cohortId === 'c15' && d.key === k)!,
+  )
+  check(
+    ppfJob.kind === 'forms' &&
+      ppfJob.rows.every((r) => r.source === 'generated') &&
+      ppfJob.ready ===
+        ppfJob.rows.filter((r) =>
+          ppfDefs11.every((d) =>
+            REQUIREMENT_STATES.some(
+              (s) =>
+                s.requirementDefId === d.id &&
+                s.studentId === r.studentId &&
+                DONE_11.has(s.recordStatus),
+            ),
+          ),
+        ).length,
+    'a TK/PPF slot is present only when all three interactions are typed — the official form, generated',
+  )
+
+  const bioSample = board11.sampleJobs.find((s) => s.courseId === 'bio_sl')
+  check(
+    bioSample != null &&
+      bioSample.sample != null &&
+      bioSample.sample.status === 'draft' &&
+      bioSample.sample.size === 1,
+    "a sample row mirrors the live SampleRequest the IA module recorded — same entity, no copy",
+  )
+
+  const typedIa = board11.typedJobs.find((t) => t.key === 'ia_marks')!
+  check(
+    typedIa.total === board11.iaFiles.reduce((a, g) => a + g.rows.length, 0) &&
+      board11.iaFiles.length ===
+        board11.sampleJobs.filter((s) => s.kind === 'ia').length +
+          jobKeys11.filter((k) => k.startsWith('g6:')).length,
+    'the all-IAs download and the transcription total cover every enrolment in every subject course',
+  )
+
+  await repo.export.setJobSubmitted('dhahran', 'c15', 'ee.essay', true)
+  const after11 = (await repo.export.getUploadBoard('dhahran', 'c15'))!.cohortJobs.find(
+    (j) => j.key === 'ee.essay',
+  )!
+  const missing11 = new Set(after11.rows.filter((r) => !r.present).map((r) => r.studentId))
+  check(
+    after11.submitted &&
+      after11.rows.filter((r) => r.present).every((r) => r.submitted) &&
+      REQUIREMENT_STATES.filter(
+        (s) => s.requirementDefId === eeFinalDef.id && missing11.has(s.studentId),
+      ).every((s) => s.exportStatus !== 'submitted'),
+    'marking a pack submitted stamps exportStatus on exactly the slots that were in it',
+  )
+  await repo.export.setJobSubmitted('dhahran', 'c15', 'ee.essay', false)
+  check(
+    REQUIREMENT_STATES.filter((s) => s.requirementDefId === eeFinalDef.id).every(
+      (s) => s.exportStatus == null,
+    ),
+    'amending clears the stamp and stores nothing — invariant #2 on the export axis',
+  )
+
+  let archived11 = ''
+  try {
+    await repo.export.setJobSubmitted('dhahran', 'c14', 'ee.essay', true)
+  } catch (e) {
+    archived11 = e instanceof Error ? e.message : String(e)
+  }
+  check(
+    archived11.includes('archived'),
+    'an archived cohort refuses the write — a record, not a workspace',
+  )
+
   console.log('\n' + '='.repeat(60))
   if (fail.length) {
     console.log(`CHECKPOINT FAILED — ${fail.length} problem(s). Fix the spine before building screens.\n`)

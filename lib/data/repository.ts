@@ -26,6 +26,7 @@ import type {
   CohortSummary, CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
 } from '../setup/types'
 import type { IaMarksView, MarkEventRow, MarkUnlock, SampleRequest } from '../ia/types'
+import type { UploadBoardView } from '../export/types'
 import type { CapabilityKey, Cohort, PresetKey } from '../types'
 
 export interface CohortSpaces {
@@ -101,6 +102,28 @@ export interface Repository {
 
   /** IA marks — the module that records criterion marks and comments. */
   ia: IaRepository
+
+  /** Download for IBIS — the upload board and its one write (exportStatus). */
+  export: ExportRepository
+}
+
+/**
+ * Download for IBIS. NOT a coordinator-view exception: the module owns its own
+ * screen (the upload board) exactly as CAS and IA marks do, and that screen is
+ * a pure projection over defs, states and SampleRequests — see
+ * IB-Export-and-Samples.md §4, which found the spine needed nothing new. The
+ * single write stamps eCoursework's own status word onto the states a pack was
+ * built from; the school record never moves.
+ */
+export interface ExportRepository {
+  /** The whole board for one cohort: cohort packs, samples, hand-typed counts. */
+  getUploadBoard(schoolId: string, cohortId: string): Promise<UploadBoardView | null>
+  /**
+   * Mark a whole-cohort job as uploaded in eCoursework (or take it back).
+   * Stamps `exportStatus: 'submitted'` on every COMPLETE contributing state;
+   * incomplete or absent slots are never touched. Refused for archived cohorts.
+   */
+  setJobSubmitted(schoolId: string, cohortId: string, jobKey: string, on: boolean): Promise<void>
 }
 
 /**
