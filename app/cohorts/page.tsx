@@ -18,11 +18,15 @@ export const dynamic = 'force-dynamic'
 
 export default async function CohortsPage() {
   const session = await getSession()
-  const { school } = session
+  const { user, school } = session
+  // Everyone gets their spaces looked up, not just teachers: a person can hold
+  // a coordinator job AND teach (see Shell). A pure coordinator is attached to
+  // no courses, so this returns [] for them and costs nothing.
+  const spaces = await repo.mySpaces(session.school.id, session.user.id)
 
   if (!session.can('cohorts.manage')) {
     return (
-      <Shell session={session} spaces={[]} current="/cohorts">
+      <Shell session={session} spaces={spaces} current="/cohorts">
         <h1>Cohorts</h1>
         <div className="note warn">
           You need <b>Create and edit cohorts</b> for this school.
@@ -40,7 +44,7 @@ export default async function CohortsPage() {
   const canArchive = session.can('cohort.archive')
 
   return (
-    <Shell session={session} spaces={[]} current="/cohorts">
+    <Shell session={session} spaces={spaces} current="/cohorts">
       <h1>Cohorts</h1>
       <p className="sub">
         {school.name} — every year group, live and archived. Create the next one here, clone this

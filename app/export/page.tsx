@@ -21,11 +21,15 @@ export default async function ExportPage({
 }) {
   const params = await searchParams
   const session = await getSession()
-  const { school } = session
+  const { user, school } = session
+  // Everyone gets their spaces looked up, not just teachers: a person can hold
+  // a coordinator job AND teach (see Shell). A pure coordinator is attached to
+  // no courses, so this returns [] for them and costs nothing.
+  const spaces = await repo.mySpaces(session.school.id, session.user.id)
 
   if (!session.can('pack.school')) {
     return (
-      <Shell session={session} spaces={[]} current="/export">
+      <Shell session={session} spaces={spaces} current="/export">
         <h1>Download for IBIS</h1>
         <div className="note warn">
           You need <b>Build school packs</b> for this school.
@@ -41,7 +45,7 @@ export default async function ExportPage({
   const readOnly = cohort ? isArchived(cohort) : false
 
   return (
-    <Shell session={session} spaces={[]} current="/export">
+    <Shell session={session} spaces={spaces} current="/export">
       <h1>Download for IBIS</h1>
       <p className="sub">
         Download here, upload to eCoursework, mark it done. Files are named{' '}

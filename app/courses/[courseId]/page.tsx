@@ -41,7 +41,10 @@ export default async function CoursePage({
   const course = courses.find((c) => c.id === courseId)
   if (!course) notFound()
 
-  const spaces = isCoordinator ? [] : await repo.mySpaces(school.id, user.id)
+  // Not gated on role any more: someone can hold a coordinator job AND teach,
+  // and the sidebar shows both (see Shell). A pure coordinator is attached to
+  // no courses, so this comes back empty for them by itself.
+  const spaces = await repo.mySpaces(school.id, user.id)
 
   // Which year group of this course — the one asked for, else the first live
   // one this person is attached to.

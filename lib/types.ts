@@ -177,6 +177,8 @@ export interface RequirementState {
 export type RoleKey =
   | 'student' | 'teacher' | 'cas_coordinator' | 'ee_coordinator'
   | 'tok_teacher' | 'tok_coordinator' | 'school_coordinator' | 'district_coordinator'
+  // Not an IB job. Whoever keeps the system running — see PRESETS.tech_admin.
+  | 'tech_admin'
 
 export type UserStatus = 'invited' | 'active' | 'suspended'
 
@@ -191,6 +193,7 @@ export type CapabilityKey = string
 export type PresetKey =
   | 'district' | 'school_full' | 'school_standard'
   | 'setup_only' | 'observer' | 'teacher' | 'student'
+  | 'tech_admin'
 
 /** A user's relationship to ONE school. A user may hold several. */
 export interface Membership {

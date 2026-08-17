@@ -135,6 +135,7 @@ const studentIds = (cohortId: string) =>
 
 const STAFF: User[] = [
   { id: 'u_michael', name: 'Ewan Hunt', email: 'ehunt@isg.edu.sa', status: 'active' },
+  { id: 'u_msmith', name: 'Michael Smith', email: 'msmith@isg.edu.sa', status: 'active' },
   { id: 'u_haddad', name: 'S. Haddad', email: 'shaddad@isg.edu.sa', status: 'active' },
   { id: 'u_adeyemi', name: 'H. Adeyemi', email: 'hadeyemi@isg.edu.sa', status: 'active' },
   { id: 'u_farouk', name: 'R. Farouk', email: 'rfarouk@isg.edu.sa', status: 'active' },
@@ -186,6 +187,18 @@ export const STUDENTS: Student[] = pinned('ibStudents', () =>
 export const MEMBERSHIPS: Membership[] = pinned('ibMemberships', () => [
   { userId: 'u_michael', schoolId: 'dhahran', roles: ['district_coordinator'], presetKey: 'district', addedCapabilities: [], removedCapabilities: [] },
   { userId: 'u_michael', schoolId: 'jubail', roles: ['district_coordinator'], presetKey: 'district', addedCapabilities: [], removedCapabilities: [] },
+  // TECH SUPPORT WHO ALSO TEACHES — the case the role model has to survive.
+  //
+  // One person, four unrelated jobs: he keeps the system running, and he
+  // separately runs CAS, runs EE and teaches TOK. None of those imply each
+  // other and none of them is "Core teacher". The preset is what he can DO
+  // (everything, because support cannot fix what it cannot see); the roles are
+  // what he IS, and they are what the modules read. Adeyemi holds three of the
+  // same role keys — a role is a job description, not a seat, and two people
+  // can hold one. Markership is the thing that is exactly-one, and it stays
+  // with her; he is assigned to the Core sections without it.
+  { userId: 'u_msmith', schoolId: 'dhahran', roles: ['tech_admin', 'cas_coordinator', 'ee_coordinator', 'tok_teacher'], presetKey: 'tech_admin', addedCapabilities: [], removedCapabilities: [] },
+  { userId: 'u_msmith', schoolId: 'jubail', roles: ['tech_admin'], presetKey: 'tech_admin', addedCapabilities: [], removedCapabilities: [] },
   // Deliberately a school coordinator who CANNOT import students or invite
   // teachers until the district coordinator grants it — the delegation this
   // module exists to control.
@@ -220,12 +233,21 @@ export const TEACHING_ASSIGNMENTS: TeachingAssignment[] = pinned('ibAssignments'
   { teacherId: 'u_adeyemi', sectionId: 'tok_c15_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'cas_c15_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'ee_c15_a', isDesignatedMarker: true },
+  // Michael Smith runs CAS and EE and teaches TOK alongside her. Not the
+  // designated marker on any of them — exactly-one holds, and markership is a
+  // separate fact from doing the job.
+  { teacherId: 'u_msmith', sectionId: 'tok_c15_a', isDesignatedMarker: false },
+  { teacherId: 'u_msmith', sectionId: 'cas_c15_a', isDesignatedMarker: false },
+  { teacherId: 'u_msmith', sectionId: 'ee_c15_a', isDesignatedMarker: false },
 
   // Class of 2028 — same people, the year behind
   { teacherId: 'u_farouk', sectionId: 'bio_sl_c16_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'tok_c16_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'cas_c16_a', isDesignatedMarker: true },
   { teacherId: 'u_adeyemi', sectionId: 'ee_c16_a', isDesignatedMarker: true },
+  { teacherId: 'u_msmith', sectionId: 'tok_c16_a', isDesignatedMarker: false },
+  { teacherId: 'u_msmith', sectionId: 'cas_c16_a', isDesignatedMarker: false },
+  { teacherId: 'u_msmith', sectionId: 'ee_c16_a', isDesignatedMarker: false },
 
   // Class of 2026 — archived, but the record of who taught it survives
   { teacherId: 'u_farouk', sectionId: 'bio_sl_c14_a', isDesignatedMarker: true },

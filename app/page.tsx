@@ -45,7 +45,10 @@ export default async function HomePage({
   // "My spaces" is uniform: the things you are attached to, grouped by the year
   // group they belong to. A coordinator gets a page list instead (lib/nav.ts),
   // so there is nothing to compute for them.
-  const spaces = isCoordinator ? [] : await repo.mySpaces(school.id, user.id)
+  // Not gated on role any more: someone can hold a coordinator job AND teach,
+  // and the sidebar shows both (see Shell). A pure coordinator is attached to
+  // no courses, so this comes back empty for them by itself.
+  const spaces = await repo.mySpaces(school.id, user.id)
 
   let body: React.ReactNode
 

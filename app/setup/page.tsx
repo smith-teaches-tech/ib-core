@@ -17,13 +17,17 @@ export default async function Setup({
   const wanted = (await searchParams).cohort
   const session = await getSession()
   const { user, school, memberships } = session
+  // Everyone gets their spaces looked up, not just teachers: a person can hold
+  // a coordinator job AND teach (see Shell). A pure coordinator is attached to
+  // no courses, so this returns [] for them and costs nothing.
+  const spaces = await repo.mySpaces(session.school.id, session.user.id)
   const roles = memberships.find((m) => m.schoolId === school.id)?.roles ?? []
   const isCoordinator =
     roles.includes('school_coordinator') || roles.includes('district_coordinator')
 
   if (!isCoordinator) {
     return (
-      <Shell session={session} spaces={[]} current="/setup">
+      <Shell session={session} spaces={spaces} current="/setup">
         <h1>Add &amp; assign</h1>
         <div className="note warn">This is the IB coordinator&rsquo;s screen.</div>
       </Shell>
@@ -47,7 +51,7 @@ export default async function Setup({
   const mine = membership ? [...resolveCapabilities(membership)] : []
 
   return (
-    <Shell session={session} spaces={[]} current="/setup">
+    <Shell session={session} spaces={spaces} current="/setup">
       <CohortBar
         cohorts={cohorts}
         current={cohort?.id ?? ''}

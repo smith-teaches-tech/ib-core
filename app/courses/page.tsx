@@ -18,7 +18,11 @@ export default async function AllCourses({
 }) {
   const wanted = (await searchParams).cohort
   const session = await getSession()
-  const { school } = session
+  const { user, school } = session
+  // Everyone gets their spaces looked up, not just teachers: a person can hold
+  // a coordinator job AND teach (see Shell). A pure coordinator is attached to
+  // no courses, so this returns [] for them and costs nothing.
+  const spaces = await repo.mySpaces(session.school.id, session.user.id)
   const cohorts = sortCohorts(await repo.setup.listCohorts(school.id))
   const cohort = cohorts.find((c) => c.id === wanted) ?? cohorts[0]
   const rows = await repo.setup.listCourseRows(school.id, cohort?.id ?? 'c15')
@@ -26,7 +30,7 @@ export default async function AllCourses({
   const groups = [...new Set(rows.map((r) => r.course.subjectGroup))]
 
   return (
-    <Shell session={session} spaces={[]} current="/courses">
+    <Shell session={session} spaces={spaces} current="/courses">
       <h1>All courses</h1>
       <p className="sub">
         {school.name} · {cohort ? cohortTitle(cohort) : ''} —{' '}

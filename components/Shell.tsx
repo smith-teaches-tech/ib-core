@@ -32,6 +32,12 @@ export default async function Shell({
   const roles = session.memberships.find((m) => m.schoolId === session.school.id)?.roles ?? []
   const isCoordinator =
     roles.includes('school_coordinator') || roles.includes('district_coordinator')
+  // Tech support gets the coordinator's job list because support has to be able
+  // to reach the screen it is being asked about. It is not an IB role — see
+  // PRESETS.tech_admin — and the heading below says so rather than calling them
+  // a coordinator.
+  const isTechAdmin = roles.includes('tech_admin')
+  const jobsNav = isCoordinator || isTechAdmin
 
   // LIVE YEARS ONLY, for everyone (Michael, 17 Aug). Students lose access to a
   // finished year entirely — at ISG their school email is gone by 31 July, so
@@ -51,7 +57,11 @@ export default async function Shell({
   // coordinator moves between schools; an IB coordinator lives in theirs.
   // (A school-tier user with one membership never had it; this makes the rule
   // hold even for a hypothetical school-tier user with two.)
-  const districtTier = session.memberships.some((m) => m.presetKey === 'district')
+  // Cross-school: the one district coordinator, and tech support. Both are
+  // genuinely multi-school; nobody else is, ever.
+  const districtTier = session.memberships.some(
+    (m) => m.presetKey === 'district' || m.presetKey === 'tech_admin',
+  )
   const documents = await repo.listDocuments(session.school.id, session.user.id)
 
   return (
@@ -89,9 +99,16 @@ export default async function Shell({
 
       <div className="shell">
         <nav className="side">
-          {isCoordinator ? (
+          {/* BOTH, when someone holds both. Michael Smith keeps the system
+              running AND runs CAS, EE and TOK — an either/or sidebar would make
+              him choose which half of his job to navigate. A pure coordinator
+              has no spaces (they are attached to the programme, not to
+              courses), so `live` is empty for them and only the jobs list
+              renders; a pure teacher has no jobs list. Nothing branches on a
+              persona — it branches on what the person actually holds. */}
+          {jobsNav && (
             <>
-              <h3>IB coordinator</h3>
+              <h3>{isCoordinator ? 'IB coordinator' : 'Tech support'}</h3>
               {COORDINATOR_PAGES.map((p) => (
                 <Link
                   key={p.href}
@@ -106,7 +123,8 @@ export default async function Shell({
                 </Link>
               ))}
             </>
-          ) : (
+          )}
+          {(!jobsNav || live.length > 0) && (
             <>
               {/* Grouped by cohort, because two year groups run at once and a
                   teacher may take both. No switcher and no mode: both classes

@@ -80,6 +80,26 @@ const COMMS: CapabilityKey[] = ['announcements.post', 'documents.manage', 'summa
 export const PRESETS: Record<PresetKey, { label: string; capabilities: CapabilityKey[] }> = {
   // The district coordinator holds everything, always. Not reducible.
   district: { label: 'District coordinator', capabilities: ALL },
+  /**
+   * TECH SUPPORT. Everything, like the district coordinator — and deliberately
+   * NOT the same thing.
+   *
+   * The district coordinator is an IB job: they run the programme across the
+   * schools and their authority is over IB decisions. Tech support holds the
+   * same capability set for an entirely different reason — somebody has to be
+   * able to see a broken screen, and a support person who cannot reproduce the
+   * problem is no use. Merging the two would say the person who fixes the
+   * database also decides who is a candidate, and that is not true.
+   *
+   * TWO THINGS THAT FOLLOW, and both matter:
+   *   · It is NOT on the Permissions menu (STAFF_PRESETS in PermissionsTab).
+   *     Tech support is provisioned, not granted — an IB coordinator handing
+   *     out total access from a dropdown is exactly the hole this avoids.
+   *   · It reads student identifiers and results PINs like any full holder.
+   *     That is a real safeguarding surface, and the reason `trail.view` and
+   *     the append-only event trail are not optional once this role exists.
+   */
+  tech_admin: { label: 'Tech support — full access', capabilities: ALL },
   school_full: {
     label: 'IB coordinator — full',
     capabilities: [...SETUP, 'roles.assign', ...COMMS, ...MODULES, ...SUBMISSION, 'session.configure', 'trail.view'],

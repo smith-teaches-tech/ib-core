@@ -14,6 +14,7 @@ import type { CapabilityKey, Membership, School, User } from './types'
 
 export const DEV_USERS = [
   { id: 'u_michael', label: 'Ewan Hunt — District coordinator' },
+  { id: 'u_msmith', label: 'Michael Smith — Tech support · CAS/EE/TOK' },
   { id: 'u_haddad', label: 'S. Haddad — School coordinator (Jubail)' },
   { id: 'u_adeyemi', label: 'H. Adeyemi — Core teacher (CAS/EE/TOK)' },
   { id: 'u_farouk', label: 'R. Farouk — Teacher (Biology)' },

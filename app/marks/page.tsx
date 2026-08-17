@@ -24,11 +24,15 @@ export default async function MarksPage({
 }) {
   const params = await searchParams
   const session = await getSession()
-  const { school } = session
+  const { user, school } = session
+  // Everyone gets their spaces looked up, not just teachers: a person can hold
+  // a coordinator job AND teach (see Shell). A pure coordinator is attached to
+  // no courses, so this returns [] for them and costs nothing.
+  const spaces = await repo.mySpaces(session.school.id, session.user.id)
 
   if (!session.can('marks.transcribe') && !session.can('ia.manage')) {
     return (
-      <Shell session={session} spaces={[]} current="/marks">
+      <Shell session={session} spaces={spaces} current="/marks">
         <h1>IA marks</h1>
         <div className="note warn">
           You need <b>Run the mark transcription companion</b> or <b>IA — enter and release marks</b>{' '}
@@ -54,7 +58,7 @@ export default async function MarksPage({
   const readOnly = cohort ? isArchived(cohort) : false
 
   return (
-    <Shell session={session} spaces={[]} current="/marks">
+    <Shell session={session} spaces={spaces} current="/marks">
       <h1>IA marks</h1>
       <p className="sub">
         Entered by the designated marker, per criterion, in their course space — read here into IBIS.
