@@ -8,6 +8,7 @@
 
 import ArchiveCohort from '@/components/setup/ArchiveCohort'
 import CreateCohort from '@/components/cohorts/CreateCohort'
+import Link from 'next/link'
 import Shell from '@/components/Shell'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
@@ -88,6 +89,15 @@ export default async function CohortsPage() {
                   <td>{students}</td>
                   <td>{courses}</td>
                   <td style={{ textAlign: 'left' }}>
+                    {/* The way INTO a year group, live or finished. The year
+                        switcher at the top of every page shows live years only
+                        (17 Aug) — archiving means "this is a record now", and a
+                        record does not belong in a switcher you use forty times
+                        a day. This link is what makes that removal safe: every
+                        year ever run is still one click from here. */}
+                    <Link href={`/?cohort=${cohort.id}`} className="btn sm">
+                      Open{isArchived(cohort) ? ' (read-only)' : ''}
+                    </Link>{' '}
                     <ArchiveCohort cohort={cohort} canArchive={canArchive} />
                   </td>
                 </tr>

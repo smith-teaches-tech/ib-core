@@ -89,11 +89,16 @@ export default async function CoursePage({
       ])
       body = (
         <>
-          <CohortBar
-            cohorts={isCoordinator ? cohorts : attached.map((g) => g.cohort)}
-            current={cohortId}
-            href={(id) => `/courses/${course.id}?cohort=${id}`}
-          />
+          {/* Coordinator only (17 Aug). A teacher's year groups are already
+              down the left, each course carrying its own cohort — two
+              switchers for one choice, and they could disagree. */}
+          {isCoordinator && (
+            <CohortBar
+              cohorts={cohorts}
+              current={cohortId}
+              href={(id) => `/courses/${course.id}?cohort=${id}`}
+            />
+          )}
           <CasRoster
             rows={rows}
             totals={totals}
@@ -173,11 +178,13 @@ export default async function CoursePage({
               The total derives, and the moderation sample&rsquo;s criterion form is answered the day
               IBIS asks.
             </p>
-            <CohortBar
-              cohorts={isCoordinator ? cohorts : attached.map((g) => g.cohort)}
-              current={cohortId}
-              href={(id) => `/courses/${course.id}?cohort=${id}`}
-            />
+            {isCoordinator && (
+              <CohortBar
+                cohorts={cohorts}
+                current={cohortId}
+                href={(id) => `/courses/${course.id}?cohort=${id}`}
+              />
+            )}
             {overrideHolder && !readOnly && (
               <UnlockMarks
                 courseId={course.id}

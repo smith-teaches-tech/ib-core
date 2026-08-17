@@ -134,7 +134,7 @@ const studentIds = (cohortId: string) =>
 
 
 const STAFF: User[] = [
-  { id: 'u_michael', name: 'Michael', email: 'shmikie@isg.edu.sa', status: 'active' },
+  { id: 'u_michael', name: 'Ewan Hunt', email: 'ehunt@isg.edu.sa', status: 'active' },
   { id: 'u_haddad', name: 'S. Haddad', email: 'shaddad@isg.edu.sa', status: 'active' },
   { id: 'u_adeyemi', name: 'H. Adeyemi', email: 'hadeyemi@isg.edu.sa', status: 'active' },
   { id: 'u_farouk', name: 'R. Farouk', email: 'rfarouk@isg.edu.sa', status: 'active' },

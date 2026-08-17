@@ -33,12 +33,17 @@ export default async function Shell({
   const isCoordinator =
     roles.includes('school_coordinator') || roles.includes('district_coordinator')
 
-  // Students lose access to a finished year entirely — at ISG their school email
-  // is gone by 31 July, so the account is closed before the archive would matter.
-  // Teachers keep read-only access to the years they taught.
-  const isStudent = roles.includes('student')
+  // LIVE YEARS ONLY, for everyone (Michael, 17 Aug). Students lose access to a
+  // finished year entirely — at ISG their school email is gone by 31 July, so
+  // the account is closed before the archive would matter. Teachers used to get
+  // an "Archived years" drawer here; it is gone. Archiving means the year is a
+  // record, and a record is not something you navigate to by habit. The
+  // coordinator reaches finished years from Cohorts, which is the one screen
+  // that lists every year group, live and archived. Nobody else reaches them:
+  // if a teacher genuinely needs last year's marks, that is a coordinator
+  // request, and it should leave a trace rather than being one click away
+  // forever.
   const live = spaces.filter((g) => !isArchived(g.cohort))
-  const archived = isStudent ? [] : spaces.filter((g) => isArchived(g.cohort))
 
   const schools = await repo.listSchools()
   const mySchools = schools.filter((s) => session.memberships.some((m) => m.schoolId === s.id))
@@ -135,30 +140,6 @@ export default async function Shell({
                 </p>
               )}
 
-              {/* Tucked away on purpose — a past year is occasionally useful and
-                  never the thing you came here for. */}
-              {archived.length > 0 && (
-                <details className="archived">
-                  <summary>Archived years</summary>
-                  {archived.map((group) => (
-                    <div key={group.cohort.id}>
-                      <h3>{group.cohort.label}</h3>
-                      {group.courses.map((c) => (
-                        <Link
-                          key={group.cohort.id + c.id}
-                          href={`/courses/${c.id}?cohort=${group.cohort.id}`}
-                          className="navrow"
-                        >
-                          <span className="nm">
-                            <b>{c.name}</b>
-                            <small>read-only</small>
-                          </span>
-                        </Link>
-                      ))}
-                    </div>
-                  ))}
-                </details>
-              )}
             </>
           )}
         </nav>
