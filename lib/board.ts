@@ -305,18 +305,25 @@ export function buildBoard(
     })
 
     const all = [...cps.values()]
-    // A v8 board's whose-turn counts are scoped to ITS columns: the records tab
-    // counts IA debts, the IB tab counts upload blockers. The legacy board keeps
-    // counting everything, which is what the checkpoint asserts.
+    // A v8 board's counts are scoped to ITS columns: the records tab counts IA
+    // debts, the IB tab counts upload blockers. The legacy board keeps counting
+    // everything, which is what the checkpoint asserts.
     const visibleKeys = options.view ? new Set(columns.flatMap((c) => c.defKeys)) : null
     const counted = visibleKeys ? all.filter((c) => visibleKeys.has(c.def.key)) : all
+    // `future` is excluded from the denominator on purpose: a requirement whose
+    // opener has not happened is not yet due, so counting it as missing would
+    // make every candidate look behind in September.
+    const due = counted.filter((c) => c.display !== 'future')
     return {
       student,
       user,
       cells,
+      // The whose-turn derivation stays — v9 stopped SHOWING it on the board, it
+      // did not stop deriving it. Modules and later screens still read it.
       waiting: waitingOn(counted),
       done: all.filter(isComplete).length,
       applicable: all.length,
+      visible: { done: due.filter(isComplete).length, total: due.length },
     }
   })
 

@@ -332,6 +332,15 @@ select, input[type='text'] {
 .bseg .btn{border:0;border-radius:0;border-right:1px solid var(--line);text-decoration:none}
 .bseg .btn:last-child{border-right:0}
 .bhint{font-size:12px}
+
+/* v9 board finder — the search box in the control strip. */
+.bfind{display:inline-flex;align-items:center;gap:2px;border:1px solid var(--line);border-radius:8px;background:#fff;padding:0 4px 0 8px}
+.bfind:focus-within{border-color:var(--info);box-shadow:0 0 0 2px var(--info-soft)}
+.bfindin{border:0;outline:0;background:transparent;font:inherit;font-size:12px;padding:5px 0;width:186px;color:inherit}
+.bfindin::placeholder{color:var(--muted)}
+.bfindin::-webkit-search-cancel-button{display:none}
+.bfindx{border:0;background:transparent;cursor:pointer;color:var(--muted);font-size:15px;line-height:1;padding:2px 4px;border-radius:5px}
+.bfindx:hover{background:var(--line);color:inherit}
 .cellbox{width:19px;height:19px;border-radius:5px;display:inline-block;background:#eef1f4;border:1px solid #e3e8ee}
 .cellbox.done{background:var(--ok);border-color:var(--ok)}
 .cellbox.partial{background:var(--gold);border-color:var(--gold)}

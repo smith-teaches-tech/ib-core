@@ -358,6 +358,12 @@ export interface BoardRow {
   waiting: WaitingOn
   done: number
   applicable: number
+  /**
+   * The same tally as `done`/`applicable` but scoped to the columns THIS view
+   * actually shows — what the v9 board's "in / due" column reads. On the legacy
+   * (viewless) board it equals done/applicable.
+   */
+  visible: { done: number; total: number }
 }
 
 export interface Board {

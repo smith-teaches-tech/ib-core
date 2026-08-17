@@ -1,9 +1,10 @@
 import Link from 'next/link'
-import type { Board, BoardCell, WaitingOn } from '@/lib/types'
+import BoardSearch from '@/components/BoardSearch'
+import type { Board, BoardCell } from '@/lib/types'
 import type { BoardViewKind } from '@/lib/board'
 
 /**
- * ZOOM 3, v8 — TWO BOARDS SPLIT BY WHERE THE WORK GOES, AND NOTHING EXPANDS.
+ * ZOOM 3, v9 — TWO BOARDS SPLIT BY WHERE THE WORK GOES, AND NOTHING EXPANDS.
  *
  *   IB checklist     only what IBIS or eCoursework will ask for. Six data
  *                    columns; fits with no horizontal scroll.
@@ -15,22 +16,45 @@ import type { BoardViewKind } from '@/lib/board'
  * answer: DETAIL NEVER HAPPENS IN THE GRID. Click a candidate and a side panel
  * opens (CandidatePanel); the grid never moves.
  *
- * Still no client state: tabs, filters and the panel are all links, so the URL
- * is the view and "records tab, teachers, session order, this candidate" can be
- * bookmarked.
+ * v9 (17 Aug) — THE BOARD SHOWS WHAT IS IN AND WHAT IS NOT. NOTHING ELSE.
+ * The v8 control strip triaged: it hid candidates ("Outstanding only"), split
+ * them by whose turn it was, and ranked them by debt. Three problems. The
+ * whose-turn buttons were scoped to the visible columns, so "Waiting on
+ * teachers" on the IB-checklist tab filtered to nothing every time — the tab has
+ * almost no teacher-recorded requirements, they all live on School tracking.
+ * "Outstanding only" was the default, so the board opened with candidates
+ * already hidden. And "Most outstanding" ordering meant a candidate moved rows
+ * as their file changed, which is the opposite of what a register should do.
+ *
+ * So: every candidate, every time, in an order you chose. What is left is a
+ * finder (search) and an order (session number, as IBIS lists them, or A–Z).
+ * The whose-turn derivation is UNTOUCHED in lib/board.ts — a module or a later
+ * screen may still want it; the board simply stops asking the coordinator to
+ * think in it.
+ *
+ * Still (almost) no client state: tabs, order and the panel are links, and the
+ * search box writes `q` into the URL, so the URL is the view and "records tab,
+ * A–Z, searching 'hus', this candidate" can be bookmarked.
  */
 
-export type RowFilter = 'outstanding' | 'all'
-export type SortKey = 'outstanding' | 'session'
-export type TurnKey = 'any' | 'student' | 'staff' | 'coordinator'
+export type SortKey = 'session' | 'name'
 
 export interface BoardControls {
   view: BoardViewKind
-  rows: RowFilter
   sort: SortKey
-  turn: TurnKey
+  /** Free-text finder — matches name, session number or personal code. */
+  q: string
   /** The open candidate panel — a userId, carried in the URL like everything else. */
   candidate: string | null
+}
+
+function toQuery(c: BoardControls, keep: Record<string, string> = {}) {
+  const q = new URLSearchParams(keep)
+  if (c.view !== 'ib') q.set('view', c.view)
+  if (c.sort !== 'session') q.set('sort', c.sort)
+  if (c.q) q.set('q', c.q)
+  if (c.candidate) q.set('candidate', c.candidate)
+  return q
 }
 
 function makeHref(
@@ -39,14 +63,7 @@ function makeHref(
   patch: Partial<BoardControls>,
   keep: Record<string, string> = {},
 ) {
-  const next = { ...c, ...patch }
-  const q = new URLSearchParams(keep)
-  if (next.view !== 'ib') q.set('view', next.view)
-  if (next.rows !== 'outstanding') q.set('rows', next.rows)
-  if (next.sort !== 'outstanding') q.set('sort', next.sort)
-  if (next.turn !== 'any') q.set('turn', next.turn)
-  if (next.candidate) q.set('candidate', next.candidate)
-  const s = q.toString()
+  const s = toQuery({ ...c, ...patch }, keep).toString()
   return s ? `${base}?${s}` : base
 }
 
@@ -90,25 +107,24 @@ function Cell({ cell }: { cell: BoardCell }) {
   )
 }
 
-function Waiting({ w }: { w: WaitingOn }) {
-  if (w.student + w.staff + w.coordinator === 0) {
-    return (
-      <span className="turn">
-        <span className="z">clear</span>
-      </span>
-    )
-  }
+/**
+ * The row's own tally, scoped to THIS tab's columns — the same arithmetic the
+ * footer does down each column, done across the row. It replaces v8's
+ * stu · tea · you triptych, which asked the reader to hold three numbers and
+ * showed an empty teacher bucket on the IB tab every time.
+ */
+function RowTally({ done, total }: { done: number; total: number }) {
+  if (total === 0) return <span className="mut">·</span>
   return (
-    <span className="turn">
-      {w.student > 0 && (
-        <span className="s" title="Waiting on the student">{w.student}</span>
-      )}
-      {w.staff > 0 && (
-        <span className="t" title="Waiting on a teacher">{w.staff}</span>
-      )}
-      {w.coordinator > 0 && (
-        <span className="m" title="Waiting on you">{w.coordinator}</span>
-      )}
+    <span
+      className={`btot ${fracClass(done, total)}`}
+      title={
+        done === total
+          ? 'Everything on this tab is in'
+          : `${total - done} of ${total} still to come in on this tab`
+      }
+    >
+      {done}/{total}
     </span>
   )
 }
@@ -165,16 +181,27 @@ export default function BoardView({
     at += g.span
   }
 
-  const outstanding = (w: WaitingOn) => w.student + w.staff + w.coordinator
+  // NOTHING is filtered out except by an explicit search. A blank search box is
+  // the whole cohort, always — that is the point of the v9 strip.
+  const needle = controls.q.trim().toLowerCase()
   let rows = board.rows
-  if (controls.rows === 'outstanding') rows = rows.filter((r) => outstanding(r.waiting) > 0)
-  const turn = controls.turn
-  if (turn !== 'any') rows = rows.filter((r) => r.waiting[turn] > 0)
-  rows = [...rows].sort((a, b) =>
-    controls.sort === 'outstanding'
-      ? outstanding(b.waiting) - outstanding(a.waiting)
-      : (a.student.sessionNumber ?? '').localeCompare(b.student.sessionNumber ?? ''),
-  )
+  if (needle) {
+    rows = rows.filter((r) =>
+      [r.user.name, r.student.sessionNumber ?? '', r.student.personalCode ?? '']
+        .join(' ')
+        .toLowerCase()
+        .includes(needle),
+    )
+  }
+  // Session number is the IBIS order — zero-padded, so a plain string compare is
+  // correct. Blanks sort last either way rather than jumping to the top.
+  rows = [...rows].sort((a, b) => {
+    if (controls.sort === 'name') return a.user.name.localeCompare(b.user.name)
+    const sa = a.student.sessionNumber ?? ''
+    const sb = b.student.sessionNumber ?? ''
+    if (!sa !== !sb) return sa ? -1 : 1
+    return sa.localeCompare(sb)
+  })
   const hidden = board.rows.length - rows.length
 
   const laneTitle = (lane: string) =>
@@ -207,38 +234,12 @@ export default function BoardView({
         </h2>
       </div>
 
+      {/* v9: a finder and an order. No triage — see the file header. */}
       <div className="panel-h bcontrols">
-        <Seg
-          label="Rows"
-          param="rows"
-          controls={controls}
-          href={href}
-          options={[
-            { value: 'outstanding', text: 'Outstanding only', patch: { rows: 'outstanding' } },
-            { value: 'all', text: `All ${board.rows.length}`, patch: { rows: 'all' } },
-          ]}
-        />
-        {/* TWO options, no counts (product decision, 2026-08). Clicking the
-            active one clears the filter — no "Anyone" button needed. The
-            whose-turn derivation underneath keeps all three buckets; only the
-            strip simplified. */}
-        <Seg
-          label="Waiting on"
-          param="turn"
-          controls={controls}
-          href={href}
-          options={[
-            {
-              value: 'student',
-              text: 'Waiting on students',
-              patch: { turn: controls.turn === 'student' ? 'any' : 'student' },
-            },
-            {
-              value: 'staff',
-              text: 'Waiting on teachers',
-              patch: { turn: controls.turn === 'staff' ? 'any' : 'staff' },
-            },
-          ]}
+        <BoardSearch
+          base={base}
+          params={Object.fromEntries(toQuery({ ...controls, q: '', candidate: null }, keep))}
+          value={controls.q}
         />
         <Seg
           label="Order"
@@ -246,8 +247,8 @@ export default function BoardView({
           controls={controls}
           href={href}
           options={[
-            { value: 'outstanding', text: 'Most outstanding', patch: { sort: 'outstanding' } },
             { value: 'session', text: 'Session no. (IBIS)', patch: { sort: 'session' } },
+            { value: 'name', text: 'A–Z', patch: { sort: 'name' } },
           ]}
         />
         <span className="spacer" />
@@ -268,7 +269,7 @@ export default function BoardView({
                   {laneTitle(g.lane)}
                 </th>
               ))}
-              <th className="lanesep">Waiting on</th>
+              <th className="lanesep">This tab</th>
             </tr>
             <tr className="bcols">
               <th className="bstick b0">#</th>
@@ -279,7 +280,7 @@ export default function BoardView({
                   {c.label}
                 </th>
               ))}
-              <th className="lanesep">stu · tea · you</th>
+              <th className="lanesep">in / due</th>
             </tr>
           </thead>
 
@@ -309,7 +310,7 @@ export default function BoardView({
                     </td>
                   ))}
                   <td className="lanesep">
-                    <Waiting w={r.waiting} />
+                    <RowTally done={r.visible.done} total={r.visible.total} />
                   </td>
                 </tr>
               )
@@ -317,10 +318,17 @@ export default function BoardView({
             {rows.length === 0 && (
               <tr>
                 <td className="bstick b0" />
-                <td className="bstick b1 nm">Nothing outstanding</td>
+                <td className="bstick b1 nm">No match</td>
                 <td className="bstick b2" />
                 <td colSpan={board.columns.length + 1} className="mut lanesep">
-                  Every candidate in this filter is clear.
+                  {needle ? (
+                    <>
+                      Nothing in this cohort matches <b>{controls.q}</b> — clear the search to see
+                      all {board.rows.length}.
+                    </>
+                  ) : (
+                    <>This cohort has no candidates yet.</>
+                  )}
                 </td>
               </tr>
             )}
@@ -345,7 +353,12 @@ export default function BoardView({
                   </td>
                 )
               })}
-              <td className="lanesep" />
+              <td className="lanesep">
+                <RowTally
+                  done={rows.reduce((n, r) => n + r.visible.done, 0)}
+                  total={rows.reduce((n, r) => n + r.visible.total, 0)}
+                />
+              </td>
             </tr>
           </tfoot>
         </table>
@@ -362,7 +375,8 @@ export default function BoardView({
           <span className="spacer" />
           {hidden > 0 && (
             <b>
-              {hidden} candidate{hidden === 1 ? '' : 's'} hidden by this filter
+              {hidden} candidate{hidden === 1 ? '' : 's'} hidden by the search — clear it to see all{' '}
+              {board.rows.length}
             </b>
           )}
         </div>
@@ -371,7 +385,7 @@ export default function BoardView({
             <>
               The board is split by <b>where the work goes</b>. This tab holds only what has to reach
               IBIS or eCoursework — CAS confirmation, EE essay and RPF, TOK essay and TK/PPF, predicted
-              grades. Whose-turn counts are scoped to these columns. IAs, marks and teacher comments
+              grades. The <b>in / due</b> column counts only these. IAs, marks and teacher comments
               are on <b>School tracking</b>; the values behind the marks fractions are on <b>IA marks</b>.
             </>
           ) : (

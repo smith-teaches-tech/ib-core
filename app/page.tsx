@@ -6,7 +6,7 @@ import CandidatePanel from '@/components/CandidatePanel'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
 import { cohortTitle, sortCohorts } from '@/lib/cohorts'
-import type { BoardControls, RowFilter, SortKey, TurnKey } from '@/components/BoardView'
+import type { BoardControls, SortKey } from '@/components/BoardView'
 
 // Home routes by role, but both views are the SAME data at different zooms:
 //   student      → their track  (one student, full detail)
@@ -20,12 +20,16 @@ export const dynamic = 'force-dynamic'
 export default async function HomePage({
   searchParams,
 }: {
+  // `rows` and `turn` were v8's triage filters, dropped 17 Aug. They are still
+  // accepted and ignored so old bookmarks resolve to the same board instead of
+  // choking on a param that no longer exists.
   searchParams: Promise<{
     cohort?: string
     view?: string
     rows?: string
     sort?: string
     turn?: string
+    q?: string
     candidate?: string
   }>
 }) {
@@ -71,15 +75,12 @@ export default async function HomePage({
     const cohorts = sortCohorts(await repo.setup.listCohorts(school.id))
     const cohort = cohorts.find((c) => c.id === params.cohort) ?? cohorts[0]
 
-    // The whole view lives in the URL — no client state. Tabs, filters, and the
-    // open candidate panel are all params, so any of it can be bookmarked.
+    // The whole view lives in the URL — tab, order, search and the open
+    // candidate panel are all params, so any of it can be bookmarked.
     const controls: BoardControls = {
       view: params.view === 'records' ? 'records' : 'ib',
-      rows: params.rows === 'all' ? 'all' : ('outstanding' as RowFilter),
-      sort: params.sort === 'session' ? 'session' : ('outstanding' as SortKey),
-      turn: (['student', 'staff', 'coordinator'] as const).includes(params.turn as never)
-        ? (params.turn as TurnKey)
-        : 'any',
+      sort: params.sort === 'name' ? 'name' : ('session' as SortKey),
+      q: params.q ?? '',
       candidate: params.candidate ?? null,
     }
 
@@ -101,9 +102,8 @@ export default async function HomePage({
     const withParams = (patch: Record<string, string | null>) => {
       const q = new URLSearchParams(keep)
       if (controls.view !== 'ib') q.set('view', controls.view)
-      if (controls.rows !== 'outstanding') q.set('rows', controls.rows)
-      if (controls.sort !== 'outstanding') q.set('sort', controls.sort)
-      if (controls.turn !== 'any') q.set('turn', controls.turn)
+      if (controls.sort !== 'session') q.set('sort', controls.sort)
+      if (controls.q) q.set('q', controls.q)
       if (controls.candidate) q.set('candidate', controls.candidate)
       for (const [k, v] of Object.entries(patch)) {
         if (v == null) q.delete(k)
