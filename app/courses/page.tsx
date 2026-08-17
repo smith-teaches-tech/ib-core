@@ -67,11 +67,20 @@ export default async function AllCourses({
                   .map((r) => (
                     <tr key={r.course.id} style={r.sections.length === 0 ? { opacity: 0.5 } : undefined}>
                       <td className="name">
-                        {r.course.type === 'subject' ? (
-                          r.course.name
-                        ) : (
-                          <Link href={`/courses/${r.course.id}`}>{r.course.name}</Link>
-                        )}
+                        {/* EVERY course opens, subject courses included (17 Aug).
+                            They were plain text here for one reason only: when
+                            this catalogue was written the subject course page
+                            did not exist yet and Core was all there was to link
+                            to. It exists now — it is the IA marks grid — so the
+                            exception was a leftover, not a rule.
+
+                            A course that is not running this year still opens.
+                            Its page says so, which is more use than a dead
+                            label: "not running" is a fact about the year group,
+                            not about the course. */}
+                        <Link href={`/courses/${r.course.id}?cohort=${cohort?.id ?? ''}`}>
+                          {r.course.name}
+                        </Link>
                       </td>
                       <td>{r.course.level ? <span className="pill info">{r.course.level}</span> : <span className="mut">—</span>}</td>
                       <td>
