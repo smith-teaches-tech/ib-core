@@ -341,6 +341,45 @@ select, input[type='text'] {
 .bfindin::-webkit-search-cancel-button{display:none}
 .bfindx{border:0;background:transparent;cursor:pointer;color:var(--muted);font-size:15px;line-height:1;padding:2px 4px;border-radius:5px}
 .bfindx:hover{background:var(--line);color:inherit}
+/* A plain text input. The app had only purpose-built ones (.cin, .cmtin,
+   .bfindin); this is the generic for one-off fields like the CAS reopen reason. */
+.in{border:1px solid var(--line);border-radius:8px;padding:6px 9px;font:inherit;font-size:13px;background:#fff;color:var(--ink)}
+.in:focus{outline:0;border-color:var(--brand)}
+.in.sm{padding:4px 8px;font-size:12px}
+
+/* ---------------------------------------------------------------------------
+   CAS consistency strip — seven counted outcomes + eighteen months of dots.
+   Two columns on a wide screen, stacked below 900px. Compact by design: this
+   sits ABOVE the experiences and must not push them off the fold.
+--------------------------------------------------------------------------- */
+.casprog{border:1px solid var(--line);border-radius:10px;background:#fff;padding:12px 14px;margin-bottom:16px}
+.cpcols{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:22px}
+@media (max-width:900px){.cpcols{grid-template-columns:minmax(0,1fr);gap:16px}}
+.cphead{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.cpkey{font-size:11px;color:var(--muted);display:inline-flex;align-items:center;gap:5px}
+.cpsw{width:9px;height:9px;border-radius:3px;display:inline-block;margin-left:6px}
+.cpsw.done{background:var(--ok)} .cpsw.open{background:var(--gold)}
+
+.cprow{display:flex;align-items:center;gap:8px;height:22px}
+.cplab{width:88px;flex:none;font-size:11.5px;color:var(--muted);text-align:right;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cpbar{flex:1;display:flex;align-items:center;height:14px;background:#eef1f4;border-radius:7px;overflow:hidden}
+.cpseg{display:flex;align-items:center;justify-content:flex-end;height:14px;padding-right:5px;font-size:10px;font-weight:700;color:#fff;min-width:16px;font-variant-numeric:tabular-nums}
+.cpseg.done{background:var(--ok)}
+.cpseg.open{background:var(--gold);color:#5c4409}
+.cpnone{font-size:10.5px;color:var(--muted);padding-left:7px}
+
+.cpline{position:relative;padding:14px 4px 0}
+.cpaxis{position:relative;height:26px;border-bottom:1px solid var(--line)}
+.cptick{position:absolute;bottom:0;width:1px;height:5px;background:#e3e8ee}
+.cptick.major{height:9px;background:#cfd6de}
+.cpnow{position:absolute;bottom:0;width:1px;height:26px;background:var(--info);opacity:.55}
+.cpdot{position:absolute;bottom:9px;width:7px;height:7px;margin-left:-3.5px;border-radius:50%}
+.cpdot.reflection{background:var(--ok)}
+.cpdot.evidence{background:#fff;border:1.5px solid var(--ok)}
+.cpmonths{position:relative;height:13px}
+.cpmonths span{position:absolute;top:1px;transform:translateX(-50%);font-size:9.5px;color:var(--muted)}
+.cpsay{margin:10px 0 0;font-size:12px;color:var(--muted)}
+
 .cellbox{width:19px;height:19px;border-radius:5px;display:inline-block;background:#eef1f4;border:1px solid #e3e8ee}
 .cellbox.done{background:var(--ok);border-color:var(--ok)}
 .cellbox.partial{background:var(--gold);border-color:var(--gold)}

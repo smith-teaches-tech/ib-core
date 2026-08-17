@@ -355,6 +355,11 @@ export function makeCasRepository(deps: {
       })
     },
 
+    /** The freeze check. Cheap on purpose — every student write calls it. */
+    async isCasComplete(schoolId, studentId) {
+      return data.completions.some((c) => c.studentId === studentId && c.schoolId === schoolId)
+    },
+
     async setCasComplete(schoolId, studentId, complete, by) {
       const at = data.completions.findIndex(
         (c) => c.studentId === studentId && c.schoolId === schoolId,

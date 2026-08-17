@@ -204,6 +204,49 @@ export interface CasData {
 
 export type ProjectStatus = 'none' | 'in_progress' | 'complete'
 
+/**
+ * ONE OUTCOME, COUNTED — the consistency question, which `outcomes` cannot answer.
+ *
+ * CAS runs for eighteen months and the IB asks for engagement across it, not a
+ * checklist ticked once. `outcomes` says LO6 happened; this says it happened
+ * once while LO1 happened seven times, which is the thing worth looking at.
+ *
+ * `confirmed` counts EXPERIENCES, not reflections. Eight reflections on one
+ * football season is not consistency, and counting them as if it were would
+ * flatter exactly the student who needs the conversation (Michael's decision,
+ * 17 Aug).
+ *
+ * Nothing here is a target. The IB requires each outcome evidenced at least
+ * once; it has no view on how many times, and neither does this system. The bar
+ * scales to the student's own highest count — it shows BALANCE, and asserts
+ * no requirement that does not exist.
+ */
+export interface LoTally {
+  key: LoKey
+  /** Complete, signed-off experiences that confirmed this outcome. Green. */
+  confirmed: number
+  /**
+   * Live experiences claiming it — draft through awaiting sign-off. Amber.
+   *
+   * Drafts count here and deliberately do NOT count towards the spine's amber
+   * dot (`claimed`, non-draft only). The board is the record; this strip is the
+   * working view, and on a working view a student's own draft is real.
+   */
+  open: number
+}
+
+/**
+ * One dated post — the timeline's raw material. Reflections and evidence only:
+ * sign-offs, notes and system entries are other people's marks on the record,
+ * and a timeline of the student's engagement should not be padded by them.
+ */
+export interface CasPost {
+  at: string
+  kind: 'reflection' | 'evidence'
+  experienceId: Id
+  experienceTitle: string
+}
+
 export interface CasSummary {
   /** Strands touched by any non-draft, non-rejected experience. */
   strands: Strand[]
@@ -211,6 +254,10 @@ export interface CasSummary {
   outcomes: LoKey[]
   /** Outcomes merely claimed and not yet confirmed — shown dimmed, never counted. */
   claimed: LoKey[]
+  /** The same seven outcomes with counts, in LEARNING_OUTCOMES order. Always seven. */
+  tallies: LoTally[]
+  /** Every reflection and evidence post, oldest first. The consistency timeline. */
+  posts: CasPost[]
   project: ProjectStatus
   /** status === 'submitted' — the coordinator has not looked at it yet. */
   unapproved: number

@@ -452,6 +452,11 @@ export interface CasRepository {
     schoolId: string, studentId: string, value: IndicatorValue | null, by: string,
   ): Promise<void>
   addNote(schoolId: string, studentId: string, body: string, by: string): Promise<void>
+  /**
+   * Is this student's CAS confirmed complete? Read by every student write —
+   * a confirmed portfolio is frozen (lib/cas/actions.ts, `open`).
+   */
+  isCasComplete(schoolId: string, studentId: string): Promise<boolean>
   /** cas.complete — the one CAS requirement recorded rather than derived. */
   setCasComplete(schoolId: string, studentId: string, complete: boolean, by: string): Promise<void>
 

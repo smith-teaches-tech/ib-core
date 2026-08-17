@@ -31,11 +31,18 @@ export default function ExperienceCard({
   mode,
   canManage = false,
   defaultOpen = false,
+  frozen = false,
 }: {
   view: ExperienceView
   mode: 'student' | 'coordinator'
   canManage?: boolean
   defaultOpen?: boolean
+  /**
+   * The whole PORTFOLIO is closed — CAS was confirmed complete. Distinct from
+   * this one experience being finished, and the student is told which it is.
+   * Courtesy only: lib/cas/actions.ts `open` is where the promise is kept.
+   */
+  frozen?: boolean
 }) {
   const { experience: e, entries, confirmedOutcomes, request } = view
   const [open, setOpen] = useState(defaultOpen)
@@ -73,7 +80,7 @@ export default function ExperienceCard({
 
   const claimedNotConfirmed = e.claimedOutcomes.filter((l) => !confirmedOutcomes.includes(l))
   const signLink = request ? `/cas/sign-off/${request.token}` : null
-  const locked = e.status === 'complete' || e.status === 'rejected'
+  const locked = frozen || e.status === 'complete' || e.status === 'rejected'
 
   return (
     <div className={`exp ${open ? 'open' : ''}`} id={'exp-' + e.id}>
@@ -313,7 +320,9 @@ export default function ExperienceCard({
 
           {mode === 'student' && locked && (
             <p className="mut" style={{ fontSize: 12.5, marginTop: 12 }}>
-              This experience is locked. Ask your coordinator if something needs changing.
+              {frozen && e.status !== 'complete' && e.status !== 'rejected'
+                ? 'Your CAS programme has been confirmed complete, so your whole record is closed to edits. Ask your coordinator if something needs changing.'
+                : 'This experience is locked. Ask your coordinator if something needs changing.'}
             </p>
           )}
 

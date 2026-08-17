@@ -90,6 +90,56 @@ async function main() {
     'the interim interview he has not had is not_started',
   )
 
+  // 3b — the consistency strip: counts and dots, both derived, neither stored
+  //
+  // The strip added 17 Aug answers a question the seven checkpoints cannot:
+  // whether a student kept showing up over eighteen months. These assertions
+  // pin the two things that make it honest — that a count is a count of
+  // EXPERIENCES, and that the timeline is the thread's own dates in order.
+  console.log('\n3b. Consistency strip (CAS, 17 Aug)')
+  const strip = summarise('st01', CAS_DATA)
+  check(strip.tallies.length === 7, `seven tallies, always (got ${strip.tallies.length})`)
+  check(
+    strip.tallies.every((t) => t.confirmed >= 0 && t.open >= 0),
+    'no negative counts',
+  )
+  check(
+    strip.tallies.filter((t) => t.confirmed > 0).length === strip.outcomes.length,
+    'a tally is confirmed exactly when the outcome is confirmed — the strip and the board agree',
+  )
+  {
+    // A count is per experience, so it can never exceed the number of
+    // experiences the student has. If this ever fails, something has started
+    // counting reflections.
+    const experiences = CAS_DATA.experiences.filter((e) => e.studentId === 'st01').length
+    check(
+      strip.tallies.every((t) => t.confirmed + t.open <= experiences),
+      `no outcome is counted more often than the student has experiences (${experiences})`,
+    )
+  }
+  check(
+    strip.posts.every((p, i) => i === 0 || strip.posts[i - 1].at <= p.at),
+    'the timeline is in date order, oldest first',
+  )
+  check(
+    strip.posts.every((p) => p.kind === 'reflection' || p.kind === 'evidence'),
+    'only reflections and evidence are dots — sign-offs and staff notes are not the student showing up',
+  )
+  check(
+    strip.posts.length ===
+      CAS_DATA.entries.filter(
+        (e) =>
+          !e.supersededBy &&
+          (e.kind === 'reflection' || e.kind === 'evidence') &&
+          CAS_DATA.experiences.some((x) => x.id === e.experienceId && x.studentId === 'st01'),
+      ).length,
+    `every visible post is a dot and no post is counted twice (${strip.posts.length})`,
+  )
+  check(
+    await repo.cas.isCasComplete('dhahran', 'st01') === strip.complete,
+    'the freeze check and the summary agree on whether CAS is confirmed',
+  )
+
   // 4 — the board, unedited
   //
   // The board now COLLAPSES each lane by default, so this checks both shapes:

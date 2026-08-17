@@ -13,12 +13,14 @@ import {
   INTERVIEW_ORDER,
   LEARNING_OUTCOMES,
   type CasData,
+  type CasPost,
   type CasSummary,
   type Experience,
   type ExperienceStatus,
   type ExperienceView,
   type InterviewKind,
   type LoKey,
+  type LoTally,
   type ProjectStatus,
   type Strand,
   type ThreadEntry,
@@ -160,10 +162,46 @@ export function summarise(studentId: string, data: CasData): CasSummary {
 
   const order = LEARNING_OUTCOMES.map((l) => l.key)
 
+  // Counts, not sets. `outcomes`/`claimed` above answer "has this happened at
+  // all" — the question the board asks. These answer "how often", which is the
+  // only way to see that a student met LO1 seven times and LO6 once. Per
+  // EXPERIENCE on both sides: see the LoTally doc comment for why not per
+  // reflection.
+  const confirmedIn = new Map<string, LoKey[]>(
+    mine.map((e) => [e.id, confirmedOutcomesOf(e, data.entries)]),
+  )
+  const tallies: LoTally[] = order.map((key) => ({
+    key,
+    confirmed: mine.filter((e) => confirmedIn.get(e.id)?.includes(key)).length,
+    // Drafts included on purpose — see LoTally.open.
+    open: mine.filter((e) => e.status !== 'complete' && e.claimedOutcomes.includes(key)).length,
+  }))
+
+  // The timeline. Superseded entries drop out for the same reason they drop out
+  // of the thread: an edit is one post, not two. The prior version stays in the
+  // record — it is just not a second dot.
+  const titleOf = new Map(mine.map((e) => [e.id, e.title]))
+  const posts: CasPost[] = data.entries
+    .filter(
+      (e) =>
+        !e.supersededBy &&
+        (e.kind === 'reflection' || e.kind === 'evidence') &&
+        titleOf.has(e.experienceId),
+    )
+    .map((e) => ({
+      at: e.createdAt,
+      kind: e.kind as CasPost['kind'],
+      experienceId: e.experienceId,
+      experienceTitle: titleOf.get(e.experienceId) ?? '',
+    }))
+    .sort((a, b) => (a.at < b.at ? -1 : a.at > b.at ? 1 : 0))
+
   return {
     strands: (['C', 'A', 'S'] as Strand[]).filter((s) => strandSet.has(s)),
     outcomes: order.filter((k) => confirmed.has(k)),
     claimed: order.filter((k) => claimed.has(k)),
+    tallies,
+    posts,
     project,
     unapproved: mine.filter((e) => e.status === 'submitted').length,
     awaiting: mine.filter((e) => e.status === 'awaiting_signoff').length,

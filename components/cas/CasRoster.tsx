@@ -16,6 +16,7 @@ import {
   INDICATOR_META,
   type CasCohortTotals, type CasRosterRow, type IndicatorValue,
 } from '@/lib/cas/types'
+import CasProgress from './CasProgress'
 import ExperienceCard from './ExperienceCard'
 import InterviewsPane from './InterviewsPane'
 import { IndicatorGlyph, StrandChips, prettyDate } from './parts'
@@ -34,12 +35,15 @@ export default function CasRoster({
   rows,
   totals,
   cohortLabel,
+  gradYear,
   canManage,
   canUnlock,
 }: {
   rows: CasRosterRow[]
   totals: CasCohortTotals
   cohortLabel: string
+  /** The cohort's graduation year — sets the progress strip's timeline window. */
+  gradYear: number
   canManage: boolean
   canUnlock: boolean
 }) {
@@ -132,6 +136,7 @@ export default function CasRoster({
                   row={row}
                   open={openId === row.studentId}
                   onToggle={() => setOpenId(openId === row.studentId ? null : row.studentId)}
+                  gradYear={gradYear}
                   canManage={canManage}
                   canUnlock={canUnlock}
                 />
@@ -162,17 +167,20 @@ function RosterRow({
   row,
   open,
   onToggle,
+  gradYear,
   canManage,
   canUnlock,
 }: {
   row: CasRosterRow
   open: boolean
   onToggle: () => void
+  gradYear: number
   canManage: boolean
   canUnlock: boolean
 }) {
   const [tab, setTab] = useState<'experiences' | 'interviews' | 'notes'>('experiences')
   const [note, setNote] = useState('')
+  const [reopen, setReopen] = useState('')
   const [focus, setFocus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [pending, start] = useTransition()
@@ -252,6 +260,11 @@ function RosterRow({
         <tr className="casdrawer">
           <td colSpan={8}>
             <div className="casdrawer-inner">
+              {/* The same strip the student sees, minus the prompt line — a
+                  derived nudge is for the person whose record it is, not for a
+                  coordinator to read over their shoulder. */}
+              <CasProgress summary={s} gradYear={gradYear} />
+
               <div className="tabs">
                 <button
                   className={`tab ${tab === 'experiences' ? 'active' : ''}`}
@@ -325,14 +338,35 @@ function RosterRow({
                     {s.complete ? (
                       <>
                         <span className="pill ok">Confirmed</span>
-                        {canManage && (
-                          <button
-                            className="btn danger sm"
-                            disabled={pending}
-                            onClick={() => run(() => cas.setCasComplete(row.studentId, false))}
-                          >
-                            Withdraw confirmation
-                          </button>
+                        <span className="mut" style={{ fontSize: 12 }}>
+                          The student&rsquo;s record is closed to their own edits.
+                        </span>
+                        {/* Reopening is an unlock, held to the same standard as
+                            every other unlock here: capability, typed reason,
+                            reason on the record — and it goes to the student,
+                            whose portfolio is the thing being reopened. */}
+                        {canManage && canUnlock && (
+                          <>
+                            <input
+                              className="in sm"
+                              style={{ minWidth: 220 }}
+                              placeholder="Reason for reopening — the student sees this"
+                              value={reopen}
+                              onChange={(e) => setReopen(e.target.value)}
+                            />
+                            <button
+                              className="btn danger sm"
+                              disabled={pending || !reopen.trim()}
+                              onClick={() =>
+                                run(async () => {
+                                  await cas.setCasComplete(row.studentId, false, reopen)
+                                  setReopen('')
+                                })
+                              }
+                            >
+                              Reopen for editing
+                            </button>
+                          </>
                         )}
                       </>
                     ) : (
@@ -346,7 +380,7 @@ function RosterRow({
                         </button>
                         <span className="mut" style={{ fontSize: 12 }}>
                           {gate.ready
-                            ? 'All seven outcomes, the project and three interviews are recorded.'
+                            ? 'All seven outcomes, the project and three interviews are recorded. Confirming closes the record to the student.'
                             : 'Still outstanding: ' + gate.missing.join(' · ')}
                         </span>
                       </>

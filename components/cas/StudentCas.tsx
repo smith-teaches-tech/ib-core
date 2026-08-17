@@ -13,6 +13,7 @@ import {
   INDICATOR_META, LEARNING_OUTCOMES,
   type CasStudentView, type LoKey, type Strand,
 } from '@/lib/cas/types'
+import CasProgress from './CasProgress'
 import ExperienceCard from './ExperienceCard'
 import { IndicatorGlyph, StrandChips, prettyDate } from './parts'
 
@@ -22,7 +23,14 @@ const STRANDS: { key: Strand; label: string }[] = [
   { key: 'S', label: 'Service' },
 ]
 
-export default function StudentCas({ view }: { view: CasStudentView }) {
+export default function StudentCas({
+  view,
+  gradYear,
+}: {
+  view: CasStudentView
+  /** The cohort's graduation year — sets the timeline window. */
+  gradYear: number
+}) {
   const { summary, experiences, notes } = view
   const [adding, setAdding] = useState(false)
   const [focus, setFocus] = useState<string | null>(null)
@@ -123,10 +131,16 @@ export default function StudentCas({ view }: { view: CasStudentView }) {
         </div>
       </div>
 
+      {/* The consistency strip. CAS runs eighteen months; seven ticks cannot
+          say whether a student kept showing up. `showPrompt` is on here and
+          ONLY here — see CasProgress's file header. */}
+      <CasProgress summary={summary} gradYear={gradYear} showPrompt />
+
       {summary.complete && (
         <div className="note ok" style={{ marginBottom: 16 }}>
           <b>CAS is complete.</b> Your coordinator confirmed this on your record — nothing further
-          is required from you.
+          is required from you, and the record is now closed to edits. If something needs to
+          change, speak to them and they can reopen it.
         </div>
       )}
 
@@ -164,9 +178,13 @@ export default function StudentCas({ view }: { view: CasStudentView }) {
       {/* Above the list on purpose: a student with thirty experiences should never
           scroll to reach the button that adds the thirty-first. */}
       <div className="row exptools">
-        <button className="btn pri" onClick={() => setAdding(!adding)}>
-          {adding ? 'Close' : '+ Add experience'}
-        </button>
+        {/* Hidden once the portfolio is confirmed complete. Courtesy, not
+            security — the server refuses either way (actions.ts, `open`). */}
+        {!summary.complete && (
+          <button className="btn pri" onClick={() => setAdding(!adding)}>
+            {adding ? 'Close' : '+ Add experience'}
+          </button>
+        )}
         <button
           className="btn"
           disabled={!projectId}
@@ -292,6 +310,7 @@ export default function StudentCas({ view }: { view: CasStudentView }) {
               view={v}
               mode="student"
               defaultOpen={focus === v.experience.id}
+              frozen={summary.complete}
             />
           ))}
         </div>

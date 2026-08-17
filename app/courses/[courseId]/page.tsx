@@ -74,7 +74,13 @@ export default async function CoursePage({
   if (course.type === 'cas') {
     if (isStudent) {
       const view = await repo.cas.getStudentView(school.id, user.id)
-      body = view ? <StudentCas view={view} /> : <p className="mut">No CAS record.</p>
+      body = view ? (
+        // gradYear sets the CAS timeline's window — August of DP1 to the April
+        // CAS closes in. Never hardcoded: two year groups run at once.
+        <StudentCas view={view} gradYear={cohort?.gradYear ?? new Date().getFullYear() + 1} />
+      ) : (
+        <p className="mut">No CAS record.</p>
+      )
     } else if (session.can('cas.manage')) {
       const cohortId = cohort?.id ?? 'c15'
       const [rows, totals] = await Promise.all([
@@ -92,6 +98,7 @@ export default async function CoursePage({
             rows={rows}
             totals={totals}
             cohortLabel={cohort ? cohortTitle(cohort) : ''}
+            gradYear={cohort?.gradYear ?? new Date().getFullYear() + 1}
             // An archived year is a record, not a workspace.
             canManage={session.can('cas.manage') && !readOnly}
             canUnlock={session.can('items.unlock') && !readOnly}

@@ -38,6 +38,35 @@ async function liveExperience(schoolId: string, experienceId: string) {
   await live(schoolId, owner)
 }
 
+/**
+ * THE COMPLETION FREEZE — the same shape as the archive guard above, one level
+ * down: an archived YEAR GROUP is a record rather than a workspace, and so is a
+ * FINISHED CAS PORTFOLIO.
+ *
+ * Once a coordinator has confirmed CAS complete, the student's own writes stop.
+ * That is the point of the confirmation: it is a judgement about eighteen
+ * months of work, and it means nothing if the eighteen months can still change
+ * underneath it afterwards.
+ *
+ * What is NOT frozen, deliberately:
+ *   · staff writes — notes, interviews, the indicator. A record stays annotatable.
+ *   · a supervisor arriving late on a token link. That sign-off is evidence of
+ *     something that already happened; refusing it would discard the record, not
+ *     protect it.
+ *
+ * Reopening is `setCasComplete(studentId, false, reason)` — capability-gated,
+ * reason required, and the reason goes to the student as a note.
+ */
+async function open(schoolId: string, studentId: string) {
+  await live(schoolId, studentId)
+  if (await repo.cas.isCasComplete(schoolId, studentId)) {
+    throw new Error(
+      'Your CAS programme has been confirmed complete, so the record is closed to edits. ' +
+        'Speak to the CAS coordinator if something needs to change.',
+    )
+  }
+}
+
 /** Student actions: you may only ever write to your own record. */
 async function asOwner(experienceId: string) {
   const session = await getSession()
@@ -60,7 +89,7 @@ export async function createExperience(input: {
   submit: boolean
 }) {
   const session = await getSession()
-  await live(session.school.id, session.user.id)
+  await open(session.school.id, session.user.id)
   if (!input.title.trim() || input.strands.length === 0) {
     throw new Error('An experience needs a title and at least one strand.')
   }
@@ -75,7 +104,7 @@ export async function createExperience(input: {
 
 export async function addReflection(experienceId: string, body: string) {
   const session = await asOwner(experienceId)
-  await live(session.school.id, session.user.id)
+  await open(session.school.id, session.user.id)
   if (!body.trim()) return
   await repo.cas.addReflection(session.school.id, experienceId, body.trim(), session.user.name)
   refresh()
@@ -83,7 +112,7 @@ export async function addReflection(experienceId: string, body: string) {
 
 export async function editReflection(entryId: string, experienceId: string, body: string) {
   const session = await asOwner(experienceId)
-  await live(session.school.id, session.user.id)
+  await open(session.school.id, session.user.id)
   if (!body.trim()) return
   await repo.cas.editReflection(
     session.school.id, entryId, experienceId, body.trim(), session.user.name,
@@ -109,7 +138,7 @@ export async function addEvidence(
   note: string,
 ) {
   const session = await asOwner(experienceId)
-  await live(session.school.id, session.user.id)
+  await open(session.school.id, session.user.id)
   if (files.length === 0 && !note.trim()) return
   const refs = []
   for (const f of files) {
@@ -121,7 +150,7 @@ export async function addEvidence(
 
 export async function submitForApproval(experienceId: string) {
   const session = await asOwner(experienceId)
-  await live(session.school.id, session.user.id)
+  await open(session.school.id, session.user.id)
   await repo.cas.setExperienceStatus(session.school.id, experienceId, 'submitted', {
     by: session.user.name,
   })
@@ -131,7 +160,7 @@ export async function submitForApproval(experienceId: string) {
 /** Route 1 to completion: generate the secure link. Sending it needs email. */
 export async function emailSupervisor(experienceId: string, email: string) {
   const session = await asOwner(experienceId)
-  await live(session.school.id, session.user.id)
+  await open(session.school.id, session.user.id)
   if (!email.includes('@')) throw new Error('That does not look like an email address.')
   const request = await repo.cas.requestSupervisor(
     session.school.id, experienceId, email.trim(), session.user.name,
@@ -143,7 +172,7 @@ export async function emailSupervisor(experienceId: string, email: string) {
 /** Route 2: the paper form, photographed and uploaded, for the coordinator. */
 export async function paperFormUploaded(experienceId: string) {
   const session = await asOwner(experienceId)
-  await live(session.school.id, session.user.id)
+  await open(session.school.id, session.user.id)
   await repo.cas.markPaperFormUploaded(session.school.id, experienceId, session.user.name)
   refresh()
 }
@@ -227,10 +256,37 @@ export async function addNote(studentId: string, body: string) {
   refresh()
 }
 
-export async function setCasComplete(studentId: string, complete: boolean) {
+/**
+ * Confirm CAS complete — the one CAS requirement nobody derives.
+ *
+ * Confirming FREEZES the student's record (see `open` above). Reopening it is
+ * therefore an unlock, and is held to the same standard as every other unlock
+ * in this system: the `items.unlock` capability, a typed reason, and the reason
+ * on the record. It goes to the student as a note rather than into a log they
+ * cannot read — they are the one whose portfolio just reopened.
+ */
+export async function setCasComplete(studentId: string, complete: boolean, reason = '') {
   const session = await asStaff()
   await live(session.school.id, studentId)
+
+  if (!complete) {
+    if (!session.can('items.unlock')) {
+      throw new Error('You cannot reopen a confirmed CAS record.')
+    }
+    if (!reason.trim()) {
+      throw new Error('Reopening a confirmed CAS record needs a reason — it goes to the student.')
+    }
+  }
+
   await repo.cas.setCasComplete(session.school.id, studentId, complete, session.user.name)
+  if (!complete) {
+    await repo.cas.addNote(
+      session.school.id,
+      studentId,
+      `CAS reopened for editing. Reason: ${reason.trim()}`,
+      session.user.name,
+    )
+  }
   refresh()
 }
 
