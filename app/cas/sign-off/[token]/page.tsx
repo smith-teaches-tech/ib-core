@@ -80,7 +80,7 @@ export default async function SignOffPage({
         </div>
       </div>
       <p className="mut" style={{ fontSize: 12, textAlign: 'center', marginTop: 14 }}>
-        IB Core · this link shows one experience and nothing else about {firstName} or the school.
+        IB Central · this link shows one experience and nothing else about {firstName} or the school.
       </p>
     </div>
   )

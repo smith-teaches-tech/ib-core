@@ -6,7 +6,7 @@ import { repo } from '@/lib/data'
 
 export async function POST(request: Request) {
   // An unauthenticated identity-switcher has no business existing in production.
-  if (!demoMode()) return new NextResponse(null, { status: 404 })
+  if (process.env.NODE_ENV === 'production') return new NextResponse(null, { status: 404 })
 
   // School switching is a DISTRICT-TIER act — hiding the switcher is a
   // courtesy; this is the rule. An IB coordinator lives in one school.

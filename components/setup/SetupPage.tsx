@@ -79,7 +79,7 @@ export default function SetupPage({
     <>
       <h1>Add &amp; assign — users, courses, permissions</h1>
       <p className="sub">
-        {schoolName} · {cohortLabel}. Everything else in IB Core reads what is set up here.
+        {schoolName} · {cohortLabel}. Everything else in IB Central reads what is set up here.
       </p>
 
       {unenrolled > 0 && (

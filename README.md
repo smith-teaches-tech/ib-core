@@ -1,4 +1,4 @@
-# IB Core
+# IB Central
 
 The IB Diploma Programme core dashboard for ISG — CAS, Extended Essay, TOK, Internal
 Assessments, predicted grades, and everything the IB Coordinator needs to get a cohort
