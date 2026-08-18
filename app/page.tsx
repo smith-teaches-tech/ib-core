@@ -34,22 +34,9 @@ export default async function HomePage({
   }>
 }) {
   const params = await searchParams
-  // ✅ Wrapped fallback for demo mode
-  let session
-  try {
-    session = await getSession()
-  } catch (error) {
-    console.log('Demo mode active: using mock session')
-    session = {
-      user: { id: 'demo-user', name: 'Demo Guest' },
-      school: { id: 'demo-school' },
-      memberships: [{ schoolId: 'demo-school', roles: ['school_coordinator'] }],
-      can: (capability: string) => true,
-    } as any // 👈 This bypasses TypeScript errors for the demo
-  }
-
+  const session = await getSession()
   const { user, school, memberships } = session
-  const roles = memberships.find((m: any) => m.schoolId === school.id)?.roles ?? []
+  const roles = memberships.find((m) => m.schoolId === school.id)?.roles ?? []
   const isStudent = roles.includes('student')
 
   const isCoordinator =
