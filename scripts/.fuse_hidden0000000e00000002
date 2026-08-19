@@ -747,7 +747,7 @@ async function main() {
     ).map((c) => c.id),
   )
   check(
-    ['ee.essay', 'ee.rpf', 'tok.essay', 'tok.tkppf'].every((k) => jobKeys11.includes(k)) &&
+    ['ee.essay', 'ee.rppf', 'tok.essay', 'tok.tkppf'].every((k) => jobKeys11.includes(k)) &&
       jobKeys11.some((k) => k.startsWith('g6:')) &&
       jobKeys11.filter((k) => k.startsWith('g6:')).every((k) => g6Set.has(k.slice(3))),
     'cohort jobs: the four core packs plus one per running Group 6 course',

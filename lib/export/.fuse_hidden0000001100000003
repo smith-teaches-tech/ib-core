@@ -7,7 +7,7 @@
 // (IB-Export-and-Samples.md §3):
 //
 //   whole cohort   uploaded to eCoursework for EVERY candidate
-//                  (EE essay · EE RPF · TOK essay · TK/PPF · Group 6 portfolios)
+//                  (EE essay · EE RPPF · TOK essay · TK/PPF · Group 6 portfolios)
 //   samples        uploaded only for the candidates IBIS names, after marks go in
 //   typed by hand  IA totals and predicted grades — no files, just transcription
 
@@ -15,7 +15,7 @@
  * One candidate's slot in one upload pack.
  *
  * `source` is the forms decision (Michael, 16 Aug): a `generated` row's PDF is
- * the OFFICIAL IB form (EE/RPF, TK/PPF), filled programmatically from what was
+ * the OFFICIAL IB form (EE/RPPF, TK/PPF), filled programmatically from what was
  * typed into the app — the ManageBac-established route. Nobody downloads a
  * blank form, types into it, and re-uploads it. An `uploaded` row is a file a
  * candidate submitted as-is.
@@ -37,7 +37,7 @@ export interface PackRow {
 
 /** A whole-cohort upload job — one row of the board's first section. */
 export interface CohortJob {
-  /** Stable job key: 'ee.essay' | 'ee.rpf' | 'tok.essay' | 'tok.tkppf' | 'g6:<courseId>'. */
+  /** Stable job key: 'ee.essay' | 'ee.rppf' | 'tok.essay' | 'tok.tkppf' | 'g6:<courseId>'. */
   key: string
   label: string
   covers: string

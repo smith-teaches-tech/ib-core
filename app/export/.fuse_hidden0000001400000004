@@ -50,7 +50,7 @@ export default async function ExportPage({
       <p className="sub">
         Download here, upload to eCoursework, mark it done. Files are named{' '}
         <span className="mono">sessionNo_Component.pdf</span> in IBIS candidate order — for your
-        sanity, not the moderator&apos;s. Forms (RPF, TK/PPF) are the <b>official IB PDFs, filled
+        sanity, not the moderator&apos;s. Forms (RPPF, TK/PPF) are the <b>official IB PDFs, filled
         from what was typed into the app</b> — nobody downloads a blank form again.
       </p>
 

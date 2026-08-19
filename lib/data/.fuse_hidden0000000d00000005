@@ -194,7 +194,7 @@ export function makeExportRepository(deps: {
         'EE — final essay', 'files', null, 'EE_essay', 'pdf'))
       push(buildCohortJob(schoolId, cohortId, sessionLabel, 'ee.rpf',
         'EE — RPF', 'forms',
-        'Official EE/RPF form, filled from the typed reflection — nobody re-types it',
+        'Official EE/RPF form, filled from the typed reflections — nobody re-types it',
         'EE_RPF', 'pdf'))
       push(buildCohortJob(schoolId, cohortId, sessionLabel, 'tok.essay',
         'TOK — essay', 'files', null, 'TOK_essay', 'pdf'))

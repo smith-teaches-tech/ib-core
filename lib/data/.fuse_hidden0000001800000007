@@ -374,11 +374,11 @@ function buildDefs(cohortId: string): RequirementDef[] {
   const eeDefs: RequirementDef[] = [
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.rq', label: 'Subject & research question', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r1', label: 'Reflection session 1', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
-    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r2', label: 'Reflection session 2', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r2', label: 'Reflection 2', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.final', label: 'Final essay', lane: 'Extended Essay', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
-    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.viva', label: 'Viva voce (reflection session 3)', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.viva', label: 'Viva voce', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
     // The fix for the endless student list: the RPF cannot be actionable before the viva.
-    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.rpf', label: 'RPF — reflection statement', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text', exportTarget: 'ecoursework', opensAfter: 'ee.viva' }),
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.rpf', label: 'RPF', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text', exportTarget: 'ecoursework', opensAfter: 'ee.viva' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.attest', label: 'Supervisor attestation', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'none' }),
   ]
 

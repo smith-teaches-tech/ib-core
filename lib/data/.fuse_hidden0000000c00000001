@@ -133,7 +133,7 @@ export function makeExportRepository(deps: {
   /** The def keys behind a cohort-job key — the single place the mapping lives. */
   const jobDefKeys = (jobKey: string): string[] | null => {
     if (jobKey === 'ee.essay') return ['ee.final']
-    if (jobKey === 'ee.rpf') return ['ee.rpf']
+    if (jobKey === 'ee.rppf') return ['ee.rpf']
     if (jobKey === 'tok.essay') return ['tok.essay']
     if (jobKey === 'tok.tkppf') return ['tok.ppf1', 'tok.ppf2', 'tok.ppf3']
     if (jobKey.startsWith('g6:')) return [jobKey.slice(3) + '.file']
@@ -192,10 +192,10 @@ export function makeExportRepository(deps: {
       const push = (j: CohortJob | null) => { if (j) cohortJobs.push(j) }
       push(buildCohortJob(schoolId, cohortId, sessionLabel, 'ee.essay',
         'EE — final essay', 'files', null, 'EE_essay', 'pdf'))
-      push(buildCohortJob(schoolId, cohortId, sessionLabel, 'ee.rpf',
-        'EE — RPF', 'forms',
-        'Official EE/RPF form, filled from the typed reflection — nobody re-types it',
-        'EE_RPF', 'pdf'))
+      push(buildCohortJob(schoolId, cohortId, sessionLabel, 'ee.rppf',
+        'EE — RPPF', 'forms',
+        'Official EE/RPPF form, filled from the typed reflections — nobody re-types it',
+        'EE_RPPF', 'pdf'))
       push(buildCohortJob(schoolId, cohortId, sessionLabel, 'tok.essay',
         'TOK — essay', 'files', null, 'TOK_essay', 'pdf'))
       push(buildCohortJob(schoolId, cohortId, sessionLabel, 'tok.tkppf',
