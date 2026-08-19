@@ -39,6 +39,13 @@ export const COORDINATOR_PAGES: NavPage[] = [
     capability: 'cohorts.manage',
   },
   {
+    href: '/deadlines',
+    label: 'Due dates',
+    hint: 'Every date the year runs on',
+    ready: true,
+    capability: 'deadlines.set',
+  },
+  {
     href: '/announcements',
     label: 'Send announcements',
     hint: 'Not built yet',

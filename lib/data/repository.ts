@@ -27,6 +27,7 @@ import type {
 } from '../setup/types'
 import type { IaMarksView, MarkEventRow, MarkUnlock, SampleRequest } from '../ia/types'
 import type { PgStudentView, PgView, ReportingPoint } from '../pg/types'
+import type { Deadline, RequirementDef } from '../types'
 import type { UploadBoardView } from '../export/types'
 import type { CapabilityKey, Cohort, PresetKey } from '../types'
 
@@ -104,6 +105,7 @@ export interface Repository {
   /** IA marks — the module that records criterion marks and comments. */
   ia: IaRepository
   pg: PgRepository
+  deadlines: DeadlineRepository
 
   /** Download for IBIS — the upload board and its one write (exportStatus). */
   export: ExportRepository
@@ -508,4 +510,90 @@ export interface PgRepository {
    * this returns the whole picture and the caller decides who may see it.
    */
   getStudentView(schoolId: string, studentId: string): Promise<PgStudentView | null>
+}
+
+
+// ---------------------------------------------------------------------------
+// Deadlines
+// ---------------------------------------------------------------------------
+
+/** One deadline, resolved against the cohort it applies to. Counted on read. */
+export interface ResolvedDeadline {
+  deadline: Deadline
+  /** "Biology SL — mark", or "predicted, Jan Y2" for a cohort-wide row. */
+  label: string
+  courseName: string
+  /** How many requirement definitions this row reaches. */
+  courses: number
+  done: number
+  total: number
+  /** Negative = the day has passed. */
+  daysAway: number
+  /** False for predicted-grade dates — those are the coordinator's alone. */
+  canBeSetByTeacher: boolean
+  /** May the CURRENT viewer change this one? Rows are editable individually. */
+  mayEdit: boolean
+}
+
+/** A deadline as it appears on somebody's home page. */
+export interface DueItem {
+  deadline: Deadline
+  label: string
+  courseName: string
+  daysAway: number
+  done: number
+  total: number
+  /** The IB receives this. Drives the student's non-dismissible warning. */
+  toIb: boolean
+  /** Is the reader the one who owes it? */
+  mine: boolean
+}
+
+export interface DeadlineRepository {
+  list(schoolId: string, cohortId: string): Promise<Deadline[]>
+  /**
+   * The due-dates screen: every date, with how many candidates are in, and
+   * whether this viewer may change each one. Reading a date is not sensitive —
+   * students see them — so the list is the same for everyone and the EDITING is
+   * what differs, row by row.
+   */
+  listResolved(
+    schoolId: string, cohortId: string,
+    viewer: { userId: string; hasDeadlinesSet: boolean },
+  ): Promise<ResolvedDeadline[]>
+  /**
+   * MAY THIS PERSON SET THIS DATE?
+   *
+   * `deadlines.set` sets anything. Otherwise: the DESIGNATED MARKER of that
+   * course, and never a predicted-grade date — a PG point is a cohort-wide
+   * commitment and the April one is an IB deadline the coordinator signs for.
+   */
+  maySet(
+    schoolId: string, cohortId: string, userId: string,
+    requirementKey: string, courseId: string | null, hasDeadlinesSet: boolean,
+  ): Promise<boolean>
+  /** Create or MOVE a date. Moving supersedes rather than overwrites. */
+  set(
+    schoolId: string, cohortId: string,
+    input: { requirementKey: string; courseId?: string | null; dueAt: string; isMajor: boolean; decidedBy: string },
+    by: string,
+  ): Promise<Deadline>
+  remove(schoolId: string, cohortId: string, id: string): Promise<void>
+  /** The one date that applies to one requirement — most specific wins. */
+  forDef(schoolId: string, cohortId: string, def: RequirementDef): Promise<Deadline | null>
+  /**
+   * Every requirement definition in a cohort. Read by the due-dates picker to
+   * offer the STAGES that actually exist — so a new module's stages appear the
+   * day its definitions do, rather than when somebody remembers to add them to
+   * a list in a component.
+   */
+  definitionsIn(schoolId: string, cohortId: string): Promise<RequirementDef[]>
+  /**
+   * Somebody's own due dates, in order. A student gets the work they owe; a
+   * teacher gets the courses they mark. `excludePg` keeps staff-facing
+   * predicted-grade dates off a student's screen.
+   */
+  dueFor(
+    schoolId: string, userId: string, opts?: { excludePg?: boolean },
+  ): Promise<DueItem[]>
 }

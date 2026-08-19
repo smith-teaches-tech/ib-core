@@ -175,7 +175,17 @@ export default function PgGrid({
               {view.points.map((p, i) => (
                 <th key={p.key} className={i === 0 ? 'lanesep' : undefined} style={{ textAlign: 'center' }}>
                   {p.label}
-                  <div className="critmax">{p.due}</div>
+                  {/* The real date when the coordinator has set one; the point's
+                      own prose only until then. A teacher should see the date
+                      above the cells they have to fill, not a description of
+                      roughly when. */}
+                  <div className={view.pointDue[i] ? 'pgdue' : 'critmax'}>
+                    {view.pointDue[i]
+                      ? 'due ' + new Date(view.pointDue[i] + 'T00:00:00Z').toLocaleDateString('en-GB', {
+                          day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+                        })
+                      : p.due}
+                  </div>
                   {p.toIb && <div className="ibsend">goes to the IB</div>}
                 </th>
               ))}

@@ -17,6 +17,10 @@ import { marksWriteGrant } from '../lib/ia/authorize'
 import { pgWriteGrant, restrictStudentView } from '../lib/pg/authorize'
 import { REPORTING_POINTS, pgKey } from '../lib/pg/types'
 import { normaliseGrade } from '../lib/pg/scale'
+import {
+  deadlineFor, deadlineMatches, daysUntil, stageOf, stagesIn, studentOwedToIb, warningLevel, withDue,
+} from '../lib/deadlines'
+import { DEADLINES } from '../lib/data/fixtures'
 import { matchSessionNumbers } from '../lib/ia/sample'
 import { iaTotal, templateOf } from '../lib/templates'
 
@@ -1017,6 +1021,180 @@ async function main() {
   // --- archived years ---
   const c14Pg = REQUIREMENT_DEFS.filter((d) => d.lane === 'Predicted grades' && d.cohortId === 'c14')
   check(c14Pg.length > 0, 'the archived cohort has its predicted grades — a record, not an absence')
+
+
+  // -------------------------------------------------------------------------
+  console.log('\n13. Due dates — the record, the match, and who may move one')
+
+  const dlC15 = DEADLINES.filter((d) => d.cohortId === 'c15')
+  check(dlC15.length > 0, `${dlC15.length} deadlines seeded for the graduating cohort`)
+  check(
+    DEADLINES.every((d) => d.decidedBy.trim().length > 0 && d.setBy.length > 0),
+    'every deadline records WHO DECIDED it — a date is a decision people made, not a fact',
+  )
+
+  // --- every seeded row actually reaches a requirement ---
+  const orphans = DEADLINES.filter(
+    (d) => !REQUIREMENT_DEFS.some((def) => deadlineMatches(d, def)),
+  )
+  check(
+    orphans.length === 0,
+    orphans.length === 0
+      ? 'every deadline lands on at least one requirement — no silent orphans'
+      : `ORPHAN DEADLINES: ${orphans.map((d) => d.courseId + '/' + d.requirementKey).join(', ')}`,
+  )
+
+  // --- the stage seam ---
+  const bioFile = REQUIREMENT_DEFS.find(
+    (d) => d.cohortId === 'c15' && d.key === bioPg.id + '.file',
+  )!
+  const bioPgP2 = REQUIREMENT_DEFS.find((d) => d.cohortId === 'c15' && d.key.endsWith('.pg.p2'))!
+  const auth = REQUIREMENT_DEFS.find((d) => d.cohortId === 'c15' && d.key === 'ib.auth')!
+  check(stageOf(bioFile) === 'file', "a course-scoped key's stage is everything after the course id")
+  check(stageOf(bioPgP2) === 'pg.p2', "'<course>.pg.p2' has stage 'pg.p2', not 'pg'")
+  check(stageOf(auth) === 'ib.auth', 'a programme-scoped def IS its own stage')
+  const stages = stagesIn(REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15'))
+  check(
+    stages.some((x) => x.key === 'pg.p2' && x.cohortWide) &&
+      stages.some((x) => x.key === 'file' && x.cohortWide),
+    'stages shared by many courses are offered as cohort-wide; the picker is derived from the defs',
+  )
+
+  // --- ONE cohort-wide row covers every course ---
+  const pgP2Rows = REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15' && d.key.endsWith('.pg.p2'))
+  const pgDate = dlC15.find((d) => d.requirementKey === 'pg.p2')!
+  check(
+    pgP2Rows.length > 1 && pgP2Rows.every((def) => deadlineMatches(pgDate, def)),
+    `one cohort-wide predicted-grade row dates all ${pgP2Rows.length} courses at once`,
+  )
+  check(
+    !deadlineMatches(pgDate, bioFile),
+    'and it does NOT bleed onto a different stage — suffix matching is anchored at the dot',
+  )
+
+  // --- MOST SPECIFIC WINS ---
+  const wide = { ...pgDate, id: 'dl_test_wide', requirementKey: 'file', courseId: null, dueAt: '2027-01-14' }
+  const narrow = { ...pgDate, id: 'dl_test_narrow', requirementKey: 'file', courseId: bioPg.id, dueAt: '2027-01-28' }
+  check(
+    deadlineFor([wide, narrow], bioFile)?.id === 'dl_test_narrow',
+    'a course-specific date overrides a cohort-wide one — "everyone by the 14th, except Chemistry"',
+  )
+  check(
+    deadlineFor([narrow, wide], bioFile)?.id === 'dl_test_narrow',
+    'and it wins regardless of the order the rows arrive in',
+  )
+
+  // --- late is derived, and never fires on the wrong thing ---
+  const doneCp = { def: bioFile, state: null, display: 'done' as const }
+  const futureCp = { def: bioFile, state: null, display: 'future' as const }
+  const openCp = { def: bioFile, state: null, display: 'not_started' as const }
+  const past = [{ ...wide, dueAt: '2020-01-01' }]
+  check(withDue(doneCp, past, '2027-01-20').due?.late === false, 'work that is IN is never late')
+  check(
+    withDue(futureCp, past, '2027-01-20').due?.late === false,
+    "a 'future' requirement is never late — its opener has not happened, so it is nobody's turn",
+  )
+  check(withDue(openCp, past, '2027-01-20').due?.late === true, 'incomplete + a date that has passed = late')
+  check(daysUntil('2027-01-20', '2027-01-14') === 6, 'days are counted in whole school days, not UTC hours')
+
+  // --- WHO MAY MOVE A DATE ---
+  // Section 12 already established this course and its designated marker.
+  const bioCourseId = bioPg.id
+  const dlMarkerId = markerId
+  check(
+    await repo.deadlines.maySet('dhahran', 'c15', dlMarkerId, 'file', bioCourseId, false),
+    'the designated marker sets their own course\u2019s IA date',
+  )
+  check(
+    !(await repo.deadlines.maySet('dhahran', 'c15', dlMarkerId, 'pg.p2', null, false)),
+    'and is REFUSED a predicted-grade date \u2014 that is a cohort-wide commitment, coordinator only',
+  )
+  check(
+    !(await repo.deadlines.maySet('dhahran', 'c15', 'u_silva', 'file', bioCourseId, false)),
+    'another course\u2019s teacher is refused',
+  )
+  check(
+    await repo.deadlines.maySet('dhahran', 'c15', 'u_haddad', 'pg.p2', null, true),
+    'a deadlines.set holder sets anything, including predicted grades',
+  )
+  check(
+    !(await repo.deadlines.maySet('dhahran', 'c15', dlMarkerId, 'file', null, false)),
+    'a teacher cannot set a cohort-wide date even on a stage they own',
+  )
+
+  // --- MOVING A DATE SUPERSEDES IT ---
+  const beforeCount = (await repo.deadlines.list('dhahran', 'c15')).length
+  const original = (await repo.deadlines.list('dhahran', 'c15'))
+    .find((d) => d.requirementKey === 'file' && d.courseId === bioCourseId)!
+  const moved = await repo.deadlines.set(
+    'dhahran', 'c15',
+    { requirementKey: 'file', courseId: bioCourseId, dueAt: '2027-02-18', isMajor: true, decidedBy: 'Pushed at the Feb meeting' },
+    dlMarkerId,
+  )
+  const afterList = await repo.deadlines.list('dhahran', 'c15')
+  check(afterList.length === beforeCount, 'moving a date replaces the live row rather than adding a second one')
+  check(
+    moved.supersedes === original.id && moved.dueAt === '2027-02-18',
+    'and the new row NAMES the one it replaced — a moved date has a predecessor, not an edit history of none',
+  )
+  check(
+    (await repo.deadlines.forDef('dhahran', 'c15', bioFile))?.dueAt === '2027-02-18',
+    'the requirement immediately reads the new date',
+  )
+
+  // --- somebody's own dates ---
+  const aCandidate = STUDENTS.find((st) => st.cohortId === 'c15')!.userId
+  const studentDue = await repo.deadlines.dueFor('dhahran', aCandidate, { excludePg: true })
+  check(studentDue.length > 0, `a candidate has ${studentDue.length} dates of their own`)
+  check(
+    studentDue.every((d) => !d.deadline.requirementKey.startsWith('pg.')),
+    'and NOT ONE of them is a predicted-grade date — those are staff-facing',
+  )
+  check(
+    (await repo.deadlines.dueFor('dhahran', aCandidate)).some((d) =>
+      d.deadline.requirementKey.startsWith('pg.'),
+    ),
+    'without excludePg the same call does include them — the filter is the caller\u2019s decision, not a hidden rule',
+  )
+  const teacherDue = await repo.deadlines.dueFor('dhahran', dlMarkerId)
+  check(
+    teacherDue.length > 0 && teacherDue.every((d) => d.total > 0),
+    'a teacher\u2019s dates carry the fraction of their roster that is in',
+  )
+
+  // --- THE STUDENT'S NON-DISMISSIBLE WARNING ---
+  const tr = (await repo.getTrack('dhahran', aCandidate, { includeIdentifiers: false }))!
+  const cps = tr.lanes.flatMap((l) => l.checkpoints)
+  check(
+    cps.some((c) => c.due != null),
+    'the track carries the applicable deadline on its checkpoints — derived on read, never stored',
+  )
+  const owed = studentOwedToIb(cps)
+  check(
+    owed.every((c) => c.def.exportTarget != null && c.def.recordedBy === 'student'),
+    'the warning counts only work the IB receives AND the student owes',
+  )
+  check(
+    owed.every((c) => c.display !== 'done' && c.display !== 'future'),
+    'nothing finished and nothing not-yet-open is ever in it',
+  )
+  check(
+    warningLevel([]) === 'none',
+    'a student who owes nothing gets no warning at all — the only way to clear it is to do the work',
+  )
+  const fakeLate = [{ def: bioFile, state: null, display: 'not_started' as const, due: { dueAt: '2020-01-01', isMajor: true, late: true, daysAway: -400 } }]
+  check(warningLevel(fakeLate) === 'late', 'a passed date makes it loud; presence never changed, only weight')
+
+  // --- predicted-grade columns read the real date ---
+  const pgv = (await repo.pg.getView('dhahran', bioCourseId, 'c15'))!
+  check(
+    pgv.pointDue[1] === pgDate.dueAt,
+    'a predicted-grade column shows the date the coordinator set, not prose about roughly when',
+  )
+  check(
+    pgv.pointDue.length === pgv.points.length,
+    'one date slot per reporting point, aligned — a column can be dateless without shifting the others',
+  )
 
   console.log('\n' + '='.repeat(60))
   if (fail.length) {

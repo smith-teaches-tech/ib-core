@@ -883,3 +883,56 @@ details.archived .navrow { opacity: .75; }
 
 /* The masthead is a label now, not a link — no pointer, no hover affordance. */
 header.top span.logo{cursor:default}
+
+/* ---- due dates ----------------------------------------------------------- */
+.dl{border-collapse:separate;border-spacing:0;width:100%;font-size:12.5px}
+.dl th{text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);
+  font-weight:700;padding:7px 8px;border-bottom:1px solid var(--line)}
+.dl td{padding:7px 8px;border-bottom:1px solid #f0f3f6;vertical-align:middle}
+.dl tbody tr:hover td{background:#f7fafc}
+.dl .who{color:var(--muted);font-size:11.5px}
+.dl input[type=date]{padding:4px 7px;font-size:12.5px}
+/* The date, as a date — a calendar tile reads faster than 2027-01-14. */
+.dlday{display:inline-block;text-align:center;border:1px solid var(--line);border-radius:9px;
+  padding:3px 7px;background:#fbfcfd;min-width:52px}
+.dlday b{display:block;font-size:16px;line-height:1.1;font-variant-numeric:tabular-nums}
+.dlday small{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);font-weight:700}
+.addrow{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;padding:14px 0 2px;
+  border-top:1px solid var(--line);margin-top:10px}
+.addrow label{display:block}
+.addrow .caps{margin-bottom:3px}
+.locked{display:inline-flex;align-items:center;gap:5px;color:var(--muted);font-size:11.5px;white-space:nowrap}
+.locked svg{width:9px;height:11px;color:#a6b1bc;flex:none}
+
+/* ---- a due-date list on somebody's home --------------------------------- */
+.due{display:flex;align-items:center;gap:12px;padding:9px 0;border-bottom:1px solid #f0f3f6}
+.due:last-child{border-bottom:0}
+.due-d{flex:none;width:56px;text-align:center;border-radius:9px;border:1px solid var(--line);
+  padding:4px 0;background:#fbfcfd}
+.due-d .dm{display:block;font-size:9.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);font-weight:700}
+.due-d .dd{display:block;font-size:17px;font-weight:800;line-height:1.1;font-variant-numeric:tabular-nums}
+.due.past .due-d{border-color:#e0e6ec;background:#f4f6f8}
+.due.past .due-d .dd,.due.past .due-d .dm{color:#96a1ac}
+.due.soon .due-d{border-color:#ecdcb8;background:var(--gold-soft)}
+.due.soon .due-d .dd,.due.soon .due-d .dm{color:var(--gold)}
+.due.allin .due-d{opacity:.55}
+.due-b{flex:1;min-width:0}
+.due-t{font-weight:600;font-size:13px}
+.due.allin .due-t{color:var(--muted)}
+.due-m{font-size:11.5px;color:var(--muted);margin-top:1px}
+.due-r{flex:none;display:flex;gap:6px;align-items:center}
+.tag.ib{background:var(--brand-soft);color:var(--brand)}
+
+/* ---- the student's non-dismissible warning ------------------------------- */
+/* Not an alert: it ranks nothing, pushes nothing and cannot be dismissed,
+   because it is not a message. It is the state of the record. */
+.owed{border-radius:var(--radius);border:1px solid;padding:13px 16px;margin-bottom:16px}
+.owed.quiet{background:#f4f6f8;border-color:#dde4ea;color:#3d4854}
+.owed.soon{background:var(--gold-soft);border-color:#ecdcb8;color:#6d4d13}
+.owed.late{background:var(--warn-soft);border-color:#f0cccc;color:#8a2b2b}
+.owed h2{font-size:14.5px;margin:0 0 4px}
+.owed ul{margin:8px 0 0;padding-left:18px;font-size:12.5px}
+.owed li{padding:1px 0}
+.owed .why{font-size:12px;margin-top:8px;opacity:.9}
+/* A real due date on a predicted-grade column — louder than advisory prose. */
+.pgdue{font-size:10px;font-weight:700;color:var(--brand);letter-spacing:.1px}

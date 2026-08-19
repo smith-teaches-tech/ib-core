@@ -138,6 +138,47 @@ export interface RequirementDef {
   dueAt?: string
 }
 
+/**
+ * A DEADLINE — its own record, deliberately not `dueAt` on RequirementDef.
+ *
+ * A def is immutable once any state exists against it, and dates move. Putting
+ * the date on the def would force a choice between rewriting history and never
+ * moving a deadline. So the date is a separate, superseding record: pushing one
+ * writes a new row that points at the old, and "what did we tell them in
+ * September" stays answerable.
+ *
+ * KEYED BY (requirement stage × course), because the real calendar demands it:
+ * Biology and Physics IAs are due 14 Jan, Maths 21 Jan, Chemistry 28 Jan. A
+ * single date per stage would have marked every IA in the cohort late on the
+ * 14th. `courseId: null` means every course that has this stage — which is what
+ * a predicted-grade point actually is.
+ */
+export interface Deadline {
+  id: Id
+  schoolId: Id
+  cohortId: Id
+  /**
+   * The requirement's STAGE, not its full key: 'file', 'mark', 'pg.p2',
+   * 'tok.essay', 'cas.complete'. Matched against def keys by
+   * `deadlineMatches()` in lib/deadlines.ts — the one place this join happens.
+   */
+  requirementKey: string
+  /** null = every course that has this stage. A course-specific row wins over it. */
+  courseId: Id | null
+  /** Date only, school timezone. Late means: this day has passed and it is not in. */
+  dueAt: string
+  /** The school's own flag, straight off the planning spreadsheet. */
+  isMajor: boolean
+  /** Whose deadline it is, for the calendar. Not an authorization field. */
+  ownerUserId?: Id
+  /** "IB planning meeting · 4 Sep 26" — a decision made by people, recorded as one. */
+  decidedBy: string
+  setBy: string
+  setAt: string
+  /** The row this one replaced. A moved date leaves its predecessor behind. */
+  supersedes?: Id
+}
+
 /** Has the school got it? Our vocabulary. */
 export type RecordStatus =
   | 'not_started' | 'in_progress' | 'submitted' | 'marked' | 'released'
@@ -312,6 +353,26 @@ export interface Checkpoint {
   state: RequirementState | null
   /** 'future' = its opensAfter isn't complete yet. Never counted as outstanding. */
   display: 'done' | 'partial' | 'not_started' | 'future'
+  /**
+   * The deadline that applies, if one is set. ADDITIVE on purpose.
+   *
+   * IB-Deadlines-and-Release.md §4 proposed adding 'late' to `display`. That
+   * union is switched on in the board, the track, the candidate panel and the
+   * marks grid, so a fifth value means touching every consumer to say something
+   * none of them needed to change. A separate field says the same thing, breaks
+   * nothing, and lets a reader ask "is this late" without first handling four
+   * cases it does not care about.
+   */
+  due?: CheckpointDue
+}
+
+export interface CheckpointDue {
+  dueAt: string
+  isMajor: boolean
+  /** Incomplete, has a deadline, and the day has passed. Never true for 'future'. */
+  late: boolean
+  /** Negative = overdue by that many days. */
+  daysAway: number
 }
 
 export interface TrackLane {

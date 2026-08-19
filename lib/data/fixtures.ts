@@ -6,7 +6,7 @@
 // any per-student configuration.
 
 import type {
-  Artifact, Cohort, Course, Enrollment, LibraryDocument, Membership,
+  Artifact, Cohort, Course, Deadline, Enrollment, LibraryDocument, Membership,
   RequirementDef, RequirementState, School, Section, Student,
   TeachingAssignment, User,
 } from '../types'
@@ -25,7 +25,10 @@ import { makePgRepository } from './pg-repo'
 import { REPORTING_POINTS, pgKey } from '../pg/types'
 import { makeExportRepository } from './export-repo'
 import type { MarkEvent, MarkUnlock, SampleRequest } from '../ia/types'
+import { makeDeadlineRepository } from './deadline-repo'
 import { pinned } from './pin'
+import { withDue } from '../deadlines'
+import { todayRiyadh } from './dates'
 import { sortCohorts } from '../cohorts'
 
 export const SCHOOLS: School[] = [
@@ -472,6 +475,77 @@ const ART = (label: string): Artifact[] => [
   { id: label, kind: 'file', label, addedAt: '2026-08-01' },
 ]
 
+/**
+ * DEADLINES — the dates the year actually runs on.
+ *
+ * Shaped after the school's own assessment calendar (see
+ * IB-Deadlines-and-Release.md, which reads 41 rows off it): the science IAs land
+ * a fortnight before Maths, Chemistry a week after that. That staggering is the
+ * whole reason a deadline is keyed by course and not just by stage.
+ *
+ * A few Class-of-2027 dates are in the PAST, deliberately: a demo where nothing
+ * is ever late cannot show what late looks like, and late is the state the
+ * screens exist to surface.
+ */
+export const DEADLINES: Deadline[] = pinned('ibDeadlines', () => {
+  const mk = (
+    cohortId: string,
+    requirementKey: string,
+    courseId: string | null,
+    dueAt: string,
+    isMajor: boolean,
+    decidedBy = 'IB planning meeting · 4 Sep 26',
+  ): Deadline => ({
+    id: `dl_${cohortId}_${courseId ?? 'all'}_${requirementKey}`.replace(/\./g, '_'),
+    schoolId: 'dhahran',
+    cohortId,
+    requirementKey,
+    courseId,
+    dueAt,
+    isMajor,
+    decidedBy,
+    setBy: 'u_michael',
+    setAt: '2026-09-04T08:00:00.000Z',
+  })
+
+  // Only courses that actually RUN for this cohort. A date on a course with no
+  // candidates is a row the coordinator has to read and can never act on.
+  const runs = (courseId: string, cohortId: string) => {
+    const ids = SECTIONS.filter((x) => x.courseId === courseId && x.cohortId === cohortId).map((x) => x.id)
+    return ENROLLMENTS.some((e) => ids.includes(e.sectionId))
+  }
+  const subjects = COURSES.filter((c) => c.type === 'subject' && runs(c.id, 'c15')).map((c) => c.id)
+  // Sciences first, then maths, then everything else — the real stagger.
+  const wave = (id: string) =>
+    /bio|chem|phys|ess|sport|comp|design/i.test(id) ? '2027-01-14'
+      : /math/i.test(id) ? '2027-01-21'
+        : /psych|econ|bus|hist|geo|glo/i.test(id) ? '2027-02-04'
+          : '2027-01-28'
+
+  return [
+    // ---- Class of 2027, mid-DP2 ----
+    // Past, and unfinished for some — this is what a late cell is for.
+    mk('c15', 'rq', 'ee', '2026-05-15', false),
+    mk('c15', 'title', 'tok', '2026-06-05', false),
+    mk('c15', 'pg.p1', null, '2026-06-20', true),
+    mk('c15', 'final', 'ee', '2026-11-13', true),
+    mk('c15', 'exh', 'tok', '2026-11-20', false),
+    mk('c15', 'exhmark', 'tok', '2026-12-04', false),
+    // Upcoming.
+    ...subjects.map((id) => mk('c15', 'file', id, wave(id), true)),
+    ...subjects.map((id) => mk('c15', 'mark', id, wave(id), true)),
+    mk('c15', 'pg.p2', null, '2027-01-16', true),
+    mk('c15', 'essay', 'tok', '2027-03-05', true),
+    mk('c15', 'complete', 'cas', '2027-04-01', true),
+    mk('c15', 'pg.p3', null, '2027-04-20', true),
+    mk('c15', 'ib.auth', null, '2027-04-24', true),
+
+    // ---- Class of 2028, two weeks into DP1 ----
+    mk('c16', 'rq', 'ee', '2027-05-14', false, 'IB planning meeting · 2 Sep 27'),
+    mk('c16', 'pg.p1', null, '2027-06-18', true, 'IB planning meeting · 2 Sep 27'),
+  ]
+})
+
 export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementStates', () => {
   const out: RequirementState[] = []
   const r = rng(2027)
@@ -646,6 +720,17 @@ const iaRepository = makeIaRepository({
   samples: SAMPLE_REQUESTS,
 })
 
+const deadlineRepository = makeDeadlineRepository({
+  courses: COURSES,
+  sections: SECTIONS,
+  enrollments: ENROLLMENTS,
+  students: STUDENTS,
+  assignments: TEACHING_ASSIGNMENTS,
+  defs: REQUIREMENT_DEFS,
+  states: REQUIREMENT_STATES,
+  deadlines: DEADLINES,
+})
+
 const pgRepository = makePgRepository({
   courses: COURSES,
   sections: SECTIONS,
@@ -657,6 +742,7 @@ const pgRepository = makePgRepository({
   states: REQUIREMENT_STATES,
   // The SAME trail as the IA module. One course, one history.
   events: MARK_EVENTS,
+  deadlines: DEADLINES,
 })
 
 const exportRepository = makeExportRepository({
@@ -758,13 +844,28 @@ export const fixtureRepository: Repository = {
     const visible = opts?.includeIdentifiers
       ? redact(student)
       : { ...redact(student), sessionNumber: null, personalCode: null }
-    return buildTrack(
+    const track = buildTrack(
       visible,
       user,
       REQUIREMENT_DEFS,
       coursesOf(studentUserId, ENROLLMENTS, SECTIONS, COURSES),
       allStates(),
     )
+    // Attach the applicable deadline to every checkpoint. Done HERE rather than
+    // inside buildTrack so the spine's derivation stays a pure function of defs
+    // and states — dates are a separate record, and the track is where the two
+    // meet. `late` is derived on read; nothing about it is stored.
+    const mine = DEADLINES.filter(
+      (d) => d.schoolId === schoolId && d.cohortId === student.cohortId,
+    )
+    const today = todayRiyadh()
+    return {
+      ...track,
+      lanes: track.lanes.map((lane) => ({
+        ...lane,
+        checkpoints: lane.checkpoints.map((cp) => withDue(cp, mine, today)),
+      })),
+    }
   },
 
   async getBoard(schoolId, cohortId, options) {
@@ -786,6 +887,7 @@ export const fixtureRepository: Repository = {
   setup: setupRepository,
   ia: iaRepository,
   pg: pgRepository,
+  deadlines: deadlineRepository,
   export: exportRepository,
 
   async listDocuments(schoolId, forUserId) {

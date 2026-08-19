@@ -1,10 +1,13 @@
 import Shell from '@/components/Shell'
 import Track from '@/components/Track'
 import TeacherHome, { type TeacherClass } from '@/components/TeacherHome'
+import DueDates from '@/components/DueDates'
+import OwedToIb from '@/components/OwedToIb'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
 import { isArchived } from '@/lib/cohorts'
 import { REPORTING_POINTS } from '@/lib/pg/types'
+import { studentOwedToIb } from '@/lib/deadlines'
 
 /**
  * HOME — one screen, two audiences, and its own route.
@@ -38,6 +41,14 @@ export default async function HomeScreen() {
     const myCohort = track
       ? (await repo.setup.listCohorts(school.id)).find((c) => c.id === track.student.cohortId)
       : undefined
+    // Staff-facing dates are filtered out: a predicted-grade deadline is not a
+    // student's to meet, and showing it would invite the one question the
+    // product deliberately does not answer for them.
+    const due = await repo.deadlines.dueFor(school.id, user.id, { excludePg: true })
+    const owed = track
+      ? studentOwedToIb(track.lanes.flatMap((l) => l.checkpoints))
+      : []
+
     body = track ? (
       <>
         <h1>{user.name}</h1>
@@ -45,6 +56,13 @@ export default async function HomeScreen() {
           {myCohort?.label ?? 'IB Diploma'} · Candidate {track.student.sessionNumber} /{' '}
           {track.student.personalCode ?? '—'} — a record of what you have completed.
         </p>
+        {/* First on the page, above everything, and not dismissible. */}
+        <OwedToIb owed={owed} />
+        <DueDates
+          items={due}
+          note="Your work, in the order it is due."
+          limit={8}
+        />
         <Track track={track} examDate={myCohort ? `${myCohort.gradYear}-05-01` : '2027-05-01'} />
       </>
     ) : (
@@ -88,7 +106,21 @@ export default async function HomeScreen() {
         })
       }
     }
-    body = <TeacherHome name={user.name} classes={classes} />
+    // A teacher's own dates: the courses they mark, in order. No lateness
+    // counting and no red bar — see components/DueDates.tsx.
+    const due = await repo.deadlines.dueFor(school.id, user.id)
+    body = (
+      <>
+        <TeacherHome name={user.name} classes={classes} />
+        <div style={{ marginTop: 18 }}>
+          <DueDates
+            items={due}
+            note="Set on the Due dates screen. Yours to change where you are the marker."
+            limit={8}
+          />
+        </div>
+      </>
+    )
   }
 
   return (

@@ -12,9 +12,10 @@
 
 import type { PgRepository } from './repository'
 import type {
-  Course, Enrollment, RequirementDef, RequirementState, Section, Student,
+  Course, Deadline, Enrollment, RequirementDef, RequirementState, Section, Student,
   TeachingAssignment, User,
 } from '../types'
+import { deadlineFor } from '../deadlines'
 import type { MarkEvent } from '../ia/types'
 import type { PgCell, PgRow, PgStudentView, PgView, ReportingPoint } from '../pg/types'
 import { REPORTING_POINTS, pgKey } from '../pg/types'
@@ -32,9 +33,11 @@ export function makePgRepository(deps: {
   defs: RequirementDef[]
   states: RequirementState[]
   events: MarkEvent[]
+  deadlines: Deadline[]
 }): PgRepository {
   const {
     courses, sections, enrollments, students, users, assignments, defs, states, events,
+    deadlines,
   } = deps
 
   const defByKey = (schoolId: string, cohortId: string, key: string) => {
@@ -163,6 +166,14 @@ export function makePgRepository(deps: {
         cohortId,
         scale: first.gradeScale ?? 'points_1_7',
         points: REPORTING_POINTS,
+        pointDue: REPORTING_POINTS.map((p) => {
+          const d = pgDef(schoolId, cohortId, courseId, p.key)
+          if (!d) return null
+          return deadlineFor(
+            deadlines.filter((x) => x.schoolId === schoolId && x.cohortId === cohortId),
+            d,
+          )?.dueAt ?? null
+        }),
         marker: users.find((u) => u.id === markerId)?.name ?? null,
         rows,
       }
