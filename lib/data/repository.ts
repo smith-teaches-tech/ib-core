@@ -26,6 +26,7 @@ import type {
   CohortSummary, CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
 } from '../setup/types'
 import type { IaMarksView, MarkEventRow, MarkUnlock, SampleRequest } from '../ia/types'
+import type { PgStudentView, PgView, ReportingPoint } from '../pg/types'
 import type { UploadBoardView } from '../export/types'
 import type { CapabilityKey, Cohort, PresetKey } from '../types'
 
@@ -102,6 +103,7 @@ export interface Repository {
 
   /** IA marks — the module that records criterion marks and comments. */
   ia: IaRepository
+  pg: PgRepository
 
   /** Download for IBIS — the upload board and its one write (exportStatus). */
   export: ExportRepository
@@ -465,4 +467,45 @@ export interface CasRepository {
     token: string,
     input: { confirmedOutcomes: LoKey[]; comment: string; signature: string },
   ): Promise<boolean>
+}
+
+
+// ---------------------------------------------------------------------------
+// Predicted grades
+// ---------------------------------------------------------------------------
+
+/**
+ * The predicted-grades module. Small on purpose: a predicted grade is one
+ * value per (student × course × reporting point), and the only thing that is
+ * not a plain read or write is the lock.
+ */
+export interface PgRepository {
+  /** One course, one cohort: the grid. Rows in session-number (IBIS) order. */
+  getView(schoolId: string, courseId: string, cohortId: string): Promise<PgView | null>
+  /**
+   * Record a predicted grade. `null` clears it.
+   *
+   * THROWS if the cell is locked — the lock is enforced here rather than in the
+   * action, so no future caller can route around it by forgetting. Recording a
+   * grade locks it; clearing one does not, because an empty cell is not a
+   * judgement worth protecting.
+   */
+  setGrade(
+    schoolId: string, courseId: string, cohortId: string, studentId: string,
+    point: ReportingPoint['key'], value: string | null, by: string,
+  ): Promise<void>
+  /**
+   * Open ONE locked grade for ONE change. Reason required; it lands on the
+   * append-only trail and is stamped onto the change that follows.
+   */
+  unlockGrade(
+    schoolId: string, courseId: string, cohortId: string, studentId: string,
+    point: ReportingPoint['key'], reason: string, by: string,
+  ): Promise<void>
+  /**
+   * One student, every course they take, every reporting point — what the
+   * candidate panel renders. Gated by `grades.cross_course` at the caller:
+   * this returns the whole picture and the caller decides who may see it.
+   */
+  getStudentView(schoolId: string, studentId: string): Promise<PgStudentView | null>
 }

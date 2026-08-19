@@ -14,6 +14,9 @@ import { assertLiveCohort, isArchived, sortCohorts } from '../lib/cohorts'
 import { CAS_DATA } from '../lib/data/cas-fixtures'
 import { summarise } from '../lib/cas/derive'
 import { marksWriteGrant } from '../lib/ia/authorize'
+import { pgWriteGrant, restrictStudentView } from '../lib/pg/authorize'
+import { REPORTING_POINTS, pgKey } from '../lib/pg/types'
+import { normaliseGrade } from '../lib/pg/scale'
 import { matchSessionNumbers } from '../lib/ia/sample'
 import { iaTotal, templateOf } from '../lib/templates'
 
@@ -846,6 +849,174 @@ async function main() {
     archived11.includes('archived'),
     'an archived cohort refuses the write — a record, not a workspace',
   )
+
+
+  // -------------------------------------------------------------------------
+  console.log('\n12. Predicted grades — the template, and the lock')
+
+  const pgDefs = REQUIREMENT_DEFS.filter((d) => d.lane === 'Predicted grades')
+  const pgC15 = pgDefs.filter((d) => d.cohortId === 'c15')
+  const pgCourses = new Set(
+    pgC15.map((d) => (d.scope.kind === 'course' ? d.scope.courseId : 'programme')),
+  )
+  check(
+    pgC15.length === pgCourses.size * REPORTING_POINTS.length,
+    `three reporting points per course — ${pgCourses.size} courses, ${pgC15.length} definitions`,
+  )
+  check(
+    pgC15.every((d) => d.scope.kind === 'course'),
+    'every predicted-grade definition is COURSE-scoped — the old programme-scoped ib.pg is gone',
+  )
+  check(
+    REQUIREMENT_DEFS.every((d) => d.key !== 'ib.pg'),
+    'no ib.pg definition survives anywhere — one value per course per point, or nothing',
+  )
+  const eeCourse = COURSES.find((c) => c.type === 'ee')
+  check(
+    eeCourse != null && !pgCourses.has(eeCourse.id),
+    'the extended essay has NO predicted-grade definitions — graded once, its own module, later',
+  )
+  const tokCourse = COURSES.find((c) => c.type === 'tok')!
+  check(
+    pgC15.filter((d) => d.scope.kind === 'course' && d.scope.courseId === tokCourse.id)
+      .every((d) => d.gradeScale === 'letter_a_e'),
+    'TOK predicts on the LETTER scale; every subject predicts 1–7',
+  )
+  check(
+    pgC15.filter((d) => d.gradeScale === 'points_1_7').length === (pgCourses.size - 1) * 3,
+    'the scale is the ONLY difference between a subject course and TOK',
+  )
+  check(
+    pgC15.filter((d) => d.exportTarget === 'ibis_predicted').length === pgCourses.size &&
+      pgC15.filter((d) => d.exportTarget === 'ibis_predicted').every((d) => d.key.endsWith('.p3')),
+    'exportTarget sits on the APRIL definition alone — that is what makes April the IB’s',
+  )
+
+  // --- the scale is the one validity rule ---
+  check(
+    normaliseGrade('b', 'letter_a_e') === 'B' && normaliseGrade('8', 'points_1_7') === null &&
+      normaliseGrade('F', 'letter_a_e') === null && normaliseGrade('7', 'points_1_7') === '7',
+    'one validity check for every scale — “b” normalises to B, 8 and F are refused',
+  )
+
+  // --- who may write ---
+  const bioPg = COURSES.find((c) => c.name.startsWith('Biology'))!
+  const markerId = TEACHING_ASSIGNMENTS.find((a) => {
+    const sec = SECTIONS.find((x) => x.id === a.sectionId)
+    return a.isDesignatedMarker && sec?.courseId === bioPg.id && sec?.cohortId === 'c15'
+  })!.teacherId
+  const aStudent = ENROLLMENTS.find((e) =>
+    SECTIONS.some((x) => x.id === e.sectionId && x.courseId === bioPg.id && x.cohortId === 'c15'),
+  )!.studentId
+
+  const asMarker = await pgWriteGrant(
+    repo.ia, () => false, 'dhahran', bioPg.id, 'c15', aStudent, markerId,
+  )
+  const asCoordinator = await pgWriteGrant(
+    repo.ia, (c) => c === 'marks.transcribe', 'dhahran', bioPg.id, 'c15', aStudent, 'u_haddad',
+  )
+  const asOtherTeacher = await pgWriteGrant(
+    repo.ia, (c) => c === 'pg.manage', 'dhahran', bioPg.id, 'c15', aStudent, 'u_silva',
+  )
+  check(asMarker.allowed && asMarker.as === 'marker', 'the designated marker writes predicted grades')
+  check(
+    asCoordinator.allowed && asCoordinator.as === 'coordinator',
+    'the coordinator tier writes DIRECTLY — no unlock ceremony, unlike an IA mark',
+  )
+  check(
+    !asOtherTeacher.allowed,
+    'pg.manage alone is not enough — another course’s teacher is refused',
+  )
+
+  // --- the lock ---
+  const view0 = (await repo.pg.getView('dhahran', bioPg.id, 'c15'))!
+  const locked = view0.rows.find((r) => r.cells[0].locked)!
+  let lockErr = ''
+  try {
+    await repo.pg.setGrade('dhahran', bioPg.id, 'c15', locked.studentId, 'p1', '1', markerId)
+  } catch (e) {
+    lockErr = e instanceof Error ? e.message : String(e)
+  }
+  check(lockErr.toLowerCase().includes('locked'), 'a locked predicted grade REFUSES the write')
+  const stillThere = (await repo.pg.getView('dhahran', bioPg.id, 'c15'))!
+    .rows.find((r) => r.studentId === locked.studentId)!.cells[0].grade
+  check(stillThere === locked.cells[0].grade, 'the refused write changed nothing')
+
+  let noReason = ''
+  try {
+    await repo.pg.unlockGrade('dhahran', bioPg.id, 'c15', locked.studentId, 'p1', '  ', markerId)
+  } catch (e) {
+    noReason = e instanceof Error ? e.message : String(e)
+  }
+  check(noReason.toLowerCase().includes('reason'), 'unlocking without a reason is refused')
+
+  await repo.pg.unlockGrade(
+    'dhahran', bioPg.id, 'c15', locked.studentId, 'p1', 'Mock result arrived after entry.', markerId,
+  )
+  const opened = (await repo.pg.getView('dhahran', bioPg.id, 'c15'))!
+    .rows.find((r) => r.studentId === locked.studentId)!.cells[0]
+  check(
+    !opened.locked && opened.openReason === 'Mock result arrived after entry.',
+    'unlocking opens exactly that cell and carries its reason',
+  )
+
+  const was = opened.grade
+  const now = was === '7' ? '6' : '7'
+  await repo.pg.setGrade('dhahran', bioPg.id, 'c15', locked.studentId, 'p1', now, markerId)
+  const after = (await repo.pg.getView('dhahran', bioPg.id, 'c15'))!
+    .rows.find((r) => r.studentId === locked.studentId)!.cells[0]
+  check(after.grade === now && after.locked, 'saving writes the new grade and RE-LOCKS it')
+
+  const pgTrail = await repo.ia.listMarkEvents('dhahran', bioPg.id, 'c15')
+  const change = pgTrail.find((e) => e.kind === 'pg')
+  check(
+    change != null && change.prev === was && change.next === now &&
+      change.overrideReason === 'Mock result arrived after entry.',
+    'the change lands on the SAME trail as the IA marks, carrying the reason it was opened with',
+  )
+  check(
+    pgTrail.some((e) => e.kind === 'pg_unlock'),
+    'the unlock is itself an event — nothing about a change is inferred',
+  )
+
+  let bad = ''
+  try {
+    // p3 is empty for everyone (April has not happened), so this reaches the
+    // scale check rather than stopping at the lock.
+    await repo.pg.setGrade('dhahran', bioPg.id, 'c15', locked.studentId, 'p3', 'Z', markerId)
+  } catch (e) {
+    bad = e instanceof Error ? e.message : String(e)
+  }
+  check(bad.includes('not a valid grade'), 'an off-scale value is refused rather than stored')
+  check(
+    (await repo.pg.getView('dhahran', bioPg.id, 'c15'))!
+      .rows.find((r) => r.studentId === locked.studentId)!.cells[2].grade == null,
+    'and nothing was written when it was refused',
+  )
+
+  // --- the whole-student view, and the cross-course capability ---
+  const student = (await repo.pg.getStudentView('dhahran', aStudent))!
+  check(
+    student.courses.length > 1 && student.courses.some((c) => c.scale === 'letter_a_e'),
+    `one candidate's predicted grades span every course they take — ${student.courses.length} of them, TOK included`,
+  )
+  check(
+    student.filled.every((f) => f.total === student.courses.length),
+    'the denominator is derived from enrolment — nobody is asked for a grade in a course they do not take',
+  )
+  const restricted = restrictStudentView(student, new Set([bioPg.id]))
+  check(
+    restricted.view.courses.length === 1 && restricted.hidden === student.courses.length - 1,
+    'without grades.cross_course a teacher keeps their OWN course and loses the others',
+  )
+  check(
+    restricted.view.filled.every((f) => f.total === 1),
+    'the fraction is recounted over what is shown — a total over hidden rows would be a lie',
+  )
+
+  // --- archived years ---
+  const c14Pg = REQUIREMENT_DEFS.filter((d) => d.lane === 'Predicted grades' && d.cohortId === 'c14')
+  check(c14Pg.length > 0, 'the archived cohort has its predicted grades — a record, not an absence')
 
   console.log('\n' + '='.repeat(60))
   if (fail.length) {

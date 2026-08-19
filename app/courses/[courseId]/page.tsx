@@ -5,12 +5,14 @@ import CasRoster from '@/components/cas/CasRoster'
 import CohortBar from '@/components/CohortBar'
 import MarkHistory from '@/components/ia/MarkHistory'
 import MarksGrid from '@/components/ia/MarksGrid'
+import PgGrid from '@/components/pg/PgGrid'
 import SamplePanel from '@/components/ia/SamplePanel'
 import UnlockMarks from '@/components/ia/UnlockMarks'
 import StudentCas from '@/components/cas/StudentCas'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
 import { cohortTitle, isArchived, sortCohorts } from '@/lib/cohorts'
+import { isCoordinatorTier, restrictStudentView } from '@/lib/pg/authorize'
 
 // A course page, dispatched by course TYPE.
 //
@@ -26,10 +28,14 @@ export default async function CoursePage({
   searchParams,
 }: {
   params: Promise<{ courseId: string }>
-  searchParams: Promise<{ cohort?: string; candidate?: string }>
+  searchParams: Promise<{ cohort?: string; candidate?: string; screen?: string }>
 }) {
   const { courseId } = await params
-  const { cohort: wantedCohort, candidate: wantedCandidate } = await searchParams
+  const {
+    cohort: wantedCohort,
+    candidate: wantedCandidate,
+    screen: wantedScreen,
+  } = await searchParams
   const session = await getSession()
   const { user, school, memberships } = session
   const roles = memberships.find((m) => m.schoolId === school.id)?.roles ?? []
@@ -70,6 +76,62 @@ export default async function CoursePage({
         <div className="note warn">Not your course — you are not assigned to it.</div>
       </Shell>
     )
+  }
+
+  /**
+   * THE TWO SCREENS on a class page. One route; the segmented control below
+   * chooses which component renders. Not one grid with extra columns: the IA
+   * grid is marker-only with a 30-minute coordinator override, predicted grades
+   * are marker-or-coordinator with a per-cell lock, and a single component
+   * applying two authorization models to adjacent cells is how a permission bug
+   * gets written.
+   */
+  const screen: 'ia' | 'pg' = wantedScreen === 'pg' ? 'pg' : 'ia'
+
+  /**
+   * The whole-student panel, teacher edition — the SAME component the board
+   * uses. A teacher reaches only students in courses they are assigned to;
+   * identifiers leave only for identifier holders; and predicted grades in
+   * OTHER courses leave only for `grades.cross_course` holders.
+   */
+  const renderCandidatePanel = async (closeHref: string) => {
+    const mayOpen = wantedCandidate
+      ? coordinatorReader || (await repo.teachesStudent(school.id, user.id, wantedCandidate))
+      : false
+    if (!wantedCandidate || !mayOpen) {
+      return {
+        panel: null,
+        refused: Boolean(wantedCandidate) && !mayOpen,
+      }
+    }
+    const track = await repo.getTrack(school.id, wantedCandidate, {
+      includeIdentifiers: session.can('identifiers.manage'),
+    })
+    if (!track) return { panel: null, refused: false }
+
+    const full = await repo.pg.getStudentView(school.id, wantedCandidate)
+    let pgView = full
+    let hidden = 0
+    if (full && !session.can('grades.cross_course')) {
+      // Without the capability a teacher still sees the courses they teach —
+      // the thing being granted is the OTHER courses, so that is the thing
+      // taken away.
+      const mine = new Set((await repo.myCourses(school.id, user.id)).map((c) => c.id))
+      const r = restrictStudentView(full, mine)
+      pgView = r.view
+      hidden = r.hidden
+    }
+    return {
+      refused: false,
+      panel: (
+        <CandidatePanel
+          track={track}
+          closeHref={closeHref}
+          pg={pgView && pgView.courses.length > 0 ? pgView : null}
+          pgRedacted={hidden > 0}
+        />
+      ),
+    }
   }
 
   let body: React.ReactNode
@@ -144,21 +206,6 @@ export default async function CoursePage({
           : null
         const editable = !readOnly && (isMarker || unlock != null)
 
-        // The whole-student popout, teacher edition: names in the grid open
-        // the same CandidatePanel the board uses, selection in the URL. Gated
-        // server-side — a teacher reaches only students in courses they are
-        // assigned to, and IB identifiers leave only for identifier holders.
-        const mayOpenCandidate = wantedCandidate
-          ? coordinatorReader ||
-            (await repo.teachesStudent(school.id, user.id, wantedCandidate))
-          : false
-        const track =
-          wantedCandidate && mayOpenCandidate
-            ? await repo.getTrack(school.id, wantedCandidate, {
-                includeIdentifiers: session.can('identifiers.manage'),
-              })
-            : null
-
         const events =
           isMarker || coordinatorReader
             ? await repo.ia.listMarkEvents(school.id, course.id, cohortId)
@@ -172,14 +219,34 @@ export default async function CoursePage({
           : null
 
         const baseHref = `/courses/${course.id}?cohort=${cohortId}`
+        const { panel, refused } = await renderCandidatePanel(baseHref)
+
+        // Predicted grades: the same roster, the other screen. Editable for the
+        // marker OR the coordinator tier — directly, no unlock ceremony. The
+        // per-cell lock is what stands between them and an accident, and the
+        // server action re-checks all of it (lib/pg/authorize.ts).
+        const pgView = await repo.pg.getView(school.id, course.id, cohortId)
+        const pgEditable =
+          !readOnly && session.can('pg.manage') && (isMarker || isCoordinatorTier(session.can))
+
+        const screens = (
+          <nav className="pgseg">
+            <a className={screen === 'ia' ? 'on' : ''} href={`${baseHref}&screen=ia`}>IA marks</a>
+            <a className={screen === 'pg' ? 'on' : ''} href={`${baseHref}&screen=pg`}>
+              Predicted grades
+            </a>
+          </nav>
+        )
+
         body = (
           <>
             <h1>{course.name}</h1>
             <p className="sub">
               {course.subjectGroup}
-              {course.level ? ` · ${course.level}` : ''} — internal assessment, entered per criterion.
-              The total derives, and the moderation sample&rsquo;s criterion form is answered the day
-              IBIS asks.
+              {course.level ? ` · ${course.level}` : ''}
+              {screen === 'ia'
+                ? ' — internal assessment, entered per criterion. The total derives, and the moderation sample’s criterion form is answered the day IBIS asks.'
+                : ' — predicted grades at three reporting points. Only the April set goes to the IB; the earlier two are the school’s own reads.'}
             </p>
             {isCoordinator && (
               <CohortBar
@@ -188,7 +255,31 @@ export default async function CoursePage({
                 href={(id) => `/courses/${course.id}?cohort=${id}`}
               />
             )}
-            {overrideHolder && !readOnly && (
+            {screens}
+            {screen === 'pg' && pgView && (
+              <PgGrid
+                view={pgView}
+                editable={pgEditable}
+                readOnlyReason={
+                  readOnly
+                    ? `${cohort?.label} is archived — a record, not a workspace.`
+                    : !session.can('pg.manage')
+                      ? 'Read-only — you do not hold the predicted-grades capability.'
+                      : !pgEditable
+                        ? view.marker
+                          ? `Read-only — ${view.marker} is the designated marker for this course.`
+                          : 'Read-only — no designated marker is set for this course.'
+                        : undefined
+                }
+                candidateBase={`${baseHref}&screen=pg&candidate=`}
+              />
+            )}
+            {screen === 'pg' && !pgView && (
+              <div className="note">
+                No predicted-grade requirements exist for this course and year group yet.
+              </div>
+            )}
+            {screen === 'ia' && overrideHolder && !readOnly && (
               <UnlockMarks
                 courseId={course.id}
                 cohortId={cohortId}
@@ -196,6 +287,7 @@ export default async function CoursePage({
                 markerName={view.marker}
               />
             )}
+            {screen === 'ia' && (
             <MarksGrid
               view={view}
               editable={editable}
@@ -209,9 +301,10 @@ export default async function CoursePage({
                       : 'Read-only — no designated marker is set for this course.'
                     : undefined
               }
-              candidateBase={`${baseHref}&candidate=`}
+              candidateBase={`${baseHref}&screen=ia&candidate=`}
             />
-            {showSample && (
+            )}
+            {screen === 'ia' && showSample && (
               <SamplePanel
                 view={view}
                 sample={sample}
@@ -219,13 +312,17 @@ export default async function CoursePage({
                 sessionLabel={cohort ? `M${String(cohort.gradYear).slice(-2)}` : 'M27'}
               />
             )}
+            {/* ONE trail per course. A predicted grade and an IA mark land on
+                the same history, because the question a reader has is "what
+                happened to this candidate in my course", not "what kind of
+                thing happened". */}
             {events != null && <MarkHistory events={events} />}
-            {wantedCandidate && !mayOpenCandidate && (
+            {refused && (
               <div className="note warn" style={{ marginTop: 14 }}>
                 Not your student — the panel opens only for students in your own courses.
               </div>
             )}
-            {track && <CandidatePanel track={track} closeHref={baseHref} />}
+            {panel}
           </>
         )
       } else {
@@ -251,6 +348,71 @@ export default async function CoursePage({
         </>
       )
     }
+  } else if (course.type === 'tok') {
+    /**
+     * TOK's predicted grade is a LETTER, and that is the only way this screen
+     * differs from Biology's — the scale rides on the requirement def, so the
+     * same component renders both. TOK's own module (the essay and exhibition
+     * marks, the three TK/PPF interactions) is still to come; predicted grades
+     * do not wait for it, because they never depended on it.
+     */
+    const cohortId = cohort?.id ?? 'c15'
+    const baseHref = `/courses/${course.id}?cohort=${cohortId}`
+    const pgView =
+      !isStudent && session.can('pg.manage')
+        ? await repo.pg.getView(school.id, course.id, cohortId)
+        : null
+    const isMarker = await repo.ia.isMarkerFor(school.id, course.id, cohortId, user.id)
+    const pgEditable =
+      !readOnly && session.can('pg.manage') && (isMarker || isCoordinatorTier(session.can))
+    const { panel, refused } = await renderCandidatePanel(baseHref)
+
+    body = (
+      <>
+        <h1>{course.name}</h1>
+        <p className="sub">
+          {course.subjectGroup} — predicted as a <b>letter A–E</b>, which is what IBIS asks for.
+          No grade-boundary table is involved in predicting.
+        </p>
+        {isCoordinator && (
+          <CohortBar
+            cohorts={cohorts}
+            current={cohortId}
+            href={(id) => `/courses/${course.id}?cohort=${id}`}
+          />
+        )}
+        {pgView ? (
+          <PgGrid
+            view={pgView}
+            editable={pgEditable}
+            readOnlyReason={
+              readOnly
+                ? `${cohort?.label} is archived — a record, not a workspace.`
+                : !pgEditable
+                  ? pgView.marker
+                    ? `Read-only — ${pgView.marker} is the designated marker for TOK.`
+                    : 'Read-only — no designated marker is set for TOK.'
+                  : undefined
+            }
+            candidateBase={`${baseHref}&candidate=`}
+          />
+        ) : (
+          <div className="note">
+            Predicted grades for TOK open to the TOK teacher and the coordinator tier.
+          </div>
+        )}
+        <div className="note">
+          The rest of the TOK module — the essay and exhibition marks, the three TK/PPF
+          interactions, the title — is still to come. See <b>IB-Build-Status.md</b> for the order.
+        </div>
+        {refused && (
+          <div className="note warn" style={{ marginTop: 14 }}>
+            Not your student — the panel opens only for students in your own courses.
+          </div>
+        )}
+        {panel}
+      </>
+    )
   } else {
     body = (
       <>

@@ -37,6 +37,18 @@ export const CAPABILITIES: Capability[] = [
   { key: 'tok.manage', group: 'Core modules', label: 'TOK — mark, post titles, release' },
   { key: 'ia.manage', group: 'Core modules', label: 'IA — enter and release marks' },
   { key: 'pg.manage', group: 'Core modules', label: 'Predicted grades — enter and lock' },
+  /**
+   * A teacher opening a candidate they teach sees that candidate's grades in
+   * OTHER courses too. Useful — it is the whole-student picture — and it has a
+   * known cost: anchoring. A teacher who sees Physics predicted a 5 may move
+   * their own 6 down to match.
+   *
+   * So it is a setting rather than a fact of the product. On by default in the
+   * teacher preset, because that is what it is for; one tick to remove from a
+   * person, or from every teacher, if a school decides the anchoring is worse
+   * than the visibility. The panel redacts fail-closed without it.
+   */
+  { key: 'grades.cross_course', group: 'Core modules', label: 'See a student’s grades in their other courses' },
 
   // IB submission
   { key: 'identifiers.manage', group: 'IB submission', label: 'Manage candidate identifiers' },
@@ -65,7 +77,9 @@ const SETUP: CapabilityKey[] = [
   'cohorts.manage', 'students.add', 'teachers.invite', 'catalogue.manage',
   'sections.manage', 'enrolment.manage', 'deadlines.set',
 ]
-const MODULES: CapabilityKey[] = ['cas.manage', 'ee.manage', 'tok.manage', 'ia.manage', 'pg.manage']
+const MODULES: CapabilityKey[] = [
+  'cas.manage', 'ee.manage', 'tok.manage', 'ia.manage', 'pg.manage', 'grades.cross_course',
+]
 const SUBMISSION: CapabilityKey[] = [
   'identifiers.manage', 'identifiers.distribute', 'marks.transcribe', 'marks.override',
   'sample.import', 'ecoursework.status', 'pack.school', 'pack.ib',
@@ -113,7 +127,12 @@ export const PRESETS: Record<PresetKey, { label: string; capabilities: Capabilit
   observer: { label: 'Observer', capabilities: ['summaries.print'] },
   teacher: {
     label: 'Teacher',
-    capabilities: ['summaries.print', 'enrolment.manage', 'cas.manage', 'ee.manage', 'tok.manage', 'ia.manage', 'pg.manage'],
+    capabilities: [
+      'summaries.print', 'enrolment.manage',
+      'cas.manage', 'ee.manage', 'tok.manage', 'ia.manage', 'pg.manage',
+      // See the capability's note: on by default, one tick to take away.
+      'grades.cross_course',
+    ],
   },
   student: { label: 'Student', capabilities: [] },
 }

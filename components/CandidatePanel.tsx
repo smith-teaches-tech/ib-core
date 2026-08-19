@@ -1,5 +1,6 @@
 import Link from 'next/link'
 import type { Checkpoint, StudentTrack } from '@/lib/types'
+import type { PgStudentView } from '@/lib/pg/types'
 import { iaTotal } from '@/lib/templates'
 
 /**
@@ -9,10 +10,15 @@ import { iaTotal } from '@/lib/templates'
  * shape. Server-rendered from the same track the student themselves sees; the
  * open candidate is a URL param, so a panel can be bookmarked or sent.
  *
- * The predicted-grades section will grow into the IBIS transcription table
- * (six subjects + EE + TOK letters, read down the April column) when the
- * predicted-grades module lands — the honest version today shows exactly what
- * the spine records now, and says what is coming.
+ * PREDICTED GRADES live here, and this is the ONLY place a teacher sees a
+ * candidate's grades in courses they do not teach. That is deliberate: the
+ * panel already existed, is already shared by the board and the class page, and
+ * already redacts fail-closed — so cross-course visibility became a capability
+ * (`grades.cross_course`) on a surface that was built, rather than a new screen.
+ *
+ * The known cost, recorded rather than discovered later: ANCHORING. A teacher
+ * who sees Physics predicted a 5 may move their own 6 down to match. That is
+ * why it is a setting and not a fact of the product.
  */
 
 const box = (display: Checkpoint['display'], title?: string) => (
@@ -28,9 +34,15 @@ const word = (display: Checkpoint['display']) =>
 export default function CandidatePanel({
   track,
   closeHref,
+  pg,
+  pgRedacted,
 }: {
   track: StudentTrack
   closeHref: string
+  /** Every course this candidate takes × every reporting point. Null = not shown. */
+  pg?: PgStudentView | null
+  /** True when there ARE grades but this reader lacks `grades.cross_course`. */
+  pgRedacted?: boolean
 }) {
   const all = track.lanes.flatMap((l) => l.checkpoints)
   const byKey = new Map(all.map((c) => [c.def.key, c]))
@@ -79,8 +91,6 @@ export default function CandidatePanel({
     (c) => c.display !== 'done' && c.display !== 'future',
   ).length
 
-  const pg = byKey.get('ib.pg')
-
   return (
     <>
       <Link href={closeHref} className="soverlay" aria-label="Close panel" />
@@ -118,18 +128,66 @@ export default function CandidatePanel({
                 </span>
               </div>
             )}
-            {pg && (
-              <div className="ck">
-                {box(pg.display)}
-                <span className="lab">Predicted grades</span>
-                <span className={`st ${pg.display === 'done' ? 'ok' : ''}`}>{word(pg.display)}</span>
-              </div>
-            )}
-            <div className="sp-note">
-              The per-course predicted-grade table — six subjects + EE + TOK letters, read down into
-              IBIS — arrives with the predicted-grades module (next on the build order).
-            </div>
           </div>
+
+          {pg && pg.courses.length > 0 && (
+            <div className="sp-sec">
+              <h4>
+                Predicted grades <span className="tag ib">April is the set the IB gets</span>
+              </h4>
+              <table className="sp-pg">
+                <thead>
+                  <tr>
+                    <th className="l">Course</th>
+                    {pg.points.map((p) => (
+                      <th key={p.key}>{p.label}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {pg.courses.map((c) => (
+                    <tr key={c.courseId}>
+                      <td className="l">
+                        {c.courseName}
+                        {c.scale === 'letter_a_e' && <span className="mut"> · letter</span>}
+                      </td>
+                      {c.grades.map((g, i) => (
+                        <td key={pg.points[i].key}>
+                          {g ?? <span className="mut">–</span>}
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+                <tfoot>
+                  <tr>
+                    <td className="l mut">in</td>
+                    {pg.filled.map((f, i) => (
+                      <td key={pg.points[i].key} className="mut">
+                        {f.done}/{f.total}
+                      </td>
+                    ))}
+                  </tr>
+                </tfoot>
+              </table>
+              <div className="sp-note">
+                The extended essay is graded once, near the end — it is not a reporting-point
+                prediction, so it is not here. Core points and the /45 need its letter, and arrive
+                with it.
+              </div>
+            </div>
+          )}
+          {pgRedacted && (
+            <div className="sp-sec">
+              <h4>Predicted grades</h4>
+              <div className="sp-note">
+                You see predicted grades for the courses you teach, on those courses&rsquo; own
+                screens. Seeing this candidate&rsquo;s grades in <b>other</b> courses needs the
+                <b> See a student&rsquo;s grades in their other courses</b> permission, which your
+                IB coordinator sets.
+              </div>
+            </div>
+          )}
 
           <div className="sp-sec">
             <h4>

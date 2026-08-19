@@ -44,7 +44,13 @@ export interface IaMarksView {
 // The audit trail — APPEND-ONLY. Events are never edited and never deleted.
 // ---------------------------------------------------------------------------
 
-export type MarkEventKind = 'mark' | 'comment' | 'transcribe' | 'unlock' | 'relock'
+export type MarkEventKind =
+  | 'mark' | 'comment' | 'transcribe' | 'unlock' | 'relock'
+  // Predicted grades share this trail rather than starting a second one: it is
+  // the same course, the same audience, and the same question ("what changed
+  // here, and who"). `pg` is a grade written; `pg_unlock` is a locked grade
+  // opened for change, and carries the reason that was required to open it.
+  | 'pg' | 'pg_unlock'
 
 /**
  * One recorded change to a course's marks. Every write through the IA

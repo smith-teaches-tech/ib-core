@@ -29,6 +29,38 @@ export interface Session {
   can: (capability: CapabilityKey) => boolean
 }
 
+/**
+ * Has anyone actually chosen who they are yet?
+ *
+ * getSession() deliberately falls back to a default user so the app never
+ * crashes on a cold demo link. That is the right behaviour for a page, and the
+ * wrong answer to "should we show the sign-in screen" — so the question is
+ * asked separately, against the cookie itself.
+ */
+export async function signedInUserId(): Promise<string | null> {
+  const jar = await cookies()
+  return jar.get('dev_user')?.value ?? null
+}
+
+/**
+ * WHERE A PERSON LANDS after signing in, by what they hold.
+ *
+ * A coordinator opens the catalogue — the top of their own menu, and the screen
+ * that answers "what is running this year". Everyone else opens Home, which for
+ * a teacher is their classes and what they owe, and for a student is their own
+ * track. One rule, in one place, so the sign-in route and the home page cannot
+ * disagree about it.
+ */
+export function landingFor(memberships: Membership[], schoolId: string): string {
+  const m = memberships.find((x) => x.schoolId === schoolId)
+  const roles = m?.roles ?? []
+  const jobs =
+    roles.includes('school_coordinator') ||
+    roles.includes('district_coordinator') ||
+    roles.includes('tech_admin')
+  return jobs ? '/courses' : '/'
+}
+
 export async function getSession(): Promise<Session> {
   const jar = await cookies()
   const cookieUser = jar.get('dev_user')?.value

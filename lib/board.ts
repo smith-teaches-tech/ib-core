@@ -22,7 +22,7 @@ import type {
 import { displayOf, requirementsFor, stateOf } from './spine'
 
 export const LANE_ORDER: Lane[] = [
-  'CAS', 'Extended Essay', 'TOK', 'Internal assessment', 'IB admin',
+  'CAS', 'Extended Essay', 'TOK', 'Internal assessment', 'Predicted grades', 'IB admin',
 ]
 
 // ---------------------------------------------------------------------------
@@ -85,10 +85,26 @@ export const LANE_SUMMARY: Record<Lane, LaneSummary[]> = {
     },
   ],
 
-  'IB admin': [
-    { kind: 'one', key: 'ib.auth', label: 'Authenticated' },
-    { kind: 'one', key: 'ib.pg', label: 'Predicted' },
+
+  /**
+   * PREDICTED GRADES — one rollup, three parts, matched by key suffix exactly
+   * as internal assessment is. Six subjects plus TOK is eight columns per
+   * reporting point and twenty-four in total; as three fractions it is one
+   * cell that says 7/8 and a panel that says which one is missing.
+   */
+  'Predicted grades': [
+    {
+      kind: 'rollup',
+      label: 'End Y1 · Jan Y2 · Apr Y2',
+      parts: [
+        { label: 'End Y1', suffix: '.pg.p1' },
+        { label: 'Jan Y2', suffix: '.pg.p2' },
+        { label: 'Apr Y2', suffix: '.pg.p3' },
+      ],
+    },
   ],
+
+  'IB admin': [{ kind: 'one', key: 'ib.auth', label: 'Authenticated' }],
 }
 
 // ---------------------------------------------------------------------------
@@ -114,7 +130,17 @@ const SENT_TO_IB: Record<Lane, LaneSummary[]> = {
     { kind: 'fraction', label: 'TK/PPF', keys: ['tok.ppf1', 'tok.ppf2', 'tok.ppf3'] },
   ],
   'Internal assessment': [],
-  'IB admin': [{ kind: 'one', key: 'ib.pg', label: 'Predicted' }],
+  // ONLY the April point carries exportTarget: 'ibis_predicted'. The earlier
+  // two are the school's own report-card reads and belong on the other tab —
+  // which is the board answering "what does the IB still want" honestly.
+  'Predicted grades': [
+    {
+      kind: 'rollup',
+      label: 'Predicted — April',
+      parts: [{ label: 'Apr Y2', suffix: '.pg.p3' }],
+    },
+  ],
+  'IB admin': [],
 }
 
 /**
@@ -143,6 +169,18 @@ const SCHOOL_RECORDS: Record<Lane, LaneSummary[]> = {
         { label: 'Files', suffix: '.file' },
         { label: 'Marks', suffix: '.mark' },
         { label: 'Comments', suffix: '.comment' },
+      ],
+    },
+  ],
+  // The report-card points. These never go to the IB — they exist so the school
+  // can see a candidate move between June and January.
+  'Predicted grades': [
+    {
+      kind: 'rollup',
+      label: 'End Y1 · Jan Y2',
+      parts: [
+        { label: 'End Y1', suffix: '.pg.p1' },
+        { label: 'Jan Y2', suffix: '.pg.p2' },
       ],
     },
   ],

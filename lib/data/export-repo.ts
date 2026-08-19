@@ -67,6 +67,14 @@ export function makeExportRepository(deps: {
           ? -1
           : a.sessionNumber.localeCompare(b.sessionNumber)
 
+  /** Is this one student enrolled in this course, this year? */
+  const enrolledInCourse = (studentId: string, courseId: string, cohortId: string) => {
+    const sectionIds = sections
+      .filter((s) => s.courseId === courseId && s.cohortId === cohortId)
+      .map((s) => s.id)
+    return enrollments.some((e) => e.studentId === studentId && sectionIds.includes(e.sectionId))
+  }
+
   const enrolledIn = (schoolId: string, courseId: string, cohortId: string) => {
     const sectionIds = sections
       .filter((s) => s.schoolId === schoolId && s.courseId === courseId && s.cohortId === cohortId)
@@ -297,13 +305,27 @@ export function makeExportRepository(deps: {
       const cohortStudents = students
         .filter((st) => st.schoolId === schoolId && st.cohortId === cohortId)
         .sort(sessionOrder)
-      const pgDef = defFor(schoolId, cohortId, 'ib.pg')
-      const pgDone = pgDef == null
-        ? 0
-        : cohortStudents.filter((st) => {
-            const s = stateFor(schoolId, st.userId, pgDef.id)
-            return s != null && COMPLETE.has(s.recordStatus)
-          }).length
+      /**
+       * PREDICTED GRADES — counted per SLOT, not per candidate.
+       *
+       * The old count read one programme-scoped `ib.pg` state per student,
+       * which flattered the truth: a candidate with one of seven predictions in
+       * counted as done. What the coordinator is actually about to type into
+       * IBIS is one grade per candidate per course, so that is what is counted
+       * — and the denominator is derived from enrolment, so a candidate taking
+       * five subjects is never asked for six.
+       */
+      const pgSlots = cohortStudents.flatMap((st) =>
+        defs
+          .filter(
+            (d) =>
+              d.cohortId === cohortId && d.schoolId === schoolId &&
+              d.lane === 'Predicted grades' && d.exportTarget === 'ibis_predicted' &&
+              d.scope.kind === 'course' && enrolledInCourse(st.userId, d.scope.courseId, cohortId),
+          )
+          .map((d) => stateFor(schoolId, st.userId, d.id)),
+      )
+      const pgDone = pgSlots.filter((s) => s?.grade != null).length
 
       const typedJobs: TypedJob[] = [
         {

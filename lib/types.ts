@@ -3,6 +3,9 @@
 
 export type Id = string
 
+/** The scales a predicted grade can be recorded on. See lib/pg/scale.ts. */
+export type GradeScaleKey = 'points_1_7' | 'letter_a_e'
+
 // ---------------------------------------------------------------------------
 // 1–2. Scope
 // ---------------------------------------------------------------------------
@@ -85,7 +88,9 @@ export type RequirementScope =
   | { kind: 'course'; courseId: Id }
   | { kind: 'programme' }
 
-export type Lane = 'CAS' | 'Extended Essay' | 'TOK' | 'Internal assessment' | 'IB admin'
+export type Lane =
+  | 'CAS' | 'Extended Essay' | 'TOK' | 'Internal assessment'
+  | 'Predicted grades' | 'IB admin'
 
 export type ExportTarget = 'ecoursework' | 'ibis_ia_marks' | 'ibis_predicted'
 
@@ -116,6 +121,16 @@ export interface RequirementDef {
    * confirmed against the guide, or the def predates templates).
    */
   criteria?: { key: string; label: string; max: number }[]
+  /**
+   * PREDICTED GRADES: which scale this requirement is recorded on.
+   *
+   * A predicted grade is not a mark. It is a LABEL from a fixed, small set —
+   * 1..7 for a subject, A..E for TOK — and the two behave identically on
+   * screen, which is the whole reason one grid serves every course. Present
+   * only on predicted-grade defs; see lib/pg/scale.ts for the scales
+   * themselves, which are data rather than a branch in a component.
+   */
+  gradeScale?: GradeScaleKey
   /** Does this feed an IB upload, and which one? Drives the export builder. */
   exportTarget?: ExportTarget
   /** Not actionable until the named requirement is complete. The RPF needs the viva first. */
@@ -164,6 +179,16 @@ export interface RequirementState {
    * breakdown for the sample) are one recording rather than two.
    */
   criterionMarks?: (number | null)[]
+  /**
+   * A PREDICTED GRADE, stored exactly as it is written: '5' or 'B'.
+   *
+   * Deliberately a string and deliberately not `mark`. A predicted grade of B
+   * is not the number 2, and encoding it as one would mean every reader has to
+   * know the decoding — the kind of quiet lie that survives until somebody
+   * averages it. Validity is membership of the def's `gradeScale`, checked in
+   * one place (lib/pg/scale.ts).
+   */
+  grade?: string
   artifacts: Artifact[]
   recordedBy?: string
   recordedAt?: string

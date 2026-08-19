@@ -17,11 +17,22 @@ const val = (x: string | number | null) => {
   return s.length > 48 ? s.slice(0, 45) + '…' : s
 }
 
+/** Reporting-point keys read as 'p2' on the trail otherwise, which nobody says out loud. */
+const POINT_LABEL: Record<string, string> = { p1: 'End Y1', p2: 'Jan Y2', p3: 'Apr Y2' }
+const point = (k: string | null) => (k ? (POINT_LABEL[k] ?? k) : 'predicted grade')
+
 const what = (e: MarkEventRow) =>
   e.kind === 'unlock' ? 'unlocked editing'
     : e.kind === 'relock' ? 're-locked editing'
     : e.kind === 'transcribe' ? `typed into IBIS: ${val(e.prev)} → ${val(e.next)}`
     : e.kind === 'comment' ? `comment: ${val(e.prev)} → ${val(e.next)}`
+    // A predicted grade that goes from nothing to a value is SET; one that goes
+    // from a value to another was unlocked first, and reads as a move.
+    : e.kind === 'pg_unlock' ? `${point(e.criterion)} predicted grade — unlocked to change (${val(e.prev)})`
+    : e.kind === 'pg'
+      ? e.prev == null
+        ? `${point(e.criterion)} predicted grade: set to ${val(e.next)} — locked`
+        : `${point(e.criterion)} predicted grade: ${val(e.prev)} → ${val(e.next)}`
     : `${e.criterion ?? 'mark'}: ${val(e.prev)} → ${val(e.next)}`
 
 export default function MarkHistory({ events }: { events: MarkEventRow[] }) {
@@ -30,8 +41,8 @@ export default function MarkHistory({ events }: { events: MarkEventRow[] }) {
       <summary style={{ cursor: 'pointer' }}>
         <b>Change history</b>{' '}
         <span className="mut">
-          ({events.length} event{events.length === 1 ? '' : 's'} — every mark, comment,
-          transcription tick and unlock; nothing is ever edited or deleted)
+          ({events.length} event{events.length === 1 ? '' : 's'} — every mark, predicted grade,
+          comment, transcription tick and unlock; nothing is ever edited or deleted)
         </span>
       </summary>
       {events.length === 0 ? (
@@ -48,7 +59,10 @@ export default function MarkHistory({ events }: { events: MarkEventRow[] }) {
               {what(e)}
               {e.overrideReason != null && (
                 <span className="pill gold" style={{ marginLeft: 6, fontSize: 10.5 }}>
-                  {e.kind === 'unlock' || e.kind === 'relock' ? 'reason' : 'override'}:{' '}
+                  {e.kind === 'unlock' || e.kind === 'relock' || e.kind === 'pg' || e.kind === 'pg_unlock'
+                    ? 'reason'
+                    : 'override'}
+                  :{' '}
                   {e.overrideReason}
                 </span>
               )}

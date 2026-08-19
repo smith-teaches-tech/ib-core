@@ -21,6 +21,8 @@ import { makeSetupRepository } from './setup-repo'
 import { GROUP_CHOICES, GROUP_KEYS, SIXTH_SUBJECT, catalogueFor } from './catalogue'
 import { templateOf } from '../templates'
 import { makeIaRepository } from './ia-repo'
+import { makePgRepository } from './pg-repo'
+import { REPORTING_POINTS, pgKey } from '../pg/types'
 import { makeExportRepository } from './export-repo'
 import type { MarkEvent, MarkUnlock, SampleRequest } from '../ia/types'
 import { pinned } from './pin'
@@ -417,10 +419,45 @@ function buildDefs(cohortId: string): RequirementDef[] {
     def({ scope: { kind: 'programme' }, key: 'ib.reg', label: 'Registered with the IB', lane: 'IB admin', recordedBy: 'coordinator', artifact: 'none' }),
     def({ scope: { kind: 'programme' }, key: 'ib.code', label: 'Candidate code', lane: 'IB admin', recordedBy: 'coordinator', artifact: 'text' }),
     def({ scope: { kind: 'programme' }, key: 'ib.auth', label: 'Coursework authenticated', lane: 'IB admin', recordedBy: 'student', artifact: 'none', opensAfter: 'ib.code' }),
-    def({ scope: { kind: 'programme' }, key: 'ib.pg', label: 'Predicted grades', lane: 'IB admin', recordedBy: 'coordinator', artifact: 'mark', exportTarget: 'ibis_predicted' }),
   ]
 
-  return [...casDefs, ...eeDefs, ...tokDefs, ...subjectDefs, ...programmeDefs]
+  /**
+   * PREDICTED GRADES — three per course, per reporting point.
+   *
+   * This REPLACES the single programme-scoped `ib.pg` def, which was wrong in
+   * three ways at once: not one value, not programme-scoped, and with no
+   * reporting point. Course-scoped defs mean `requirementsFor()` already
+   * answers "which predictions does this candidate owe" from their enrolments —
+   * six subjects plus TOK, with no per-student configuration anywhere.
+   *
+   * The scale is the ONLY difference between a subject's predicted grade and
+   * TOK's: 1–7 against A–E. It rides on the def, so one screen serves both and
+   * a third scale later is data rather than a branch.
+   *
+   * The EXTENDED ESSAY is deliberately absent. It is graded once, near the end,
+   * not three times — its own module, later (18 Aug decision). Nothing here
+   * needs changing when it arrives: it is more defs.
+   *
+   * `exportTarget` is on the APRIL def alone, which is what makes the April
+   * column the IB's without any component knowing that April is special.
+   */
+  const pgCourses = COURSES.filter((c) => c.type === 'subject' || c.type === 'tok')
+  const pgDefs: RequirementDef[] = pgCourses.flatMap((c) =>
+    REPORTING_POINTS.map((p) =>
+      def({
+        scope: { kind: 'course', courseId: c.id },
+        key: pgKey(c.id, p.key),
+        label: `${c.name} — predicted, ${p.label}`,
+        lane: 'Predicted grades',
+        recordedBy: 'staff',
+        artifact: 'none',
+        gradeScale: c.type === 'tok' ? 'letter_a_e' : 'points_1_7',
+        exportTarget: p.toIb ? 'ibis_predicted' : undefined,
+      }),
+    ),
+  )
+
+  return [...casDefs, ...eeDefs, ...tokDefs, ...subjectDefs, ...pgDefs, ...programmeDefs]
 }
 
 export const REQUIREMENT_DEFS: RequirementDef[] = pinned('ibRequirementDefs', () =>
@@ -449,6 +486,43 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
       // Generating them here would put a stored copy of a derived value in the
       // fixtures, which is exactly what spine invariant #2 forbids.
       if (d.lane === 'CAS') continue
+
+      /**
+       * PREDICTED GRADES are seeded by hand rather than by the generic roll,
+       * because a predicted grade is a VALUE, not a completion. A generic state
+       * would say recordStatus:'marked' with no grade behind it — the board
+       * would report predictions done that do not exist, which is the exact
+       * class of lie this codebase spends its time avoiding.
+       *
+       * The shape seeded is a school in January of DP2: End Y1 in for nearly
+       * everyone, January mostly in, April untouched. Recorded grades are
+       * LOCKED, because that is what saving one does.
+       */
+      if (d.lane === 'Predicted grades') {
+        const point = d.key.slice(d.key.lastIndexOf('.') + 1)
+        // The new cohort has predicted nothing; the archived one is complete.
+        const chance =
+          s.cohortId === 'c16' ? 0
+            : s.cohortId === 'c14' ? 1
+              : point === 'p1' ? 0.92 : point === 'p2' ? 0.78 : 0
+        if (r() >= chance) continue
+        const values = d.gradeScale === 'letter_a_e'
+          ? ['A', 'B', 'B', 'C', 'C', 'D']
+          : ['3', '4', '4', '5', '5', '5', '6', '6', '7']
+        out.push({
+          studentId: s.userId,
+          requirementDefId: d.id,
+          schoolId: s.schoolId,
+          recordStatus: 'marked',
+          grade: values[Math.floor(r() * values.length)],
+          artifacts: [],
+          recordedBy: 'R. Farouk',
+          recordedAt: point === 'p1' ? '2026-06-18' : '2027-01-12',
+          lockedAt: point === 'p1' ? '2026-06-18T09:00:00.000Z' : '2027-01-12T09:00:00.000Z',
+        })
+        continue
+      }
+
       const roll = r()
       // Late-stage requirements are legitimately less complete than early ones.
       const bias = d.lane === 'IB admin' ? 0.4 : d.exportTarget ? 0.18 : 0.08
@@ -570,6 +644,19 @@ const iaRepository = makeIaRepository({
   events: MARK_EVENTS,
   unlocks: MARK_UNLOCKS,
   samples: SAMPLE_REQUESTS,
+})
+
+const pgRepository = makePgRepository({
+  courses: COURSES,
+  sections: SECTIONS,
+  enrollments: ENROLLMENTS,
+  students: STUDENTS,
+  users: USERS,
+  assignments: TEACHING_ASSIGNMENTS,
+  defs: REQUIREMENT_DEFS,
+  states: REQUIREMENT_STATES,
+  // The SAME trail as the IA module. One course, one history.
+  events: MARK_EVENTS,
 })
 
 const exportRepository = makeExportRepository({
@@ -698,6 +785,7 @@ export const fixtureRepository: Repository = {
   cas: casRepository,
   setup: setupRepository,
   ia: iaRepository,
+  pg: pgRepository,
   export: exportRepository,
 
   async listDocuments(schoolId, forUserId) {

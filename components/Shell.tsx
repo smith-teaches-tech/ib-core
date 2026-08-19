@@ -68,7 +68,7 @@ export default async function Shell({
     <>
       <header className="top">
         <Link className="logo" href="/">
-          IB&nbsp;Core <span>· {session.school.name}</span>
+          IB&nbsp;Central <span>· {session.school.name}</span>
         </Link>
 
         {districtTier && mySchools.length > 1 && (
@@ -85,6 +85,12 @@ export default async function Shell({
         <DocumentsDrawer documents={documents} canManage={session.can('documents.manage')} />
 
         <div className="devbar">
+          {/* Back to the sign-in screen — for a walkthrough, being able to
+              start again from the front door matters. Goes with the rest of
+              the dev sign-in when Google auth lands. */}
+          <Link className="btn sm ghost" href="/login?switch=1" title="Back to the sign-in screen">
+            Sign-in screen
+          </Link>
           <span className="tag">dev sign-in</span>
           <form action="/api/dev/user" method="POST">
             <select name="userId" defaultValue={session.user.id}>
