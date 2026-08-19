@@ -45,3 +45,47 @@ export interface ResolvedSupervisor {
    */
   acting: boolean
 }
+
+/**
+ * THE REGISTRATION — subject(s), research question, title.
+ *
+ * Three separate fields rather than one text blob, because the IBIS
+ * registration export (IB-EE-research.md #12) needs them individually:
+ * student · subject · title/RQ · supervisor. `ee.rq` goes `submitted` when the
+ * registration validates, which is what makes the requirement mean something
+ * rather than "the student typed in a box".
+ */
+export interface EeRegistration {
+  schoolId: Id
+  cohortId: Id
+  studentId: Id
+  /**
+   * ONE subject, or TWO for the interdisciplinary pathway. An array rather than
+   * a string plus an optional second, because the title page and the IBIS
+   * export both treat "subject of registration" as a list.
+   */
+  subjects: Id[]
+  /**
+   * Required for, and only for, a two-subject registration. Not directly
+   * assessed — but it is named on the title page and registered with the IB, so
+   * a missing one is a registration error, which is the expensive kind.
+   */
+  framework?: string | null
+  researchQuestion: string
+  title: string
+  updatedAt: string
+  updatedBy: Id
+}
+
+/**
+ * A cached answer to "can we open this Google Doc?" for one link artifact.
+ *
+ * Not a field on `Artifact`: that is a spine type, and growing it for one
+ * module's convenience is how nine objects becomes eleven. `checkedAt` is here
+ * so a stale answer can be shown as stale rather than as fact.
+ */
+export interface EeLinkCheck {
+  artifactId: Id
+  checkedAt: string
+  reachable: boolean
+}

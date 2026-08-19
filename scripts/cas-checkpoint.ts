@@ -25,6 +25,9 @@ import { cohortStart, EE_SUPERVISION } from '../lib/data/fixtures'
 import { detachedStatesOf, stateOf } from '../lib/spine'
 import { attestationLabel, eeCoordinatorId, supervisorFor } from '../lib/ee/supervision'
 import { casWindow } from '../lib/cas/window'
+import { EE_REGISTRATIONS } from '../lib/data/fixtures'
+import { BAND_PROVENANCE, EE_CRITERIA, boundariesAreOfficial, indicativeGrade } from '../lib/ee/rubric'
+import { registrationComplete, validateRegistration } from '../lib/ee/registration'
 import { DEADLINES } from '../lib/data/fixtures'
 import { matchSessionNumbers } from '../lib/ia/sample'
 import { iaTotal, templateOf } from '../lib/templates'
@@ -827,22 +830,31 @@ async function main() {
     'the all-IAs download and the transcription total cover every enrolment in every subject course',
   )
 
-  await repo.export.setJobSubmitted('dhahran', 'c15', 'ee.essay', true)
+  // THE STAMP TEST MOVED FROM ee.essay TO tok.essay, and the reason is the
+  // point of the EE build: the Class of 2027's EE pack is now legitimately
+  // EMPTY. Their final essay is due 13 Nov 2026 and the fixture clock is
+  // August, so not one candidate has submitted — which is correct, and which
+  // this test cannot use, because `submitted` requires `ready > 0`. Previously
+  // the pack looked partly ready because the generic roll had fabricated
+  // states nothing could produce. The mechanism is unchanged; only the vehicle
+  // is, and §13 asserts the emptiness directly rather than losing it.
+  const stampDef = REQUIREMENT_DEFS.find((d) => d.cohortId === 'c15' && d.key === 'tok.essay')!
+  await repo.export.setJobSubmitted('dhahran', 'c15', 'tok.essay', true)
   const after11 = (await repo.export.getUploadBoard('dhahran', 'c15'))!.cohortJobs.find(
-    (j) => j.key === 'ee.essay',
+    (j) => j.key === 'tok.essay',
   )!
   const missing11 = new Set(after11.rows.filter((r) => !r.present).map((r) => r.studentId))
   check(
     after11.submitted &&
       after11.rows.filter((r) => r.present).every((r) => r.submitted) &&
       REQUIREMENT_STATES.filter(
-        (s) => s.requirementDefId === eeFinalDef.id && missing11.has(s.studentId),
+        (s) => s.requirementDefId === stampDef.id && missing11.has(s.studentId),
       ).every((s) => s.exportStatus !== 'submitted'),
     'marking a pack submitted stamps exportStatus on exactly the slots that were in it',
   )
-  await repo.export.setJobSubmitted('dhahran', 'c15', 'ee.essay', false)
+  await repo.export.setJobSubmitted('dhahran', 'c15', 'tok.essay', false)
   check(
-    REQUIREMENT_STATES.filter((s) => s.requirementDefId === eeFinalDef.id).every(
+    REQUIREMENT_STATES.filter((s) => s.requirementDefId === stampDef.id).every(
       (s) => s.exportStatus == null,
     ),
     'amending clears the stamp and stores nothing — invariant #2 on the export axis',
@@ -1388,6 +1400,14 @@ async function main() {
       EE_SUPERVISION.some((r) => r.studentId === mobTarget.studentId && r.supervisorId === previousId && r.endedAt != null),
     'and it ENDS the old row rather than editing it — the previous supervisor stays named on what they held',
   )
+  // Put them back. Reassignment is append-only by design, so this leaves three
+  // rows and the original supervisor live — which is the honest restore, and
+  // §13f depends on it: it needs a teacher who genuinely supervises nobody.
+  await repo.ee.assignSupervisor('dhahran', 'c15', mobTarget.studentId, previousId, 'u_msmith')
+  check(
+    (await repo.ee.getSupervisor('dhahran', mobTarget.studentId))?.userId === previousId,
+    'and reassigning back restores them, leaving the trail rather than erasing it',
+  )
 
   console.log('\n12e. The CAS window opens when the student did')
 
@@ -1409,6 +1429,165 @@ async function main() {
   check(
     casWindow(2027).start === '2025-08-01',
     'and with no join date at all the window is unchanged — the argument is optional, nothing regressed',
+  )
+
+  // =====================================================================
+  // 13. EXTENDED ESSAY — step 1, the gate (IB-EE-Build-Plan.md §8)
+  // =====================================================================
+
+  console.log('\n13a. The requirement set')
+
+  const eeDefs15 = REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15' && d.lane === 'Extended Essay')
+  check(eeDefs15.length === 10, `ten EE definitions per cohort (found ${eeDefs15.length})`)
+  const eeKeys = new Set(eeDefs15.map((d) => d.key))
+  check(
+    ['ee.outline', 'ee.draft', 'ee.score'].every((k) => eeKeys.has(k)),
+    'outline, draft and score exist as defs — they are tracked for every candidate against a date',
+  )
+  check(
+    ['ee.outline', 'ee.draft'].every((k) => eeDefs15.find((d) => d.key === k)!.exportTarget == null),
+    'and neither carries an exportTarget, because the IB never sees them — the two questions are separate',
+  )
+  const scoreDef = eeDefs15.find((d) => d.key === 'ee.score')!
+  check(
+    scoreDef.criteria?.length === 5 &&
+      scoreDef.markMax === 30 &&
+      scoreDef.criteria!.reduce((n, x) => n + x.max, 0) === 30,
+    'ee.score is five criteria summing to 30 — the IA marks module scores EE, not a second engine',
+  )
+  check(
+    scoreDef.criteria!.map((x) => x.max).join(',') === '6,6,6,8,4',
+    'A6 · B6 · C6 · D8 · E4 — D is the highest weighted, as the 2027 guide has it',
+  )
+
+  console.log('\n13b. The rubric is a paraphrase, and says so')
+
+  check(boundariesAreOfficial === false, 'grade boundaries are flagged as NOT official — the IB has not published any for 2027')
+  check(BAND_PROVENANCE.length > 0 && /not the IB/i.test(BAND_PROVENANCE),
+    'band wording carries its provenance in the DATA, so no screen can render a band without it')
+  check(
+    EE_CRITERIA.find((x) => x.key === 'E')!.bands.length === 3 &&
+      EE_CRITERIA.find((x) => x.key === 'D')!.bands.length === 5,
+    'the band ladder differs per criterion — E has three, D has five; a fixed four-row grid would invent one',
+  )
+  check(
+    EE_CRITERIA.every((x) => x.bands[0].max === x.max && x.bands[x.bands.length - 1].min === 0),
+    'every ladder runs from the criterion maximum down to zero, with no gap at either end',
+  )
+  check(
+    indicativeGrade(30) === 'A' && indicativeGrade(0) === 'E' && indicativeGrade(13) === 'D',
+    'the indicative boundaries cover the whole range',
+  )
+
+  console.log('\n13c. Registration — what ee.rq actually means')
+
+  check(
+    validateRegistration({ subjects: ['bio_hl'], researchQuestion: 'q', title: 't' }).length === 0,
+    'a single-subject registration with a question and a title is valid',
+  )
+  check(
+    validateRegistration({ subjects: ['bio_hl', 'psych_hl'], researchQuestion: 'q', title: 't' })
+      .some((p) => p.field === 'framework'),
+    'an interdisciplinary essay without one of the five frameworks is refused — an unregistered one is a registration error',
+  )
+  check(
+    validateRegistration({ subjects: ['ess', 'psych_hl'], framework: 'movement and time', researchQuestion: 'q', title: 't' })
+      .some((p) => p.field === 'subjects'),
+    'ESS and Literature and Performance cannot be half of an interdisciplinary pair — they are already cross-disciplinary',
+  )
+  check(
+    validateRegistration({ subjects: ['bio_hl'], framework: 'movement and time', researchQuestion: 'q', title: 't' })
+      .some((p) => p.field === 'framework'),
+    'and a framework on a single-subject essay is refused too — the rule runs both ways',
+  )
+
+  const rqDef15 = eeDefs15.find((d) => d.key === 'ee.rq')!
+  const c15students = STUDENTS.filter((s) => s.cohortId === 'c15')
+  check(
+    c15students.every((s) => {
+      const hasState = REQUIREMENT_STATES.some(
+        (x) => x.studentId === s.userId && x.requirementDefId === rqDef15.id,
+      )
+      return hasState === registrationComplete(EE_REGISTRATIONS.find((r2) => r2.studentId === s.userId))
+    }),
+    'ee.rq is complete for exactly those students whose registration validates — the state and the record behind it cannot disagree',
+  )
+  check(
+    EE_REGISTRATIONS.some((r2) => r2.subjects.length === 2 && r2.framework != null),
+    'one interdisciplinary registration exists, so the two-subject pathway is exercised rather than merely permitted',
+  )
+
+  console.log('\n13d. The fabricated EE states are gone')
+
+  const aheadKeys = ['ee.draft', 'ee.r2', 'ee.final', 'ee.viva', 'ee.rpf', 'ee.attest', 'ee.score']
+  const aheadIds = new Set(eeDefs15.filter((d) => aheadKeys.includes(d.key)).map((d) => d.id))
+  check(
+    REQUIREMENT_STATES.every((s) => !aheadIds.has(s.requirementDefId)),
+    'NOT ONE Class of 2027 state exists for work still ahead of them — the board no longer reports EE progress nothing could produce',
+  )
+  const eeBoard15 = (await repo.export.getUploadBoard('dhahran', 'c15'))!
+  check(
+    eeBoard15.cohortJobs.find((j) => j.key === 'ee.essay')!.ready === 0 &&
+      eeBoard15.cohortJobs.find((j) => j.key === 'ee.rpf')!.ready === 0,
+    'so the EE upload packs read zero ready — correct in August for an essay due 13 November',
+  )
+  const eeBoard14 = (await repo.export.getUploadBoard('dhahran', 'c14'))!
+  const essay14 = eeBoard14.cohortJobs.find((j) => j.key === 'ee.essay')!
+  check(
+    essay14.total > 0 && essay14.ready === essay14.total,
+    'and a graduated cohort reads fully ready — the zero above is a fact about the calendar, not a broken pipeline',
+  )
+
+  console.log('\n13e. The board and track render EE with no edit to either')
+
+  const eeTrackStudent = c15students.find((s) =>
+    REQUIREMENT_STATES.some((x) => x.studentId === s.userId && x.requirementDefId === rqDef15.id),
+  )!
+  const eeTrack = (await repo.getTrack('dhahran', eeTrackStudent.userId))!
+  const eeLane = eeTrack.lanes.find((l) => l.lane === 'Extended Essay')!
+  check(eeLane.checkpoints.length === 10, 'the student track shows all ten EE checkpoints')
+  check(
+    eeLane.checkpoints.find((cp) => cp.def.key === 'ee.rq')!.display === 'done',
+    'registration reads done on the track, from a state the registration produced',
+  )
+  check(
+    eeLane.checkpoints.find((cp) => cp.def.key === 'ee.rpf')!.display === 'future',
+    'and the RPF reads FUTURE, not overdue — opensAfter: ee.viva, and the viva has not happened',
+  )
+  const eeBoardView = (await repo.getBoard('dhahran', 'c15'))!
+  check(
+    eeBoardView.groups.some((g) => g.lane === 'Extended Essay') && eeBoardView.rows.length > 0,
+    'the coordinator board carries an Extended Essay group built from the same states',
+  )
+
+  console.log('\n13f. Where EE appears — supervision is the third source of reach')
+
+  const someSupervisor = (await repo.ee.listSupervision('dhahran', 'c15'))
+    .map((r2) => r2.supervisor!)
+    .find((sv) => !sv.acting)!
+  const supSpaces = await repo.mySpaces('dhahran', someSupervisor.userId)
+  check(
+    supSpaces.some((g) => g.courses.some((x) => x.id === 'ee')),
+    'a supervisor has an Extended Essay space',
+  )
+  const nonSupervisor = 'u_farouk'
+  const beforeSpaces = await repo.mySpaces('dhahran', nonSupervisor)
+  check(
+    !beforeSpaces.some((g) => g.courses.some((x) => x.id === 'ee')),
+    'a teacher who supervises nobody has NO EE space — not an empty one, none',
+  )
+  const orphan = (await repo.ee.listSupervision('dhahran', 'c16'))[0]
+  await repo.ee.assignSupervisor('dhahran', 'c16', orphan.studentId, nonSupervisor, 'u_msmith')
+  const afterSpaces = await repo.mySpaces('dhahran', nonSupervisor)
+  check(
+    afterSpaces.some((g) => g.cohort.id === 'c16' && g.courses.some((x) => x.id === 'ee')),
+    'give them one supervisee and the space appears — in that cohort, derived, nothing stored',
+  )
+  await repo.ee.assignSupervisor('dhahran', 'c16', orphan.studentId, 'u_adeyemi', 'u_msmith')
+  const restoredSpaces = await repo.mySpaces('dhahran', nonSupervisor)
+  check(
+    !restoredSpaces.some((g) => g.courses.some((x) => x.id === 'ee')),
+    'reassign their last supervisee and it goes again',
   )
 
   console.log('\n' + '='.repeat(60))

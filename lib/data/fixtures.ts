@@ -30,6 +30,9 @@ import { pinned } from './pin'
 import { lateFrom, withDue } from '../deadlines'
 import type { EeSupervision } from '../ee/types'
 import { eeCoordinatorId, supervisorFor } from '../ee/supervision'
+import { EE_CRITERIA, EE_MARK_MAX } from '../ee/rubric'
+import { registrationComplete } from '../ee/registration'
+import type { EeRegistration } from '../ee/types'
 import { todayRiyadh } from './dates'
 import { sortCohorts } from '../cohorts'
 
@@ -399,13 +402,26 @@ function buildDefs(cohortId: string): RequirementDef[] {
 
   const eeDefs: RequirementDef[] = [
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.rq', label: 'Subject & research question', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text' }),
+    // The outline and the draft are DEFS, not module-owned milestones, for one
+    // reason: the school tracks them for every candidate against a date, and a
+    // date can only attach to a def (Deadline.requirementKey is matched against
+    // def keys). Neither carries an exportTarget, because the IB never sees
+    // them — which is what that field is for. See IB-EE-Build-Plan.md §5.3.
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.outline', label: 'Outline', lane: 'Extended Essay', recordedBy: 'student', artifact: 'link' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r1', label: 'Reflection session 1', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.draft', label: 'Full draft', lane: 'Extended Essay', recordedBy: 'student', artifact: 'link' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r2', label: 'Reflection session 2', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.final', label: 'Final essay', lane: 'Extended Essay', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.viva', label: 'Viva voce (reflection session 3)', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
     // The fix for the endless student list: the RPF cannot be actionable before the viva.
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.rpf', label: 'RPF — reflection statement', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text', exportTarget: 'ecoursework', opensAfter: 'ee.viva' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.attest', label: 'Supervisor attestation', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'none' }),
+    // Scoring is the IA marks module, not a second marking engine: criterion
+    // grain, total never stored (iaTotal sums on read), MarkEvent audit,
+    // marksWriteGrant, unlock. The rubric CONTENT — bands, strands, guidance —
+    // is EE reference data in lib/ee/rubric.ts, because it is paraphrase that
+    // must be replaceable when the IB's verbatim markbands are available.
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.score', label: 'EE score', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'mark', markMax: EE_MARK_MAX, criteria: EE_CRITERIA.map((c) => ({ key: c.key, label: c.label, max: c.max })) }),
   ]
 
   const tokDefs: RequirementDef[] = [
@@ -552,6 +568,8 @@ export const DEADLINES: Deadline[] = pinned('ibDeadlines', () => {
     // ---- Class of 2027, mid-DP2 ----
     // Past, and unfinished for some — this is what a late cell is for.
     mk('c15', 'rq', 'ee', '2026-05-15', false),
+    mk('c15', 'outline', 'ee', '2026-09-25', false),
+    mk('c15', 'draft', 'ee', '2026-10-23', true),
     mk('c15', 'title', 'tok', '2026-06-05', false),
     mk('c15', 'pg.p1', null, '2026-06-20', true),
     mk('c15', 'final', 'ee', '2026-11-13', true),
@@ -570,6 +588,82 @@ export const DEADLINES: Deadline[] = pinned('ibDeadlines', () => {
     mk('c16', 'rq', 'ee', '2027-05-14', false, 'IB planning meeting · 2 Sep 27'),
     mk('c16', 'pg.p1', null, '2027-06-18', true, 'IB planning meeting · 2 Sep 27'),
   ]
+})
+
+
+/**
+ * EE REGISTRATIONS — subject(s), research question, title.
+ *
+ * Built BEFORE the states, because `ee.rq` is seeded from
+ * `registrationComplete()` rather than from a dice roll. That ordering is the
+ * point: a fixture where the requirement says "done" and the registration
+ * behind it is empty would reproduce, in the fixtures, exactly the lie this
+ * module is being built to remove from the board.
+ *
+ * The Class of 2027 registered at the end of DP1 (deadline 15 May 2026), so
+ * nearly all of them have one. The Class of 2028 is two weeks into DP1 and has
+ * none, which is correct rather than incomplete.
+ */
+const RQ_POOL: Record<string, { rq: string; title: string }[]> = {
+  'Group 1': [
+    { rq: 'To what extent does the unreliable narrator in Ishiguro\u2019s The Remains of the Day shape the reader\u2019s judgement of Stevens?', title: 'Silence and self-deception in The Remains of the Day' },
+    { rq: 'How does Woolf use free indirect discourse to represent interiority in Mrs Dalloway?', title: 'The inside of a sentence: consciousness in Mrs Dalloway' },
+  ],
+  'Group 2': [
+    { rq: 'Dans quelle mesure le langage publicitaire fran\u00e7ais recourt-il \u00e0 l\u2019imp\u00e9ratif pour cr\u00e9er une relation de proximit\u00e9\u202f?', title: 'L\u2019imp\u00e9ratif dans la publicit\u00e9 fran\u00e7aise contemporaine' },
+  ],
+  'Group 3': [
+    { rq: 'To what extent did minimum wage increases in Saudi Arabia between 2019 and 2024 affect youth employment in the retail sector?', title: 'Minimum wage and youth employment in Saudi retail' },
+    { rq: 'How effectively did Patagonia\u2019s 2022 ownership restructure serve its stated environmental objectives?', title: 'Ownership as strategy: the Patagonia restructure' },
+    { rq: 'To what extent does the framing of a survey question alter reported attitudes to risk among adolescents?', title: 'Framing effects in adolescent risk reporting' },
+  ],
+  'Group 4': [
+    { rq: 'How does salinity affect the rate of photosynthesis in Halophila stipulacea from the Arabian Gulf?', title: 'Salinity tolerance in Gulf seagrass' },
+    { rq: 'To what extent does the concentration of a copper(II) sulfate catalyst affect the rate of hydrogen peroxide decomposition?', title: 'Catalysis and concentration in peroxide decomposition' },
+    { rq: 'How does the length of a bifilar pendulum\u2019s suspension affect its period of oscillation?', title: 'Geometry and period in the bifilar pendulum' },
+  ],
+  'Group 5': [
+    { rq: 'To what extent can the spread of a rumour in a closed population be modelled by the logistic differential equation?', title: 'Modelling rumour spread with the logistic equation' },
+  ],
+  'Group 6': [
+    { rq: 'How do contemporary Saudi artists use calligraphic abstraction to negotiate tradition and modernity?', title: 'The letter as form: calligraphic abstraction in Saudi art' },
+  ],
+}
+
+export const EE_REGISTRATIONS: EeRegistration[] = pinned('ibEeRegistrations', () => {
+  const out: EeRegistration[] = []
+  const r = rng(4027)
+  for (const s of STUDENTS) {
+    // Registered at the end of DP1. c16 has not reached that point; c14 has passed it.
+    if (s.cohortId === 'c16') continue
+    if (s.cohortId === 'c15' && r() > 0.92) continue
+
+    const subjectCourses = coursesOf(s.userId, ENROLLMENTS, SECTIONS, COURSES)
+      .filter((c) => c.type === 'subject')
+    if (!subjectCourses.length) continue
+    const chosen = subjectCourses[Math.floor(r() * subjectCourses.length)]
+    const group = chosen.subjectGroup.slice(0, 7)
+    const pool = RQ_POOL[group] ?? RQ_POOL['Group 3']
+    const pick = pool[Math.floor(r() * pool.length)]
+
+    // ONE interdisciplinary registration, so the two-subject pathway and its
+    // framework requirement are exercised rather than merely permitted.
+    const second = subjectCourses.find((c) => c.id !== chosen.id)
+    const interdisciplinary = s.userId === 'st04' && second != null
+
+    out.push({
+      schoolId: s.schoolId,
+      cohortId: s.cohortId,
+      studentId: s.userId,
+      subjects: interdisciplinary ? [chosen.id, second!.id] : [chosen.id],
+      framework: interdisciplinary ? 'evidence and measurement' : null,
+      researchQuestion: pick.rq,
+      title: pick.title,
+      updatedAt: s.cohortId === 'c14' ? '2024-05-10' : '2026-05-11',
+      updatedBy: s.userId,
+    })
+  }
+  return out
 })
 
 export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementStates', () => {
@@ -598,6 +692,87 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
        * everyone, January mostly in, April untouched. Recorded grades are
        * LOCKED, because that is what saving one does.
        */
+      /**
+       * EXTENDED ESSAY is seeded by hand for the same reason predicted grades
+       * are, and it is the reason this module is being built: the generic roll
+       * was producing a Supervision fraction, an essay in or not in, and an RPF
+       * pending for every candidate — none of which any screen could create,
+       * explain or change. The board was reporting EE progress that did not
+       * exist. What follows is a school in the September of DP2: registered in
+       * May, first reflection session held, outline due in a fortnight, and the
+       * essay itself still ahead of them.
+       */
+      if (d.lane === 'Extended Essay') {
+        const stage = d.key.slice(3)
+        const reg = EE_REGISTRATIONS.find((x) => x.studentId === s.userId)
+        const put = (
+          recordStatus: RequirementState['recordStatus'],
+          recordedAt: string,
+          extra: Partial<RequirementState> = {},
+        ) => out.push({
+          studentId: s.userId, requirementDefId: d.id, schoolId: s.schoolId,
+          recordStatus, artifacts: [], recordedAt, ...extra,
+        })
+
+        if (s.cohortId === 'c14') {
+          // Graduated. Everything in, scored and released.
+          if (stage === 'score') {
+            const marks = EE_CRITERIA.map((c) => Math.max(1, Math.round(r() * c.max)))
+            put('released', '2026-02-20', {
+              criterionMarks: marks,
+              recordedBy: 'H. Adeyemi',
+              lockedAt: '2026-02-20T09:00:00.000Z',
+            })
+          } else if (stage === 'final' || stage === 'rpf') {
+            put('submitted', '2026-01-30', { exportStatus: 'submitted', recordedBy: 'H. Adeyemi' })
+          } else {
+            put('submitted', '2025-11-14', { recordedBy: 'H. Adeyemi' })
+          }
+          continue
+        }
+
+        if (s.cohortId === 'c16') continue // two weeks into DP1; nothing yet, correctly
+
+        // ---- Class of 2027, September of DP2 ----
+        if (stage === 'rq') {
+          // NOT a dice roll: the requirement is complete exactly when the
+          // registration behind it would survive contact with IBIS.
+          if (registrationComplete(reg)) put('submitted', reg!.updatedAt, { recordedBy: 'student' })
+          continue
+        }
+        if (stage === 'outline') {
+          // Due 25 Sep; a third are early, a few have started.
+          const roll = r()
+          if (roll < 0.34) {
+            put('submitted', '2026-09-14', {
+              recordedBy: 'student',
+              artifacts: [{
+                id: `art_out_${s.userId}`, kind: 'link',
+                label: 'Outline',
+                href: 'https://docs.google.com/document/d/outline-' + s.userId,
+                addedAt: '2026-09-14',
+              }],
+            })
+          } else if (roll < 0.47) {
+            put('in_progress', '2026-09-12', { recordedBy: 'student' })
+          }
+          continue
+        }
+        if (stage === 'r1' && r() < 0.78) {
+          put('submitted', '2026-09-08', {
+            recordedBy: 'H. Adeyemi',
+            artifacts: [{
+              id: `art_r1_${s.userId}`, kind: 'text', label: 'Session note',
+              body: 'Discussed scope and the shape of the source base. Agreed to narrow the question before the outline.',
+              addedAt: '2026-09-08',
+            }],
+          })
+          continue
+        }
+        // draft, r2, final, viva, rpf, attest, score: genuinely still ahead.
+        continue
+      }
+
       if (d.lane === 'Predicted grades') {
         const point = d.key.slice(d.key.lastIndexOf('.') + 1)
         // The new cohort has predicted nothing; the archived one is complete.
@@ -881,13 +1056,42 @@ export const fixtureRepository: Repository = {
       ...TEACHING_ASSIGNMENTS.filter((t) => t.teacherId === userId).map((t) => t.sectionId),
     ])
     const mine = SECTIONS.filter((s) => sectionIds.has(s.id) && s.schoolId === schoolId)
+    const reach = new Set(mine.map((s) => `${s.cohortId}:${s.courseId}`))
 
-    return sortCohorts(COHORTS.filter((c) => mine.some((s) => s.cohortId === c.id)))
+    /**
+     * THE THIRD SOURCE OF REACH — supervision (IB-EE-Build-Plan.md §3).
+     *
+     * Michael's question was whether Extended Essay should sit in every
+     * teacher's list by default, appearing when they have a supervisee. The
+     * better half of that is the second half: a space you hold because of a
+     * relationship, exactly as a class is. An always-present, usually-empty EE
+     * tile teaches every teacher in the school to skip an item in their own
+     * navigation, and a nav item people have learned to ignore is worse than
+     * none — one day it will matter.
+     *
+     * So the EE space is granted to whoever is the RESPONSIBLE ADULT for at
+     * least one student, which is `supervisorFor` — invariant #12 read from the
+     * other end. That covers an assigned supervisor and the EE coordinator
+     * standing in for the unassigned, in one rule, with no capability check and
+     * nothing stored. Assign someone their first supervisee and EE appears;
+     * reassign their last and it goes.
+     */
+    const fallback = eeCoordinatorId(schoolId, MEMBERSHIPS)
+    const supervisions = EE_SUPERVISION.filter((s) => s.schoolId === schoolId)
+    for (const cohort of COHORTS.filter((c) => c.schoolId === schoolId)) {
+      if (reach.has(`${cohort.id}:ee`)) continue
+      const supervisesSomeone = STUDENTS.some(
+        (st) =>
+          st.schoolId === schoolId && st.cohortId === cohort.id &&
+          supervisorFor(st.userId, supervisions, fallback, USERS)?.userId === userId,
+      )
+      if (supervisesSomeone) reach.add(`${cohort.id}:ee`)
+    }
+
+    return sortCohorts(COHORTS.filter((c) => [...reach].some((k) => k.startsWith(c.id + ':'))))
       .map((cohort) => ({
         cohort,
-        courses: COURSES.filter((c) =>
-          mine.some((s) => s.cohortId === cohort.id && s.courseId === c.id),
-        ),
+        courses: COURSES.filter((c) => reach.has(`${cohort.id}:${c.id}`)),
       }))
       .filter((g) => g.courses.length > 0)
   },
