@@ -22,7 +22,7 @@ import type {
   CasCohortTotals, CasRosterRow, CasStudentView, ExperienceStatus, IndicatorValue,
   InterviewKind, LoKey, Strand, SupervisorRequest, SupervisorView,
 } from '../cas/types'
-import type { ResolvedSupervisor } from '../ee/types'
+import type { EeRosterRow, EeStudentView, ResolvedSupervisor } from '../ee/types'
 import type {
   CohortSummary, CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
 } from '../setup/types'
@@ -143,6 +143,35 @@ export interface EeRepository {
     studentId: string,
     supervisorId: string,
     assignedBy: string,
+  ): Promise<void>
+
+  /** The student's own screen. Checkpoints come from getTrack, not from here. */
+  getStudentView(schoolId: string, studentId: string): Promise<EeStudentView | null>
+  /**
+   * Staff. `forUserId` scopes it: an `ee.manage` holder passes `null` and sees
+   * the cohort; a supervisor passes their own id and sees their supervisees.
+   * Scope is decided here rather than in the component, because a component
+   * that forgets is a leak.
+   */
+  getRoster(
+    schoolId: string,
+    cohortId: string,
+    forUserId: string | null,
+  ): Promise<EeRosterRow[]>
+  /** Student writes their own registration. `ee.rq` follows from validity. */
+  saveRegistration(
+    schoolId: string,
+    cohortId: string,
+    studentId: string,
+    input: { subjects: string[]; framework: string | null; researchQuestion: string; title: string },
+  ): Promise<{ ok: boolean; problems: { field: string; message: string }[] }>
+  /** Attach or replace a Google Doc link on ee.outline / ee.draft. */
+  setLink(
+    schoolId: string,
+    studentId: string,
+    stage: 'outline' | 'draft',
+    href: string,
+    label: string,
   ): Promise<void>
 }
 

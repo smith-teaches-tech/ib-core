@@ -89,3 +89,39 @@ export interface EeLinkCheck {
   checkedAt: string
   reachable: boolean
 }
+
+// ---------------------------------------------------------------------------
+// View shapes — computed on read, stored nowhere.
+// ---------------------------------------------------------------------------
+
+/**
+ * What the student's own EE screen needs BEYOND the spine.
+ *
+ * Deliberately does not carry the checkpoints: those come from `getTrack`, so
+ * the EE screen renders the same derived requirements the board and the track
+ * do rather than a second opinion about them. If this view ever grows a
+ * `checkpoints` field, something has started keeping its own copy.
+ */
+export interface EeStudentView {
+  studentId: Id
+  studentName: string
+  registration: EeRegistration | null
+  /** Live validation of the SAVED registration — empty means `ee.rq` is complete. */
+  problems: { field: string; message: string }[]
+  supervisor: ResolvedSupervisor | null
+  /** The student's own subject courses — what they may register the essay in. */
+  subjectChoices: { id: Id; name: string }[]
+}
+
+export interface EeRosterRow {
+  studentId: Id
+  studentName: string
+  sessionNumber: string | null
+  supervisor: ResolvedSupervisor | null
+  registration: EeRegistration | null
+  /** done / total across the ten EE requirements, from the spine. */
+  done: number
+  total: number
+  /** Requirements past their date and not in. */
+  late: number
+}

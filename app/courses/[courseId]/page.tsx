@@ -2,6 +2,8 @@ import { notFound } from 'next/navigation'
 import Shell from '@/components/Shell'
 import CandidatePanel from '@/components/CandidatePanel'
 import CasRoster from '@/components/cas/CasRoster'
+import EeRoster from '@/components/ee/EeRoster'
+import StudentEe from '@/components/ee/StudentEe'
 import CohortBar from '@/components/CohortBar'
 import MarkHistory from '@/components/ia/MarkHistory'
 import MarksGrid from '@/components/ia/MarksGrid'
@@ -345,6 +347,44 @@ export default async function CoursePage({
             Your internal assessment for this course — the file, the mark and the teacher comment —
             shows on your own track on the home page. Marks are released by your teacher.
           </div>
+        </>
+      )
+    }
+  } else if (course.type === 'ee') {
+    if (isStudent) {
+      // The checkpoints come from getTrack, NOT from the EE repository — the
+      // student's screen and the coordinator's board read one derivation.
+      const [view, track] = await Promise.all([
+        repo.ee.getStudentView(school.id, user.id),
+        repo.getTrack(school.id, user.id),
+      ])
+      const lane = track?.lanes.find((l) => l.lane === 'Extended Essay')
+      body = view ? (
+        <StudentEe view={view} checkpoints={lane?.checkpoints ?? []} />
+      ) : (
+        <p className="mut">No extended essay record.</p>
+      )
+    } else {
+      const cohortId = cohort?.id ?? 'c15'
+      // `ee.manage` sees the cohort; a supervisor sees their own supervisees.
+      // Passing null vs the user id is the whole of the scoping decision, and
+      // it is made here rather than filtered in the component.
+      const all = session.can('ee.manage')
+      const rows = await repo.ee.getRoster(school.id, cohortId, all ? null : user.id)
+      body = (
+        <>
+          {isCoordinator && (
+            <CohortBar
+              cohorts={cohorts}
+              current={cohortId}
+              href={(id) => `/courses/${course.id}?cohort=${id}`}
+            />
+          )}
+          <EeRoster
+            rows={rows}
+            cohortLabel={cohort ? cohortTitle(cohort) : ''}
+            scope={all ? 'all' : 'mine'}
+          />
         </>
       )
     }

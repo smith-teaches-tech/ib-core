@@ -31,8 +31,8 @@ import { lateFrom, withDue } from '../deadlines'
 import type { EeSupervision } from '../ee/types'
 import { eeCoordinatorId, supervisorFor } from '../ee/supervision'
 import { EE_CRITERIA, EE_MARK_MAX } from '../ee/rubric'
-import { registrationComplete } from '../ee/registration'
-import type { EeRegistration } from '../ee/types'
+import { registrationComplete, validateRegistration } from '../ee/registration'
+import type { EeRegistration, EeRosterRow } from '../ee/types'
 import { todayRiyadh } from './dates'
 import { sortCohorts } from '../cohorts'
 
@@ -1171,6 +1171,111 @@ export const fixtureRepository: Repository = {
           supervisor: supervisorFor(st.userId, mine, fallback, USERS),
         }),
       )
+    },
+
+    async getStudentView(schoolId, studentId) {
+      const st = STUDENTS.find((s) => s.userId === studentId && s.schoolId === schoolId)
+      if (!st) return null
+      const reg = EE_REGISTRATIONS.find((r2) => r2.studentId === studentId) ?? null
+      return {
+        studentId,
+        studentName: USERS.find((u) => u.id === studentId)?.name ?? studentId,
+        registration: reg,
+        // Validated on READ rather than trusted from a flag written at save
+        // time — a registration can stop being valid if the catalogue changes
+        // under it, and the student should hear that from the screen.
+        problems: reg ? validateRegistration(reg) : [],
+        supervisor: supervisorFor(
+          studentId,
+          EE_SUPERVISION.filter((s) => s.schoolId === schoolId),
+          eeCoordinatorId(schoolId, MEMBERSHIPS),
+          USERS,
+        ),
+        subjectChoices: coursesOf(studentId, ENROLLMENTS, SECTIONS, COURSES)
+          .filter((c) => c.type === 'subject')
+          .map((c) => ({ id: c.id, name: c.name })),
+      }
+    },
+
+    async getRoster(schoolId, cohortId, forUserId) {
+      const fallback = eeCoordinatorId(schoolId, MEMBERSHIPS)
+      const sup = EE_SUPERVISION.filter((s) => s.schoolId === schoolId)
+      const rows: EeRosterRow[] = []
+      for (const st of STUDENTS.filter((s) => s.schoolId === schoolId && s.cohortId === cohortId)) {
+        const supervisor = supervisorFor(st.userId, sup, fallback, USERS)
+        // SCOPE IS DECIDED HERE, not in the component. A supervisor sees the
+        // students they are responsible for and nobody else's essay; a
+        // component that forgets that is a leak.
+        if (forUserId != null && supervisor?.userId !== forUserId) continue
+        const track = await fixtureRepository.getTrack(schoolId, st.userId)
+        const lane = track?.lanes.find((l) => l.lane === 'Extended Essay')
+        rows.push({
+          studentId: st.userId,
+          studentName: USERS.find((u) => u.id === st.userId)?.name ?? st.userId,
+          sessionNumber: st.sessionNumber,
+          supervisor,
+          registration: EE_REGISTRATIONS.find((r2) => r2.studentId === st.userId) ?? null,
+          done: lane?.done ?? 0,
+          total: lane?.total ?? 0,
+          late: lane?.checkpoints.filter((cp) => cp.due?.late).length ?? 0,
+        })
+      }
+      return rows.sort((a, b) => a.studentName.localeCompare(b.studentName))
+    },
+
+    async saveRegistration(schoolId, cohortId, studentId, input) {
+      const candidate = { schoolId, cohortId, studentId, ...input }
+      const problems = validateRegistration(candidate)
+      // REFUSE rather than save-and-flag. `ee.rq` means "this registration
+      // would survive contact with IBIS"; storing an invalid one and marking
+      // the requirement incomplete would put one judgement in two places.
+      if (problems.length) return { ok: false, problems }
+      const at = todayRiyadh()
+      const existing = EE_REGISTRATIONS.find((r2) => r2.studentId === studentId)
+      if (existing) Object.assign(existing, input, { updatedAt: at, updatedBy: studentId })
+      else EE_REGISTRATIONS.push({ ...candidate, updatedAt: at, updatedBy: studentId })
+      // The state FOLLOWS the record and is never written independently of it.
+      const def = REQUIREMENT_DEFS.find(
+        (d) => d.cohortId === cohortId && d.schoolId === schoolId && d.key === 'ee.rq',
+      )
+      if (def) {
+        const state = REQUIREMENT_STATES.find(
+          (s) => s.studentId === studentId && s.requirementDefId === def.id,
+        )
+        if (state) state.recordStatus = 'submitted'
+        else REQUIREMENT_STATES.push({
+          studentId, requirementDefId: def.id, schoolId,
+          recordStatus: 'submitted', artifacts: [], recordedAt: at, recordedBy: studentId,
+        })
+      }
+      return { ok: true, problems: [] }
+    },
+
+    async setLink(schoolId, studentId, stage, href, label) {
+      const st = STUDENTS.find((s) => s.userId === studentId && s.schoolId === schoolId)
+      if (!st) return
+      const def = REQUIREMENT_DEFS.find(
+        (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === `ee.${stage}`,
+      )
+      if (!def) return
+      const at = todayRiyadh()
+      const artifact = {
+        id: `art_${stage}_${studentId}`, kind: 'link' as const, label,
+        href: href.trim(), addedAt: at,
+      }
+      const state = REQUIREMENT_STATES.find(
+        (s) => s.studentId === studentId && s.requirementDefId === def.id,
+      )
+      if (state) {
+        state.artifacts = [artifact]
+        state.recordStatus = 'submitted'
+        state.recordedAt = at
+      } else {
+        REQUIREMENT_STATES.push({
+          studentId, requirementDefId: def.id, schoolId,
+          recordStatus: 'submitted', artifacts: [artifact], recordedAt: at, recordedBy: studentId,
+        })
+      }
     },
 
     async assignSupervisor(schoolId, cohortId, studentId, supervisorId, assignedBy) {
