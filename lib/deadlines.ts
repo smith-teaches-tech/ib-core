@@ -55,6 +55,40 @@ export function daysUntil(dueAt: string, today: string): number {
   return Math.round((a - b) / DAY)
 }
 
+export function addDays(ymd: string, n: number): string {
+  const t = Date.parse(ymd.slice(0, 10) + 'T00:00:00Z')
+  if (Number.isNaN(t)) return ymd
+  return new Date(t + n * DAY).toISOString().slice(0, 10)
+}
+
+/**
+ * HOW LONG AFTER ARRIVING before a student can be late for anything.
+ *
+ * A number, not a policy screen. Two weeks is a guess the school can change in
+ * one place; what matters is that the rule exists at all. See
+ * IB-Mobility-and-Transfers.md §8 decision 7.
+ */
+export const JOIN_GRACE_DAYS = 14
+
+/**
+ * The date before which NOTHING this student owes can be counted late.
+ *
+ * INVARIANT #8: a requirement is never overdue before the student could have
+ * started it. This is the mobility twin of `opensAfter` — that one says a
+ * requirement cannot be late before its opener is done, this one says it cannot
+ * be late before the student arrived. A DP2 joiner would otherwise open their
+ * first screen to forty red cells for deadlines that passed while they were at
+ * another school, which is the endless-list problem wearing a different hat.
+ *
+ * Crucially it is a RULE, not a configuration: it reads one date every student
+ * already has, applies identically to all of them, and adds no per-student
+ * requirement setting anywhere — which is the line the spine exists to hold.
+ */
+export function lateFrom(student: { joinedAt?: string } | null | undefined): string | null {
+  if (!student?.joinedAt) return null
+  return addDays(student.joinedAt, JOIN_GRACE_DAYS)
+}
+
 /**
  * Attach the applicable deadline to a checkpoint.
  *
@@ -63,15 +97,32 @@ export function daysUntil(dueAt: string, today: string): number {
  * be overdue. That rule is from the settled doc and it matters: without it, the
  * RPF is late the moment the viva date passes, whether or not the viva happened.
  */
-export function withDue(cp: Checkpoint, deadlines: Deadline[], today: string): Checkpoint {
+export function withDue(
+  cp: Checkpoint,
+  deadlines: Deadline[],
+  today: string,
+  /** From `lateFrom(student)` — omitted means the student started with the cohort. */
+  notBefore?: string | null,
+): Checkpoint {
   const d = deadlineFor(deadlines, cp.def)
   if (!d) return cp
   const daysAway = daysUntil(d.dueAt, today)
+
+  // Lateness is measured from the LATER of the deadline and the student's
+  // grace date. `dueAt` and `daysAway` are untouched: the cohort's date is the
+  // record and the student should still see it. Only the verdict moves.
+  const deferred = notBefore != null && notBefore > d.dueAt
+  const measureFrom = deferred ? notBefore : d.dueAt
+
   const due: CheckpointDue = {
     dueAt: d.dueAt,
     isMajor: d.isMajor,
-    late: cp.display !== 'done' && cp.display !== 'future' && daysAway < 0,
+    late:
+      cp.display !== 'done' &&
+      cp.display !== 'future' &&
+      daysUntil(measureFrom, today) < 0,
     daysAway,
+    ...(deferred ? { deferredTo: notBefore } : {}),
   }
   return { ...cp, due }
 }

@@ -22,6 +22,7 @@ import type {
   CasCohortTotals, CasRosterRow, CasStudentView, ExperienceStatus, IndicatorValue,
   InterviewKind, LoKey, Strand, SupervisorRequest, SupervisorView,
 } from '../cas/types'
+import type { ResolvedSupervisor } from '../ee/types'
 import type {
   CohortSummary, CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
 } from '../setup/types'
@@ -109,6 +110,40 @@ export interface Repository {
 
   /** Download for IBIS — the upload board and its one write (exportStatus). */
   export: ExportRepository
+
+  /** EE supervision. The first piece of the EE module — see lib/ee/supervision.ts. */
+  ee: EeRepository
+}
+
+/**
+ * EE — supervision only, for now.
+ *
+ * A module namespace rather than a method on Repository, for the reason
+ * IB-CAS-Build-Plan.md §10.3 gives: this is the module's own screen data, not
+ * something a coordinator view needs. `getBoard` and `getTrack` are untouched.
+ */
+export interface EeRepository {
+  /**
+   * Never resolves to nobody while the school has an EE coordinator — invariant
+   * #12. `acting: true` means the coordinator is standing in.
+   */
+  getSupervisor(schoolId: string, studentId: string): Promise<ResolvedSupervisor | null>
+  /** Every student in the cohort with whoever is currently responsible for them. */
+  listSupervision(
+    schoolId: string,
+    cohortId: string,
+  ): Promise<{ studentId: string; name: string; supervisor: ResolvedSupervisor | null }[]>
+  /**
+   * Reassignment ENDS the previous row rather than editing it. A supervisor who
+   * held two reflection sessions before leaving must still be named on them.
+   */
+  assignSupervisor(
+    schoolId: string,
+    cohortId: string,
+    studentId: string,
+    supervisorId: string,
+    assignedBy: string,
+  ): Promise<void>
 }
 
 /**

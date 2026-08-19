@@ -263,7 +263,7 @@ function RosterRow({
               {/* The same strip the student sees, minus the prompt line — a
                   derived nudge is for the person whose record it is, not for a
                   coordinator to read over their shoulder. */}
-              <CasProgress summary={s} gradYear={gradYear} />
+              <CasProgress summary={s} gradYear={gradYear} joinedAt={row.joinedAt} />
 
               <div className="tabs">
                 <button

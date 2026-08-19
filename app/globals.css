@@ -373,6 +373,7 @@ select, input[type='text'] {
 .cptick{position:absolute;bottom:0;width:1px;height:5px;background:#e3e8ee}
 .cptick.major{height:9px;background:#cfd6de}
 .cpnow{position:absolute;bottom:0;width:1px;height:26px;background:var(--info);opacity:.55}
+.cpjoin{height:20px;width:2px;background:var(--warn,#b7791f);opacity:.7}
 .cpdot{position:absolute;bottom:9px;width:7px;height:7px;margin-left:-3.5px;border-radius:50%}
 .cpdot.reflection{background:var(--ok)}
 .cpdot.evidence{background:#fff;border:1.5px solid var(--ok)}

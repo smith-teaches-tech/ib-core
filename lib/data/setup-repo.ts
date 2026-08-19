@@ -16,6 +16,7 @@ import type { MarkEvent } from '../ia/types'
 import { resolveCapabilities } from '../capabilities'
 import { templateOf } from '../templates'
 import { normaliseSessionNumber, parseIdentifiers, parseRoster } from '../setup/parse'
+import { todayRiyadh } from './dates'
 import type { CourseRow, PersonRow } from '../setup/types'
 
 const slug = (s: string) =>
@@ -31,7 +32,11 @@ export function makeSetupRepository(deps: {
   assignments: TeachingAssignment[]
   defs: RequirementDef[]
   cohorts: Cohort[]
-  /** Read-only here — removeCourse refuses whenever these reference the course. */
+  /**
+   * removeCourse REFUSES whenever these reference the course, so it never
+   * deletes one. Unenrolling does write to them, but only to stamp
+   * `detachedAt` — nothing here ever removes a state (invariant #9).
+   */
   states: RequirementState[]
   events: MarkEvent[]
 }): SetupRepository {
@@ -60,6 +65,58 @@ export function makeSetupRepository(deps: {
    * operations resolve through this; a course with no section simply does not
    * run for that year group.
    */
+  /** The def ids a course contributes to one cohort — the join detach needs. */
+  const courseDefIds = (schoolId: string, cohortId: string, courseId: string) =>
+    new Set(
+      defs
+        .filter(
+          (d) =>
+            d.schoolId === schoolId && d.cohortId === cohortId &&
+            d.scope.kind === 'course' && d.scope.courseId === courseId,
+        )
+        .map((d) => d.id),
+    )
+
+  /**
+   * CLOSING AN ENROLMENT DETACHES, IT NEVER DELETES — invariant #9.
+   *
+   * Before this existed, dropping Biology spliced the enrolment and walked
+   * away: the IA file, its mark and the teacher's comment stayed in the array
+   * with no def reaching them any more, so they disappeared from the track, the
+   * board, every count and every export at once. Silently. This is the
+   * difference between an archive and a data loss, and it is four lines.
+   */
+  const detachCourseStates = (
+    schoolId: string, cohortId: string, courseId: string, studentId: string,
+    reason: NonNullable<RequirementState['detachedReason']> = 'enrolment_closed',
+  ) => {
+    const ids = courseDefIds(schoolId, cohortId, courseId)
+    const at = todayRiyadh()
+    for (const s of states) {
+      if (s.studentId !== studentId || !ids.has(s.requirementDefId)) continue
+      if (s.detachedAt != null) continue
+      s.detachedAt = at
+      s.detachedReason = reason
+      s.detachedFrom = courseId
+    }
+  }
+
+  /**
+   * And re-enrolling brings it back. A student who drops Chemistry in October
+   * and returns in December does not upload anything twice.
+   */
+  const reattachCourseStates = (
+    schoolId: string, cohortId: string, courseId: string, studentId: string,
+  ) => {
+    const ids = courseDefIds(schoolId, cohortId, courseId)
+    for (const s of states) {
+      if (s.studentId !== studentId || !ids.has(s.requirementDefId)) continue
+      delete s.detachedAt
+      delete s.detachedReason
+      delete s.detachedFrom
+    }
+  }
+
   const implicitSection = (schoolId: string, cohortId: string, courseId: string) => {
     const section = sections.find(
       (s) => s.schoolId === schoolId && s.cohortId === cohortId && s.courseId === courseId,
@@ -227,6 +284,12 @@ export function makeSetupRepository(deps: {
           userId: id,
           schoolId,
           cohortId,
+          // A student added by hand in November joined in November. Dating them
+          // to the cohort's start would be the convenient lie that makes them
+          // overdue for every deadline they were never here for.
+          joinedAt: todayRiyadh(),
+          leftAt: null,
+          priorSchool: null,
           studentNumber: row.studentNumber || null,
           // All three IB identifiers arrive after exams are ordered.
           sessionNumber: null,
@@ -330,21 +393,30 @@ export function makeSetupRepository(deps: {
     },
 
     async enrolStudent(schoolId, studentId, sectionId) {
-      sectionAt(schoolId, sectionId)
+      const section = sectionAt(schoolId, sectionId)
+      reattachCourseStates(schoolId, section.cohortId, section.courseId, studentId)
       if (enrollments.some((e) => e.studentId === studentId && e.sectionId === sectionId)) return
       enrollments.push({ studentId, sectionId })
     },
 
     async unenrolStudent(schoolId, studentId, sectionId) {
-      sectionAt(schoolId, sectionId)
+      const section = sectionAt(schoolId, sectionId)
       const at = enrollments.findIndex((e) => e.studentId === studentId && e.sectionId === sectionId)
       if (at >= 0) enrollments.splice(at, 1)
+      // AFTER the splice, and only if they are now out of the course entirely —
+      // moving between two sections of the same course must move nothing at all
+      // (IB-Mobility-and-Transfers.md §2.1), and the checkpoint asserts it.
+      const stillIn = sections
+        .filter((s) => s.courseId === section.courseId && s.cohortId === section.cohortId)
+        .some((s) => enrollments.some((e) => e.studentId === studentId && e.sectionId === s.id))
+      if (!stillIn) detachCourseStates(schoolId, section.cohortId, section.courseId, studentId)
     },
 
     // ---- course-level operations — the section resolves internally --------
 
     async enrolInCourse(schoolId, cohortId, courseId, studentId) {
       const section = implicitSection(schoolId, cohortId, courseId)
+      reattachCourseStates(schoolId, cohortId, courseId, studentId)
       if (enrollments.some((e) => e.studentId === studentId && e.sectionId === section.id)) return
       enrollments.push({ studentId, sectionId: section.id })
     },
@@ -355,6 +427,7 @@ export function makeSetupRepository(deps: {
         (e) => e.studentId === studentId && e.sectionId === section.id,
       )
       if (at >= 0) enrollments.splice(at, 1)
+      detachCourseStates(schoolId, cohortId, courseId, studentId)
     },
 
     // ------------------------------------------------------------- staff

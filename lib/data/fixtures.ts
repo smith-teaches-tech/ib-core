@@ -27,7 +27,9 @@ import { makeExportRepository } from './export-repo'
 import type { MarkEvent, MarkUnlock, SampleRequest } from '../ia/types'
 import { makeDeadlineRepository } from './deadline-repo'
 import { pinned } from './pin'
-import { withDue } from '../deadlines'
+import { lateFrom, withDue } from '../deadlines'
+import type { EeSupervision } from '../ee/types'
+import { eeCoordinatorId, supervisorFor } from '../ee/supervision'
 import { todayRiyadh } from './dates'
 import { sortCohorts } from '../cohorts'
 
@@ -55,6 +57,18 @@ export const COHORTS: Cohort[] = pinned('ibCohorts', () => [
 
 /** The cohorts at Dhahran, oldest first — used to build sections and defs. */
 const DHAHRAN_COHORTS = ['c14', 'c15', 'c16'] as const
+
+/**
+ * When a cohort's DP began: 1 August, two years before it graduates.
+ *
+ * The DEFAULT for `Student.joinedAt`, and the reason the backfill is honest
+ * rather than a placeholder — for everyone who started with their year group,
+ * the day they joined really is the day the programme did.
+ */
+export function cohortStart(cohortId: string): string {
+  const c = COHORTS.find((x) => x.id === cohortId)
+  return `${(c?.gradYear ?? new Date().getFullYear() + 2) - 2}-08-01`
+}
 
 // ---------------------------------------------------------------------------
 // Courses — CAS, EE and TOK sit here alongside Biology. Same container.
@@ -174,10 +188,22 @@ export const STUDENTS: Student[] = pinned('ibStudents', () =>
       // that is the honest state for a cohort two weeks into DP1.
       const registered = cohortId !== 'c16' && i < 21
       const confirmed = cohortId !== 'c16' && i < 18
+
+      // ONE STUDENT WHO DID NOT START HERE. Deniz Yildiz arrived in the January
+      // of DP1 from another IB school. Without her every mobility rule in the
+      // system is untested against real data, and the failure mode is silent:
+      // the code all runs, it is simply never exercised. She is deliberately an
+      // EXISTING name rather than a 25th student, so no roster count moves and
+      // no assertion about "all 24" has to be weakened to accommodate her.
+      const transferred = cohortId === 'c15' && i === 23
+
       return {
         userId: studentIds(cohortId)[i],
         schoolId: 'dhahran',
         cohortId,
+        joinedAt: transferred ? '2026-01-12' : cohortStart(cohortId),
+        leftAt: null,
+        priorSchool: transferred ? 'Dubai College' : null,
         studentNumber: String(204_100 + i * 3 + DHAHRAN_COHORTS.indexOf(cohortId as never) * 1_000),
         sessionNumber: registered ? String(i + 1).padStart(4, '0') : null,
         personalCode: registered ? 'p' + (100 + i * 7) : null,
@@ -690,6 +716,35 @@ export const MARK_EVENTS: MarkEvent[] = pinned('ibMarkEvents', () => [])
 const MARK_UNLOCKS: MarkUnlock[] = pinned('ibMarkUnlocks', () => [])
 export const SAMPLE_REQUESTS: SampleRequest[] = pinned('ibSampleRequests', () => [])
 
+/**
+ * EE SUPERVISION — who has been assigned, and who has deliberately not been.
+ *
+ * The Class of 2027 is most of the way through allocation: twenty students are
+ * with a named supervisor and FOUR ARE NOT, which is the state the fallback
+ * exists for and the reason the fixture leaves them alone rather than tidying
+ * them up. The Class of 2028 is two weeks into DP1 and has none at all — every
+ * one of them resolves to the EE coordinator, which is correct in September and
+ * is exactly what the coordinator's allocation list should look like.
+ *
+ * Nobody is ever "unassigned" on screen. They are assigned to the coordinator.
+ */
+export const EE_SUPERVISION: EeSupervision[] = pinned('ibEeSupervision', () => {
+  const rows: EeSupervision[] = []
+  const c15 = STUDENTS.filter((s) => s.cohortId === 'c15')
+  c15.slice(0, 20).forEach((st, i) => {
+    rows.push({
+      schoolId: 'dhahran',
+      cohortId: 'c15',
+      studentId: st.userId,
+      supervisorId: i % 2 === 0 ? 'u_adeyemi' : 'u_silva',
+      assignedBy: 'u_msmith',
+      assignedAt: '2025-10-06',
+      endedAt: null,
+    })
+  })
+  return rows
+})
+
 const setupRepository = makeSetupRepository({
   courses: COURSES,
   sections: SECTIONS,
@@ -765,6 +820,10 @@ const casRepository = makeCasRepository({
     STUDENTS.filter((s) => s.schoolId === schoolId && s.cohortId === cohortId),
   nameOf: (userId) => USERS.find((u) => u.id === userId)?.name ?? '',
   cohortOf: (userId) => STUDENTS.find((s) => s.userId === userId)?.cohortId ?? 'c15',
+  joinedAtOf: (userId) => {
+    const st = STUDENTS.find((s) => s.userId === userId)
+    return st?.joinedAt ?? cohortStart(st?.cohortId ?? 'c15')
+  },
 })
 
 // ---------------------------------------------------------------------------
@@ -859,11 +918,16 @@ export const fixtureRepository: Repository = {
       (d) => d.schoolId === schoolId && d.cohortId === student.cohortId,
     )
     const today = todayRiyadh()
+    // Invariant #8: nothing is overdue before this student could have started
+    // it. Computed once per track, not per checkpoint, and passed in — the
+    // deadline rule stays a pure function that takes a date rather than a
+    // function that knows what a Student is.
+    const notBefore = lateFrom(student)
     return {
       ...track,
       lanes: track.lanes.map((lane) => ({
         ...lane,
-        checkpoints: lane.checkpoints.map((cp) => withDue(cp, mine, today)),
+        checkpoints: lane.checkpoints.map((cp) => withDue(cp, mine, today, notBefore)),
       })),
     }
   },
@@ -881,6 +945,43 @@ export const fixtureRepository: Repository = {
       allStates(),
       options,
     )
+  },
+
+  ee: {
+    async getSupervisor(schoolId, studentId) {
+      return supervisorFor(
+        studentId,
+        EE_SUPERVISION.filter((s) => s.schoolId === schoolId),
+        eeCoordinatorId(schoolId, MEMBERSHIPS),
+        USERS,
+      )
+    },
+
+    async listSupervision(schoolId, cohortId) {
+      const fallback = eeCoordinatorId(schoolId, MEMBERSHIPS)
+      const mine = EE_SUPERVISION.filter((s) => s.schoolId === schoolId)
+      return STUDENTS.filter((s) => s.schoolId === schoolId && s.cohortId === cohortId).map(
+        (st) => ({
+          studentId: st.userId,
+          name: USERS.find((u) => u.id === st.userId)?.name ?? st.userId,
+          supervisor: supervisorFor(st.userId, mine, fallback, USERS),
+        }),
+      )
+    },
+
+    async assignSupervisor(schoolId, cohortId, studentId, supervisorId, assignedBy) {
+      const at = todayRiyadh()
+      // End rather than edit: the previous supervisor stays named on the
+      // reflection sessions they actually held.
+      for (const row of EE_SUPERVISION) {
+        if (row.schoolId === schoolId && row.studentId === studentId && row.endedAt == null) {
+          row.endedAt = at
+        }
+      }
+      EE_SUPERVISION.push({
+        schoolId, cohortId, studentId, supervisorId, assignedBy, assignedAt: at, endedAt: null,
+      })
+    },
   },
 
   cas: casRepository,

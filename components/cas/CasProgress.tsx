@@ -28,16 +28,10 @@
 
 import { LEARNING_OUTCOMES, type CasPost, type CasSummary } from '@/lib/cas/types'
 import { todayRiyadh } from '@/lib/data/dates'
+import { casWindow } from '@/lib/cas/window'
 
-/**
- * The programme window: August of DP1 to the end of the April in which CAS must
- * be finished. Derived from the cohort's graduation year — never hardcoded, and
- * never inferred from the student's own posts (a late starter would get a
- * compressed line and look busy).
- */
-export function casWindow(gradYear: number) {
-  return { start: `${gradYear - 2}-08-01`, end: `${gradYear}-04-30` }
-}
+export { casWindow } from '@/lib/cas/window'
+
 
 const MONTHS = ['J', 'F', 'M', 'A', 'M', 'J', 'J', 'A', 'S', 'O', 'N', 'D']
 
@@ -88,14 +82,17 @@ function prompt(summary: CasSummary, today: string): string | null {
 export default function CasProgress({
   summary,
   gradYear,
+  joinedAt,
   showPrompt = false,
 }: {
   summary: CasSummary
   gradYear: number
+  /** When this student joined the cohort — moves the window's start. */
+  joinedAt?: string | null
   /** Student's own screen only. See note 2 in the file header. */
   showPrompt?: boolean
 }) {
-  const { start, end } = casWindow(gradYear)
+  const { start, end, joinedLate } = casWindow(gradYear, joinedAt)
   const today = todayRiyadh()
   const scale = Math.max(1, ...summary.tallies.map((t) => t.confirmed + t.open))
 
@@ -191,6 +188,15 @@ export default function CasProgress({
                   className="cpnow"
                   style={{ left: `${position(today, start, end) * 100}%` }}
                   title={`Today — ${today}`}
+                />
+              )}
+              {/* Where a transfer student's line actually begins. Labelled,
+                  because an unexplained short line reads as a bug. */}
+              {joinedLate && (
+                <i
+                  className="cptick major cpjoin"
+                  style={{ left: '0%' }}
+                  title={`Joined ${start}`}
                 />
               )}
               {summary.posts.map((p, i) => (

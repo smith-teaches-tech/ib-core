@@ -134,7 +134,7 @@ export default function StudentCas({
       {/* The consistency strip. CAS runs eighteen months; seven ticks cannot
           say whether a student kept showing up. `showPrompt` is on here and
           ONLY here — see CasProgress's file header. */}
-      <CasProgress summary={summary} gradYear={gradYear} showPrompt />
+      <CasProgress summary={summary} gradYear={gradYear} joinedAt={view.joinedAt} showPrompt />
 
       {summary.complete && (
         <div className="note ok" style={{ marginBottom: 16 }}>

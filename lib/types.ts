@@ -234,6 +234,30 @@ export interface RequirementState {
   recordedBy?: string
   recordedAt?: string
   lockedAt?: string
+
+  // -------------------------------------------------------------------------
+  // DETACHED. See claude/IB-Mobility-and-Transfers.md §2.3.
+  // -------------------------------------------------------------------------
+
+  /**
+   * Set when the enrolment this state hung off closed — a course move, a drop,
+   * a retired course.
+   *
+   * INVARIANT #9: an enrolment change never DESTROYS a state, it detaches it.
+   * Before this field existed, dropping Biology left the uploaded IA, its mark
+   * and its teacher comment in the array with nothing able to return them:
+   * `requirementsFor` no longer matched the def, so the work vanished from the
+   * track, the board, every count and every export. Not deleted — invisible,
+   * which is worse, because nobody knows to look.
+   *
+   * A detached state is filtered out in exactly ONE place (`stateOf`, so board
+   * and track inherit it) and is visible in exactly one place — the student's
+   * record history. Re-enrolling clears it and the work comes back.
+   */
+  detachedAt?: string
+  detachedReason?: 'enrolment_closed' | 'moved' | 'course_retired'
+  /** Which course it belonged to when it was live — the history needs the label. */
+  detachedFrom?: Id
 }
 
 // ---------------------------------------------------------------------------
@@ -322,6 +346,31 @@ export interface Student {
    * so the check is a recorded act rather than an assumption.
    */
   identifiersState: 'missing' | 'unconfirmed' | 'confirmed'
+
+  // -------------------------------------------------------------------------
+  // MOBILITY. See claude/IB-Mobility-and-Transfers.md §3.5.
+  // -------------------------------------------------------------------------
+
+  /**
+   * When this student joined THIS school's cohort — not when the cohort began.
+   *
+   * For everyone who started with their year group the two are the same, and
+   * that is what the backfill sets. They diverge for a transfer student, and
+   * when they diverge two things must change or the system lies about them:
+   * nothing can be overdue before they could have started it (invariant #8,
+   * `withDue`), and their CAS timeline must not open twelve months before they
+   * arrived (`casWindow`).
+   *
+   * A DATE, NOT A FLAG. "Is a transfer student" would be a label to maintain;
+   * a join date is a fact that answers every question derived from it.
+   */
+  joinedAt: string
+
+  /** Set when a student transfers out. The record stays; they leave the roster. */
+  leftAt?: string | null
+
+  /** Where they came from, for the provenance on anything accepted from there. */
+  priorSchool?: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -373,6 +422,13 @@ export interface CheckpointDue {
   late: boolean
   /** Negative = overdue by that many days. */
   daysAway: number
+  /**
+   * Set only when a student joined too late for this deadline to be fair:
+   * lateness is measured from here instead of from `dueAt`. ADDITIVE, for the
+   * same reason `due` itself is — `dueAt` stays the real cohort date, because
+   * that IS the record. This says why it is not yet counted late.
+   */
+  deferredTo?: string
 }
 
 export interface TrackLane {

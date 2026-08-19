@@ -27,6 +27,8 @@ export function makeCasRepository(deps: {
   studentsIn: (schoolId: string, cohortId: string) => Student[]
   nameOf: (userId: string) => string
   cohortOf: (userId: string) => string
+  /** When they joined the cohort — the CAS timeline must not predate it. */
+  joinedAtOf: (userId: string) => string
 }): CasRepository {
   const { data } = deps
 
@@ -63,6 +65,7 @@ export function makeCasRepository(deps: {
       return {
         studentId: studentUserId,
         studentName: name,
+        joinedAt: deps.joinedAtOf(studentUserId),
         summary: summarise(studentUserId, mine),
         experiences: viewsOf(studentUserId, mine),
         interviews: mine.interviews.filter((i) => i.studentId === studentUserId),
@@ -79,6 +82,7 @@ export function makeCasRepository(deps: {
         rows.push({
           studentId: s.userId,
           studentName: deps.nameOf(s.userId),
+          joinedAt: s.joinedAt,
           sessionNumber: s.sessionNumber,
           summary: summarise(s.userId, mine),
           experiences: viewsOf(s.userId, mine),

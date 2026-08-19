@@ -18,8 +18,13 @@ import { pgWriteGrant, restrictStudentView } from '../lib/pg/authorize'
 import { REPORTING_POINTS, pgKey } from '../lib/pg/types'
 import { normaliseGrade } from '../lib/pg/scale'
 import {
-  deadlineFor, deadlineMatches, daysUntil, stageOf, stagesIn, studentOwedToIb, warningLevel, withDue,
+  JOIN_GRACE_DAYS, addDays, deadlineFor, deadlineMatches, daysUntil, lateFrom, stageOf,
+  stagesIn, studentOwedToIb, warningLevel, withDue,
 } from '../lib/deadlines'
+import { cohortStart, EE_SUPERVISION } from '../lib/data/fixtures'
+import { detachedStatesOf, stateOf } from '../lib/spine'
+import { attestationLabel, eeCoordinatorId, supervisorFor } from '../lib/ee/supervision'
+import { casWindow } from '../lib/cas/window'
 import { DEADLINES } from '../lib/data/fixtures'
 import { matchSessionNumbers } from '../lib/ia/sample'
 import { iaTotal, templateOf } from '../lib/templates'
@@ -1194,6 +1199,216 @@ async function main() {
   check(
     pgv.pointDue.length === pgv.points.length,
     'one date slot per reporting point, aligned — a column can be dateless without shifting the others',
+  )
+
+  // =====================================================================
+  // 12. MOBILITY — IB-Mobility-and-Transfers.md
+  // =====================================================================
+
+  console.log('\n12a. joinedAt, and invariant #8 (never overdue before you arrived)')
+
+  check(
+    STUDENTS.every((s) => typeof s.joinedAt === 'string' && s.joinedAt.length === 10),
+    'every student carries a join date — no student is undated',
+  )
+  const joiners = STUDENTS.filter((s) => s.joinedAt > cohortStart(s.cohortId))
+  check(
+    joiners.length === 1 && joiners[0].cohortId === 'c15',
+    'exactly one fixture student joined after their cohort began — the rules are exercised, not just written',
+  )
+  const joiner = joiners[0]
+  const mobSettled = STUDENTS.filter((s) => s !== joiner)
+  check(
+    mobSettled.every((s) => s.joinedAt === cohortStart(s.cohortId)),
+    'everyone else is backfilled to the day their programme started — a true date, not a placeholder',
+  )
+  check(
+    lateFrom(joiner) === addDays(joiner.joinedAt, JOIN_GRACE_DAYS),
+    `the grace date is the join date plus ${JOIN_GRACE_DAYS} days`,
+  )
+  check(lateFrom({} as never) === null, 'no join date means no deferral — the rule fails open, not closed')
+
+  const anyDef = REQUIREMENT_DEFS.find((d) => d.key.endsWith('.file'))!
+  const mobPassed = [{
+    id: 'dl_test', schoolId: 'dhahran', cohortId: anyDef.cohortId,
+    requirementKey: stageOf(anyDef), courseId: null, dueAt: '2026-02-01',
+    isMajor: true, decidedBy: 'test', setBy: 'test', setAt: '2025-09-01',
+  }]
+  const mobOpenCp = { def: anyDef, state: null, display: 'not_started' as const }
+  const mobToday = '2026-08-19'
+
+  const mobPlain = withDue(mobOpenCp, mobPassed, mobToday)
+  check(mobPlain.due?.late === true, 'a student who was here all along is late for a date that has passed')
+
+  const mobDeferred = withDue(mobOpenCp, mobPassed, mobToday, '2026-12-01')
+  check(mobDeferred.due?.late === false, 'a student who arrives after the deadline is NOT late for it')
+  check(mobDeferred.due?.deferredTo === '2026-12-01', 'and the record says why, rather than silently not flagging')
+  check(
+    mobDeferred.due?.dueAt === '2026-02-01' && mobDeferred.due?.daysAway === mobPlain.due?.daysAway,
+    'the cohort date and the countdown are UNCHANGED — only the verdict moves, because the date is the record',
+  )
+
+  const mobExpired = withDue(mobOpenCp, mobPassed, mobToday, '2026-03-01')
+  check(
+    mobExpired.due?.late === true,
+    'grace runs out: once the deferred date passes, a joiner is late like anyone else',
+  )
+  const doneCp2 = { def: anyDef, state: null, display: 'done' as const }
+  const futureCp2 = { def: anyDef, state: null, display: 'future' as const }
+  check(
+    withDue(doneCp2, mobPassed, mobToday, '2026-01-01').due?.late === false &&
+      withDue(futureCp2, mobPassed, mobToday, '2026-01-01').due?.late === false,
+    'work that is in, and work that has not opened, are never late whatever the join date',
+  )
+
+  console.log('\n12b. Detached states — invariant #9 (an enrolment change never destroys a state)')
+
+  const bioSection = SECTIONS.find((s) => s.courseId === 'bio_sl' && s.cohortId === 'c15')!
+  const victim = ENROLLMENTS.find((e) => e.sectionId === bioSection.id)!.studentId
+  const bioDefs = REQUIREMENT_DEFS.filter(
+    (d) => d.cohortId === 'c15' && d.scope.kind === 'course' && d.scope.courseId === 'bio_sl',
+  )
+  const mobBeforeCount = REQUIREMENT_STATES.length
+  const beforeVisible = bioDefs.filter((d) => stateOf(victim, d, REQUIREMENT_STATES) != null).length
+  check(beforeVisible > 0, `the victim has ${beforeVisible} recorded Biology state(s) to lose`)
+
+  const trackBefore = (await repo.getTrack('dhahran', victim))!
+
+  await repo.setup.unenrolFromCourse('dhahran', 'c15', 'bio_sl', victim)
+
+  check(
+    REQUIREMENT_STATES.length === mobBeforeCount,
+    'unenrolling DELETED NOTHING — the array is exactly as long as it was',
+  )
+  check(
+    bioDefs.every((d) => stateOf(victim, d, REQUIREMENT_STATES) == null),
+    'and yet stateOf returns none of them — filtered in one place, so board and track inherit it',
+  )
+  check(
+    detachedStatesOf(victim, REQUIREMENT_STATES).length === beforeVisible,
+    'the work is retrievable from the record history, which is the difference between an archive and a loss',
+  )
+  const trackAfter = (await repo.getTrack('dhahran', victim))!
+  check(
+    trackAfter.total < trackBefore.total,
+    'the track drops the requirements they no longer owe rather than showing them as outstanding',
+  )
+
+  await repo.setup.enrolInCourse('dhahran', 'c15', 'bio_sl', victim)
+  check(
+    bioDefs.filter((d) => stateOf(victim, d, REQUIREMENT_STATES) != null).length === beforeVisible &&
+      detachedStatesOf(victim, REQUIREMENT_STATES).length === 0,
+    're-enrolling brings every one of them back — nobody uploads the same essay twice',
+  )
+  const trackRestored = (await repo.getTrack('dhahran', victim))!
+  check(
+    trackRestored.total === trackBefore.total && trackRestored.done === trackBefore.done,
+    'and the track is byte-for-byte where it started',
+  )
+
+  // The §2.1 claim, asserted rather than believed.
+  console.log('\n12c. A section move moves NOTHING (IB-Mobility-and-Transfers.md §2.1)')
+
+  // `setup.addSection` REFUSES to mint a second group — one section per course
+  // per cohort is enforced in the data layer, not just a fixture convention.
+  // (That refusal is also what settles the EE-supervision modelling question:
+  // a supervisor cannot be a section, because the product will not make one.)
+  // So the second section is built directly, to assert the SPINE's claim rather
+  // than the setup API's: a RequirementDef is scoped to a COURSE, so nothing
+  // whatsoever hangs off which group a student sits in.
+  check(
+    (await repo.setup.addSection('dhahran', 'bio_sl', 'c15', 'B')) === bioSection.id,
+    'the setup API refuses to create a second section — one per course per cohort, enforced',
+  )
+  SECTIONS.push({
+    id: 'bio_sl_c15_b', schoolId: 'dhahran', courseId: 'bio_sl', cohortId: 'c15', label: 'B',
+  })
+  {
+    const t0 = (await repo.getTrack('dhahran', victim))!
+    await repo.setup.enrolStudent('dhahran', victim, 'bio_sl_c15_b')
+    await repo.setup.unenrolStudent('dhahran', victim, bioSection.id)
+    const t1 = (await repo.getTrack('dhahran', victim))!
+    check(
+      t1.total === t0.total && t1.done === t0.done &&
+        detachedStatesOf(victim, REQUIREMENT_STATES).length === 0,
+      'moving between two sections of the same course changes nothing at all — not one state detaches',
+    )
+    // ...and back, so the fixture is left exactly as it was found.
+    await repo.setup.enrolStudent('dhahran', victim, bioSection.id)
+    await repo.setup.unenrolStudent('dhahran', victim, 'bio_sl_c15_b')
+    SECTIONS.splice(SECTIONS.findIndex((s) => s.id === 'bio_sl_c15_b'), 1)
+    const t2 = (await repo.getTrack('dhahran', victim))!
+    check(
+      t2.total === t0.total && t2.done === t0.done &&
+        detachedStatesOf(victim, REQUIREMENT_STATES).length === 0,
+      'and moving back is equally free — the fixture is left as it was found',
+    )
+  }
+
+  console.log('\n12d. EE supervision — invariant #12 (always a responsible adult)')
+
+  const eeCoord = eeCoordinatorId('dhahran', MEMBERSHIPS)
+  check(eeCoord != null, 'the school has an EE coordinator to fall back to')
+  const techHolder = MEMBERSHIPS.find(
+    (m) => m.schoolId === 'dhahran' && m.roles.includes('ee_coordinator') && m.presetKey === 'tech_admin',
+  )
+  check(
+    techHolder != null && eeCoord !== techHolder.userId,
+    'two people hold the role and the fallback is NOT tech support — the rule is deterministic, not array order',
+  )
+
+  const mobSupervision = await repo.ee.listSupervision('dhahran', 'c15')
+  check(
+    mobSupervision.length > 0 && mobSupervision.every((r) => r.supervisor != null),
+    'every student in the graduating cohort resolves to somebody — there is no unassigned state',
+  )
+  const mobActing = mobSupervision.filter((r) => r.supervisor!.acting)
+  check(
+    mobActing.length === 4 && mobActing.every((r) => r.supervisor!.userId === eeCoord),
+    'the four not yet allocated sit with the EE coordinator, flagged acting — correct, and never invisible',
+  )
+  const dp1 = await repo.ee.listSupervision('dhahran', 'c16')
+  check(
+    dp1.length > 0 && dp1.every((r) => r.supervisor!.acting),
+    'a cohort two weeks in resolves entirely to the coordinator — which IS their allocation list',
+  )
+  check(
+    attestationLabel(mobActing[0].supervisor!).includes('acting'),
+    'an attestation signed while acting says so — a different claim from one signed by the real supervisor',
+  )
+
+  const mobTarget = mobSupervision.find((r) => !r.supervisor!.acting)!
+  const rowsBefore = EE_SUPERVISION.length
+  const previousId = mobTarget.supervisor!.userId
+  await repo.ee.assignSupervisor('dhahran', 'c15', mobTarget.studentId, 'u_farouk', 'u_msmith')
+  const mobNow = await repo.ee.getSupervisor('dhahran', mobTarget.studentId)
+  check(mobNow?.userId === 'u_farouk' && mobNow?.acting === false, 'reassignment takes effect immediately')
+  check(
+    EE_SUPERVISION.length === rowsBefore + 1 &&
+      EE_SUPERVISION.some((r) => r.studentId === mobTarget.studentId && r.supervisorId === previousId && r.endedAt != null),
+    'and it ENDS the old row rather than editing it — the previous supervisor stays named on what they held',
+  )
+
+  console.log('\n12e. The CAS window opens when the student did')
+
+  const mobNormal = STUDENTS.find((s) => s.cohortId === 'c15' && s !== joiner)!
+  const wNormal = casWindow(2027, mobNormal.joinedAt)
+  check(
+    wNormal.start === '2025-08-01' && wNormal.joinedLate === false,
+    'a student who started with the cohort gets the full programme window, exactly as before',
+  )
+  const wJoiner = casWindow(2027, joiner.joinedAt)
+  check(
+    wJoiner.start === joiner.joinedAt && wJoiner.joinedLate === true,
+    'a mid-programme joiner’s line begins the day she arrived, not five months of blank months earlier',
+  )
+  check(
+    wJoiner.end === wNormal.end,
+    'the end never moves — CAS is still due in the April of the exam year for everyone',
+  )
+  check(
+    casWindow(2027).start === '2025-08-01',
+    'and with no join date at all the window is unchanged — the argument is optional, nothing regressed',
   )
 
   console.log('\n' + '='.repeat(60))

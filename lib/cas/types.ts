@@ -281,6 +281,11 @@ export interface ExperienceView {
 export interface CasStudentView {
   studentId: Id
   studentName: string
+  /**
+   * When this student joined the cohort. Carried on the view because the
+   * timeline needs it and only the repository knows it — see `casWindow`.
+   */
+  joinedAt: string
   summary: CasSummary
   experiences: ExperienceView[]
   interviews: Interview[]

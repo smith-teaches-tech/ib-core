@@ -51,15 +51,37 @@ export function requirementsFor(
     .sort((a, b) => a.order - b.order)
 }
 
-/** Absence means not-applicable, so a missing state is synthesised as not_started. */
+/**
+ * Absence means not-applicable, so a missing state is synthesised as not_started.
+ *
+ * THIS IS ALSO THE ONE PLACE DETACHED STATES ARE FILTERED (invariant #9). A
+ * state whose enrolment has closed is retained but must not reach any derived
+ * view, and putting the filter here rather than at each call site is what makes
+ * that true of the track, the board, every count and every export at once —
+ * lib/board.ts calls this function too. The student's record history is the
+ * only surface that reads the raw array.
+ */
 export function stateOf(
   studentId: string,
   def: RequirementDef,
   states: RequirementState[],
 ): RequirementState | null {
   return (
-    states.find((s) => s.studentId === studentId && s.requirementDefId === def.id) ?? null
+    states.find(
+      (s) =>
+        s.studentId === studentId &&
+        s.requirementDefId === def.id &&
+        s.detachedAt == null,
+    ) ?? null
   )
+}
+
+/** The counterpart: what a student filed against courses they have since left. */
+export function detachedStatesOf(
+  studentId: string,
+  states: RequirementState[],
+): RequirementState[] {
+  return states.filter((s) => s.studentId === studentId && s.detachedAt != null)
 }
 
 function isComplete(state: RequirementState | null): boolean {
