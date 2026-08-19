@@ -67,9 +67,13 @@ export default async function Shell({
   return (
     <>
       <header className="top">
-        <Link className="logo" href="/">
+        {/* A LABEL, not a link. It used to go to `/`, which for a coordinator is
+            the readiness board — so the product's name doubled as a nav item
+            for one screen that already has one, and meant nothing to everybody
+            else. A masthead is not a button. */}
+        <span className="logo">
           IB&nbsp;Central <span>· {session.school.name}</span>
-        </Link>
+        </span>
 
         {districtTier && mySchools.length > 1 && (
           <form action="/api/dev/school" method="POST">
@@ -136,7 +140,12 @@ export default async function Shell({
                   teacher may take both. No switcher and no mode: both classes
                   are on screen at once and you click the one you want. */}
               <h3>My spaces</h3>
-              <Link href="/" className={`navrow ${current === 'home' ? 'on' : ''}`}>
+              {/* /home, not / — `/` is the readiness board for anyone holding a
+                  coordinator job, so a person who BOTH coordinates and teaches
+                  had a "Home" that landed on the board they already reach from
+                  "Check work". Home is now its own screen for everyone who has
+                  one. */}
+              <Link href="/home" className={`navrow ${current === 'home' ? 'on' : ''}`}>
                 <span className="nm"><b>Home</b></span>
               </Link>
 

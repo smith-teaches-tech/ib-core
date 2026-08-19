@@ -880,3 +880,6 @@ details.archived .navrow { opacity: .75; }
 .tstat small{display:block;color:var(--muted);font-size:11px;margin-top:2px;line-height:1.35}
 .tcard-f{display:flex;align-items:center;gap:8px;padding:10px 16px;border-top:1px solid var(--line);
   background:#fbfcfd;flex-wrap:wrap}
+
+/* The masthead is a label now, not a link — no pointer, no hover affordance. */
+header.top span.logo{cursor:default}
