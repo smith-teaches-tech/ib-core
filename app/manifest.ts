@@ -20,10 +20,14 @@ export default function manifest(): MetadataRoute.Manifest {
     display: 'standalone',
     orientation: 'portrait',
     background_color: '#ffffff',
-    theme_color: '#1a365d',
+    theme_color: '#2f6f6a',
     icons: [
       { src: '/icons/cas-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },
       { src: '/icons/cas-512.png', sizes: '512x512', type: 'image/png', purpose: 'any' },
+      // Android crops icons to whatever shape the launcher uses. A `maskable`
+      // variant is full-bleed with the mark inside the 80% safe zone, so the
+      // arcs survive a circle mask instead of being sliced.
+      { src: '/icons/cas-maskable-512.png', sizes: '512x512', type: 'image/png', purpose: 'maskable' },
     ],
   }
 }

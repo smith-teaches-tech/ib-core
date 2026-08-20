@@ -12,7 +12,7 @@ export const metadata: Metadata = {
 }
 
 export const viewport: Viewport = {
-  themeColor: '#1a365d',
+  themeColor: '#2f6f6a',
   // `maximumScale` is deliberately NOT set. Locking zoom is the standard
   // phone-app reflex and it is an accessibility failure: a student who needs to
   // pinch to read their own reflection must be able to.
