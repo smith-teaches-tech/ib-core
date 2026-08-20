@@ -11,7 +11,7 @@ import { subjectName } from '@/lib/ee/subjects'
 import { addSessionNote, assignSupervisor, recordSession, unlockFinal } from '@/lib/ee/actions'
 import type { EeAssignableStaff } from '@/lib/ee/types'
 import EeMarking from './EeMarking'
-import { summariseScore } from '@/lib/ee/scoring'
+import { summariseScore, supervisionHours } from '@/lib/ee/scoring'
 
 const SESSIONS: { stage: SessionStage; label: string }[] = [
   { stage: 'r1', label: 'Reflection session 1' },
@@ -94,6 +94,8 @@ export default function EeRoster({
         </div>
       )}
 
+      {scope === 'all' && <HoursSummary rows={rows} />}
+
       <div className="panel">
         <div className="panel-b" style={{ padding: 0 }}>
           <table className="eeroster">
@@ -104,6 +106,7 @@ export default function EeRoster({
                 <th>Subject</th>
                 <th>Sessions</th>
                 <th>Score</th>
+                <th style={{ textAlign: 'right' }}>Hrs</th>
                 <th style={{ textAlign: 'right' }}>In</th>
                 <th style={{ textAlign: 'right' }}>Late</th>
               </tr>
@@ -200,6 +203,9 @@ function Row({
             <span className="mut">—</span>
           )}
         </td>
+        <td style={{ textAlign: 'right' }}>
+          {row.scoring?.hoursSupervised ?? <span className="mut">—</span>}
+        </td>
         <td style={{ textAlign: 'right' }}>{row.done} / {row.total}</td>
         <td style={{ textAlign: 'right' }}>
           {row.late > 0 ? <span className="pill bad">{row.late}</span> : <span className="mut">—</span>}
@@ -207,7 +213,7 @@ function Row({
       </tr>
       {open && (
         <tr className="eedrawer">
-          <td colSpan={7}>
+          <td colSpan={8}>
             <div className="eedrawer-in">
               {row.registration ? (
                 <p style={{ marginTop: 0 }}>
@@ -456,6 +462,67 @@ function Allocate({
         Reassigning ends the current allocation rather than editing it — whoever held the earlier
         sessions stays named on them.
       </p>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- hours
+
+/**
+ * SUPERVISION HOURS BY SUPERVISOR — for the coordinator, and for payroll.
+ *
+ * Michael, 20 Aug: "The school also needs this for paying teachers (so EE
+ * coordinator and IB coordinator also need to see this)." So `missing` is
+ * shown as loudly as the total: a payroll run that quietly treats an unlogged
+ * candidate as zero hours underpays somebody, and they will notice.
+ */
+function HoursSummary({ rows }: { rows: EeRosterRow[] }) {
+  const [open, setOpen] = useState(false)
+  const hours = supervisionHours(rows)
+  const total = hours.reduce((n, h) => n + h.hours, 0)
+  const missing = hours.reduce((n, h) => n + h.missing, 0)
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <h2>Supervision hours</h2>
+        <span className="spacer" />
+        <span className="mut" style={{ fontSize: 12 }}>
+          {total} hours logged
+          {missing > 0 && ` · ${missing} candidate${missing === 1 ? '' : 's'} not yet logged`}
+        </span>
+        <button className="btn sm ghost" onClick={() => setOpen(!open)}>
+          {open ? 'hide' : 'by supervisor'}
+        </button>
+      </div>
+      {open && (
+        <div className="panel-b" style={{ padding: 0 }}>
+          <table className="eeroster">
+            <thead>
+              <tr>
+                <th>Supervisor</th>
+                <th style={{ textAlign: 'right' }}>Candidates</th>
+                <th style={{ textAlign: 'right' }}>Hours</th>
+                <th style={{ textAlign: 'right' }}>Not logged</th>
+              </tr>
+            </thead>
+            <tbody>
+              {hours.map((h) => (
+                <tr key={h.supervisorId}>
+                  <td>{h.name}</td>
+                  <td style={{ textAlign: 'right' }}>{h.students}</td>
+                  <td style={{ textAlign: 'right' }}><b>{h.hours}</b></td>
+                  <td style={{ textAlign: 'right' }}>
+                    {h.missing > 0
+                      ? <span className="pill warn">{h.missing}</span>
+                      : <span className="mut">—</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   )
 }

@@ -11,7 +11,9 @@ import { assertLiveCohort } from '../cohorts'
 import { anonymityPreflight, preflightPasses } from '../anonymity'
 import { storage } from '../storage'
 import { EE_CRITERIA, WORD_LIMIT } from './rubric'
-import { countWords, criterionOpen, markingGates, releaseBlockers } from './scoring'
+import {
+  countWords, criterionOpen, hoursProblem, markingGates, releaseBlockers,
+} from './scoring'
 
 /** The reflection statement's own limit — not the essay's 4,000. */
 const RPF_WORD_LIMIT = 500
@@ -293,6 +295,8 @@ export async function saveScoring(
   },
 ) {
   const session = await marker(studentId)
+  const bad = hoursProblem(input.hoursSupervised)
+  if (bad) return { ok: false, message: bad }
   await repo.ee.saveScoring(session.school.id, studentId, input, session.user.id, session.user.name)
   refresh()
   return { ok: true, message: null }

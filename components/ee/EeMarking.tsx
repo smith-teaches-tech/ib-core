@@ -22,7 +22,10 @@ import type { EeRosterRow } from '@/lib/ee/types'
 import {
   BAND_PROVENANCE, EE_CRITERIA, INDICATIVE_BOUNDARIES, MARKING_DISCIPLINE, boundariesAreOfficial,
 } from '@/lib/ee/rubric'
-import { criterionOpen, markingGates, releaseBlockers, summariseScore } from '@/lib/ee/scoring'
+import {
+  MAX_SUPERVISION_HOURS, criterionOpen, hoursProblem, markingGates, releaseBlockers,
+  summariseScore,
+} from '@/lib/ee/scoring'
 import { releaseScore, revokeScore, saveMark, saveScoring } from '@/lib/ee/actions'
 
 export default function EeMarking({
@@ -134,11 +137,22 @@ export default function EeMarking({
 
           <div className="eetwo" style={{ marginTop: 10 }}>
             <div>
-              <label className="fld">Hours spent supervising</label>
+              <label className="fld">
+                Hours spent supervising — up to {MAX_SUPERVISION_HOURS}
+              </label>
               <input
-                type="number" step="0.5" value={hours} style={{ maxWidth: 120 }}
+                type="number" step="0.5" min={0} max={MAX_SUPERVISION_HOURS}
+                value={hours} style={{ maxWidth: 120 }}
                 onBlur={persist} onChange={(e) => setHours(e.target.value)}
               />
+              {hoursProblem(hours ? Number(hours) : null) && (
+                <div className="note warn" style={{ marginTop: 6 }}>
+                  {hoursProblem(Number(hours))}
+                </div>
+              )}
+              <p className="mut" style={{ fontSize: 11.5, margin: '4px 0 0' }}>
+                The school pays against this, so it is capped rather than nudged.
+              </p>
             </div>
             <div>
               <span className="caps">Attestation</span>
@@ -176,6 +190,17 @@ export default function EeMarking({
             )}
           </div>
         </>
+      )}
+
+      {/* HOURS SURVIVE RELEASE. The first build put them inside the
+          !released branch, which meant the number the school pays against
+          disappeared the moment the grade went out — exactly when payroll
+          starts asking. */}
+      {released && (
+        <p className="mut" style={{ fontSize: 12, marginTop: 8 }}>
+          Supervision logged: <b>{row.scoring?.hoursSupervised ?? '—'} hours</b>
+          {row.scoring?.attestedByName && ` · attested by ${row.scoring.attestedByName}`}
+        </p>
       )}
 
       {released && canRevoke && (

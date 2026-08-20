@@ -130,3 +130,67 @@ export function countWords(text: string): number {
     .trim()
   return clean ? clean.split(/\s+/).length : 0
 }
+
+// ---------------------------------------------------------------------------
+// SUPERVISION HOURS
+// ---------------------------------------------------------------------------
+
+/**
+ * The IB's guidance is that supervision runs to a handful of hours, and ISG
+ * caps it at five. Michael, 20 Aug: "Supervisors are also supposed to log hours
+ * they spent with each student (up to 5). The school also needs this for paying
+ * teachers."
+ *
+ * THAT SECOND SENTENCE IS WHY THIS IS A HARD CAP RATHER THAN A NUDGE. A number
+ * that a school pays against is not a note to self; six hours entered here is a
+ * claim the school would have to either honour or argue with. Refusing at the
+ * point of entry is kinder than both.
+ */
+export const MAX_SUPERVISION_HOURS = 5
+
+export function hoursProblem(hours: number | null): string | null {
+  if (hours == null) return null
+  if (!Number.isFinite(hours) || hours < 0) return 'Hours cannot be negative.'
+  if (hours > MAX_SUPERVISION_HOURS) {
+    return `The school logs up to ${MAX_SUPERVISION_HOURS} hours of supervision per candidate.`
+  }
+  return null
+}
+
+export interface SupervisorHours {
+  supervisorId: string
+  name: string
+  students: number
+  hours: number
+  /** Candidates with no hours recorded yet — payroll needs to know what is missing. */
+  missing: number
+}
+
+/**
+ * Hours per supervisor, for the coordinator. Derived on read from the same
+ * rows the roster shows, so it cannot drift from what a supervisor entered.
+ */
+export function supervisionHours(
+  rows: {
+    supervisor: { userId: string; name: string } | null
+    scoring: { hoursSupervised: number | null } | null
+  }[],
+): SupervisorHours[] {
+  const by = new Map<string, SupervisorHours>()
+  for (const r of rows) {
+    if (!r.supervisor) continue
+    const cur = by.get(r.supervisor.userId) ?? {
+      supervisorId: r.supervisor.userId,
+      name: r.supervisor.name,
+      students: 0,
+      hours: 0,
+      missing: 0,
+    }
+    cur.students += 1
+    const h = r.scoring?.hoursSupervised
+    if (h == null) cur.missing += 1
+    else cur.hours += h
+    by.set(r.supervisor.userId, cur)
+  }
+  return [...by.values()].sort((a, b) => a.name.localeCompare(b.name))
+}

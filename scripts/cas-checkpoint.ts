@@ -31,7 +31,8 @@ import { registrationComplete, subjectWarnings, validateRegistration } from '../
 import { DP_SUBJECTS, isDpSubject, subjectForCourse } from '../lib/ee/subjects'
 import { anonymityPreflight, preflightPasses } from '../lib/anonymity'
 import {
-  countWords, criterionOpen, markingGates, releaseBlockers, summariseScore,
+  countWords, criterionOpen, hoursProblem, markingGates, releaseBlockers, summariseScore,
+  supervisionHours,
 } from '../lib/ee/scoring'
 import { DEADLINES } from '../lib/data/fixtures'
 import { matchSessionNumbers } from '../lib/ia/sample'
@@ -1939,6 +1940,34 @@ async function main() {
     track14.lanes.find((l) => l.lane === 'Extended Essay')!
       .checkpoints.find((cp) => cp.def.key === 'ee.attest')!.display === 'done',
     'and it still reads done on the track, from the same derivation',
+  )
+
+  console.log('\n13l. Supervision hours — capped, and visible to payroll')
+
+  check(
+    hoursProblem(4.5) === null && hoursProblem(5) === null,
+    'up to five hours is fine',
+  )
+  check(
+    hoursProblem(6) != null && hoursProblem(-1) != null,
+    'over five is refused, and so is negative — the school pays against this, so it is a cap not a nudge',
+  )
+  check(hoursProblem(null) === null, 'and not-yet-logged is not an error, it is just not logged')
+
+  const hoursRows = await repo.ee.getRoster('dhahran', 'c14', null)
+  const byPerson = supervisionHours(hoursRows)
+  check(
+    byPerson.length > 0 && byPerson.every((h) => h.students > 0),
+    'hours group by supervisor, which is the shape payroll asks for',
+  )
+  check(
+    byPerson.reduce((n, h) => n + h.students, 0) === hoursRows.length,
+    'and every candidate is counted against exactly one supervisor — nobody falls between two',
+  )
+  const c15Hours = supervisionHours(await repo.ee.getRoster('dhahran', 'c15', null))
+  check(
+    c15Hours.reduce((n, h) => n + h.missing, 0) > 0,
+    'a cohort mid-programme shows candidates NOT yet logged — a payroll run that treated those as zero would underpay somebody',
   )
 
   console.log('\n' + '='.repeat(60))
