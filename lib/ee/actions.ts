@@ -9,6 +9,7 @@ import { repo } from '../data'
 import { getSession } from '../session'
 import { assertLiveCohort } from '../cohorts'
 import { anonymityPreflight, preflightPasses } from '../anonymity'
+import { storage } from '../storage'
 import { WORD_LIMIT } from './rubric'
 
 function refresh() {
@@ -73,7 +74,16 @@ export async function setLink(
  */
 export async function submitFinal(
   studentId: string,
-  fileName: string,
+  /**
+   * The file's IDENTITY, not its bytes — the CAS pattern (lib/cas/actions.ts's
+   * addEvidence). The picker is real, the selection is real, and what is
+   * recorded — which file, of what type, how big, filed when — is real and
+   * permanent. Only the bytes go nowhere, because lib/storage.ts is a stub.
+   *
+   * When cloud storage arrives this becomes a FormData upload and storage.ts
+   * changes. THIS SIGNATURE AND THE SCREEN ABOVE IT DO NOT.
+   */
+  file: { name: string; mime: string; bytes: number },
   declaredWords: number,
   declarations: { code: boolean; anonymous: boolean; underLimit: boolean },
 ) {
@@ -98,9 +108,14 @@ export async function submitFinal(
   if (!preflightPasses(checks)) {
     return { ok: false, message: checks.find((c) => c.status === 'fail')!.detail }
   }
-  if (!fileName.trim()) return { ok: false, message: 'Choose the PDF to file.' }
+  if (!file?.name) return { ok: false, message: 'Choose the PDF to file.' }
+  // The IB takes a PDF, and a .docx filed here would be found in April by a
+  // coordinator building the upload pack, which is the worst time to find it.
+  const isPdf = file.mime === 'application/pdf' || /\.pdf$/i.test(file.name)
+  if (!isPdf) return { ok: false, message: 'The finished essay has to be a PDF.' }
 
-  await repo.ee.submitFinal(session.school.id, studentId, fileName.trim(), declaredWords)
+  const ref = await storage.put(file, { schoolId: session.school.id, studentId })
+  await repo.ee.submitFinal(session.school.id, studentId, ref.name, declaredWords, ref.key, ref.bytes)
   refresh()
   return { ok: true, message: null }
 }

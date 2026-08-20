@@ -205,6 +205,9 @@ export interface EeRepository {
     studentId: string,
     fileName: string,
     declaredWords: number,
+    /** The StorageAdapter ref. Present even while the bytes go nowhere. */
+    storageKey?: string,
+    bytes?: number,
   ): Promise<void>
   /** Reopen a filed essay. `items.unlock`, a typed reason, and it stays on the record. */
   unlockFinal(

@@ -1473,7 +1473,7 @@ export const fixtureRepository: Repository = {
       return { ok: true, problems: [] }
     },
 
-    async submitFinal(schoolId, studentId, fileName, declaredWords) {
+    async submitFinal(schoolId, studentId, fileName, declaredWords, storageKey, bytes) {
       const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
       if (!st) return
       const def = REQUIREMENT_DEFS.find(
@@ -1483,7 +1483,7 @@ export const fixtureRepository: Repository = {
       const at = todayRiyadh()
 
       const existing = EE_FINALS.find((x) => x.studentId === studentId && x.schoolId === schoolId)
-      const row: EeFinal = { schoolId, studentId, fileName, declaredWords, submittedAt: at }
+      const row: EeFinal = { schoolId, studentId, fileName, declaredWords, submittedAt: at, storageKey, bytes }
       if (existing) Object.assign(existing, row, {
         // A replacement after an unlock keeps the unlock on the record.
         unlockedBy: existing.unlockedBy, unlockedByName: existing.unlockedByName,

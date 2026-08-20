@@ -246,6 +246,9 @@ export interface EeFinal {
   schoolId: Id
   studentId: Id
   fileName: string
+  /** The StorageAdapter's opaque ref. A local path today, a bucket key tomorrow. */
+  storageKey?: string
+  bytes?: number
   /** What the STUDENT counted. Not measured — see lib/anonymity.ts. */
   declaredWords: number
   submittedAt: string

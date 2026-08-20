@@ -440,7 +440,9 @@ function SessionBlock({
  * locks it — there is no separate lock button.
  */
 function FinalPanel({ view, checkpoint }: { view: EeStudentView; checkpoint?: Checkpoint }) {
-  const [fileName, setFileName] = useState(view.final?.fileName ?? '')
+  // A REAL PICKER against a stubbed store — the CAS pattern. The bytes go
+  // nowhere yet; which file, of what type, how big and filed when are real.
+  const [file, setFile] = useState<File | null>(null)
   const [words, setWords] = useState(view.final ? String(view.final.declaredWords) : '')
   const [decl, setDecl] = useState({ code: false, anonymous: false, underLimit: false })
   const [message, setMessage] = useState<string | null>(null)
@@ -482,20 +484,25 @@ function FinalPanel({ view, checkpoint }: { view: EeStudentView; checkpoint?: Ch
         ) : (
           <>
             <div className="note gold" style={{ marginBottom: 10 }}>
-              <b>The upload itself is not built.</b> It needs cloud storage the school has not set
-              up, so the automatic check for your name, the school or your supervisor cannot read
-              your file yet. Everything else below is real and is recorded.
+              <b>Cloud storage is not connected yet, so the file itself is not kept.</b> Everything
+              else is real and permanent: which file you filed, of what type and size, when, and
+              that it is locked. The automatic check for your name, the school or your supervisor
+              needs to read the PDF, so that one is waiting too — for now it is your own check.
             </div>
 
             <div className="eetwo">
               <div>
-                <label className="fld">File name</label>
+                <label className="fld">Your finished essay — PDF only</label>
                 <input
-                  type="text"
-                  value={fileName}
-                  placeholder="Smith_EE_final.pdf"
-                  onChange={(e) => setFileName(e.target.value)}
+                  type="file"
+                  accept="application/pdf"
+                  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                 />
+                {file && (
+                  <p className="mut" style={{ fontSize: 12, margin: '6px 0 0' }}>
+                    {file.name} · {(file.size / 1024 / 1024).toFixed(1)} MB
+                  </p>
+                )}
               </div>
               <div>
                 <label className="fld">Word count — you count it, before you file</label>
@@ -539,17 +546,25 @@ function FinalPanel({ view, checkpoint }: { view: EeStudentView; checkpoint?: Ch
             <div className="row" style={{ marginTop: 12 }}>
               <button
                 className="btn pri"
-                disabled={pending}
+                disabled={pending || !file}
                 onClick={() =>
                   start(async () => {
+                    if (!file) return
                     const r = await submitFinal(
-                      view.studentId, fileName, Number(words), decl,
+                      view.studentId,
+                      {
+                        name: file.name,
+                        mime: file.type || 'application/octet-stream',
+                        bytes: file.size,
+                      },
+                      Number(words),
+                      decl,
                     )
                     setMessage(r.message)
                   })
                 }
               >
-                {pending ? 'Filing…' : 'File and lock'}
+                {pending ? 'Filing…' : '⤒ Upload and lock'}
               </button>
               <span className="mut" style={{ fontSize: 12 }}>
                 This locks the paper. Your viva voce opens once it is in.

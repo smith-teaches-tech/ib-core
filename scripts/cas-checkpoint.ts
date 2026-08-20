@@ -1769,8 +1769,12 @@ async function main() {
     'the automatic name-and-school scan reports WAITING, and waiting never blocks — the student is not to blame for storage',
   )
 
-  await repo.ee.submitFinal('dhahran', pdfStudent, 'Al-Rashid_EE.pdf', 3842)
+  await repo.ee.submitFinal('dhahran', pdfStudent, 'Al-Rashid_EE.pdf', 3842, 'stub://ee/1', 812_400)
   const filedNow = (await repo.ee.getStudentView('dhahran', pdfStudent))!
+  check(
+    filedNow.final?.storageKey === 'stub://ee/1' && filedNow.final?.bytes === 812_400,
+    'the StorageAdapter ref and the file size are recorded even while the bytes go nowhere — the record of the upload is real',
+  )
   check(
     filedNow.final?.declaredWords === 3842 && filedNow.finalLocked === true,
     'FILING IS WHAT LOCKS IT — there is no separate lock button, because an editable paper is not a fixed artefact',
@@ -1789,7 +1793,7 @@ async function main() {
     reopened.finalLocked === false && reopened.final?.unlockReason === 'Wrong file uploaded.',
     'an items.unlock holder can reopen it, and the typed reason is kept on the record',
   )
-  await repo.ee.submitFinal('dhahran', pdfStudent, 'Al-Rashid_EE_v2.pdf', 3844)
+  await repo.ee.submitFinal('dhahran', pdfStudent, 'Al-Rashid_EE_v2.pdf', 3844, 'stub://ee/2', 815_000)
   const refiled = (await repo.ee.getStudentView('dhahran', pdfStudent))!
   check(
     refiled.finalLocked === true && refiled.final?.unlockReason === 'Wrong file uploaded.',
