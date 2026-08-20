@@ -195,6 +195,25 @@ export interface EeRepository {
     body: string,
   ): Promise<void>
   listNotes(schoolId: string, studentId: string): Promise<EeSessionNote[]>
+  /**
+   * File the finished PDF. FILING IS WHAT LOCKS IT — there is no separate lock
+   * button, because a paper the student can still edit is not the fixed
+   * artefact the viva has to be about (Michael, 20 Aug).
+   */
+  submitFinal(
+    schoolId: string,
+    studentId: string,
+    fileName: string,
+    declaredWords: number,
+  ): Promise<void>
+  /** Reopen a filed essay. `items.unlock`, a typed reason, and it stays on the record. */
+  unlockFinal(
+    schoolId: string,
+    studentId: string,
+    byId: string,
+    byName: string,
+    reason: string,
+  ): Promise<void>
   /** Attach or replace a Google Doc link on ee.outline / ee.draft. */
   setLink(
     schoolId: string,

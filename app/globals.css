@@ -966,3 +966,5 @@ table.eeroster th{text-align:left;font-size:11px;letter-spacing:.04em;text-trans
 table.eeroster td{padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
 table.eeroster tr.eedrawer td{background:#fafbfc}
 .eedrawer-in{padding:6px 4px 12px}
+.eecheck{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;margin-top:5px;cursor:pointer}
+.eecheck input{margin-top:2px}

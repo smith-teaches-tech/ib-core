@@ -61,3 +61,50 @@ export function validateRegistration(reg: Partial<EeRegistration>): Registration
 /** `ee.rq` is `submitted` exactly when this is true. */
 export const registrationComplete = (reg: Partial<EeRegistration> | null | undefined): boolean =>
   reg != null && validateRegistration(reg).length === 0
+
+// ---------------------------------------------------------------------------
+// WARNINGS — a different thing from problems, deliberately
+// ---------------------------------------------------------------------------
+
+/**
+ * A warning is NOT a problem, and the two must not share a channel.
+ *
+ * A problem stops the save: the registration would be rejected by IBIS, so
+ * storing it would put a known-bad record in the system. A warning is a fact
+ * the school should know and act on — the registration is perfectly valid and
+ * the essay may well go ahead.
+ *
+ * Michael, 20 Aug: "we need a teacher at the school who can help a student with
+ * an EE (so no theatre teacher means no EE in that subject… just a warning, not
+ * a blocker — EE sup will oversee this)."
+ *
+ * That is exactly right, and it is why this is a second return channel rather
+ * than a flag on RegistrationProblem. A student who has found an outside expert,
+ * or a school about to hire, or a coordinator who will supervise it themselves —
+ * all of those are legitimate, and none of them should be argued with by a form.
+ */
+export interface RegistrationWarning {
+  subject: string
+  message: string
+}
+
+/**
+ * DERIVED, never stored. `supported` is the set of DP subjects somebody at the
+ * school actually teaches — so if a Theatre teacher joins in September, the
+ * warning disappears on its own, and if one leaves, it appears. A stored flag
+ * would have to be maintained by a human who will not remember.
+ */
+export function subjectWarnings(
+  subjects: string[],
+  supported: Set<string> | string[],
+): RegistrationWarning[] {
+  const have = supported instanceof Set ? supported : new Set(supported)
+  return subjects
+    .filter((k) => !have.has(k))
+    .map((k) => ({
+      subject: k,
+      message:
+        'Nobody at the school currently teaches this subject, so there may be no one to supervise it. ' +
+        'You can still register — your EE coordinator will find you a supervisor.',
+    }))
+}

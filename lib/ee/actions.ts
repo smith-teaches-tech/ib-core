@@ -8,6 +8,8 @@ import { revalidatePath } from 'next/cache'
 import { repo } from '../data'
 import { getSession } from '../session'
 import { assertLiveCohort } from '../cohorts'
+import { anonymityPreflight, preflightPasses } from '../anonymity'
+import { WORD_LIMIT } from './rubric'
 
 function refresh() {
   revalidatePath('/', 'layout')
@@ -57,6 +59,66 @@ export async function setLink(
     return { ok: false, message: 'Paste the full link, starting with https://' }
   }
   await repo.ee.setLink(session.school.id, studentId, stage, trimmed, label)
+  refresh()
+  return { ok: true, message: null }
+}
+
+/**
+ * FILE THE FINISHED ESSAY.
+ *
+ * The pre-flight runs on the SERVER as well as on the screen. The screen's copy
+ * is courtesy — it tells a student what is wrong before they press the button —
+ * and this one is the guarantee. `waiting` checks never block: a student cannot
+ * be held back because the school has not bought cloud storage.
+ */
+export async function submitFinal(
+  studentId: string,
+  fileName: string,
+  declaredWords: number,
+  declarations: { code: boolean; anonymous: boolean; underLimit: boolean },
+) {
+  const { session } = await asOwner(studentId)
+
+  const view = await repo.ee.getStudentView(session.school.id, studentId)
+  if (view?.finalLocked) {
+    return {
+      ok: false,
+      message: 'Your essay is filed and locked. Ask your EE coordinator to reopen it.',
+    }
+  }
+
+  const track = await repo.getTrack(session.school.id, studentId, { includeIdentifiers: true })
+  const checks = anonymityPreflight({
+    personalCode: track?.student.personalCode ?? null,
+    identifiersState: track?.student.identifiersState ?? 'missing',
+    declaredWords: Number.isFinite(declaredWords) ? declaredWords : null,
+    wordLimit: WORD_LIMIT,
+    declarations,
+  })
+  if (!preflightPasses(checks)) {
+    return { ok: false, message: checks.find((c) => c.status === 'fail')!.detail }
+  }
+  if (!fileName.trim()) return { ok: false, message: 'Choose the PDF to file.' }
+
+  await repo.ee.submitFinal(session.school.id, studentId, fileName.trim(), declaredWords)
+  refresh()
+  return { ok: true, message: null }
+}
+
+/**
+ * Reopen a filed essay — `items.unlock`, the same capability CAS and IA marks
+ * use, with a typed reason that is kept rather than erased by the next upload.
+ * Who reopened a finished paper, and why, is exactly what an authenticity
+ * question asks six months later.
+ */
+export async function unlockFinal(studentId: string, reason: string) {
+  const session = await getSession()
+  if (!session.can('items.unlock')) throw new Error('You cannot reopen a filed essay.')
+  if (!reason.trim()) return { ok: false, message: 'A reason is required to reopen a filed essay.' }
+  assertLiveCohort(await repo.setup.cohortOf(session.school.id, { studentId }))
+  await repo.ee.unlockFinal(
+    session.school.id, studentId, session.user.id, session.user.name, reason.trim(),
+  )
   refresh()
   return { ok: true, message: null }
 }

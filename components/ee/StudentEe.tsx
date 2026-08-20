@@ -17,7 +17,8 @@ import type { Checkpoint } from '@/lib/types'
 import type { EeSessionNote, EeStudentView, SessionStage } from '@/lib/ee/types'
 import { INTERDISCIPLINARY_FRAMEWORKS, WORD_COUNT_RULES, WORD_LIMIT } from '@/lib/ee/rubric'
 import { DP_SUBJECTS, GROUP_NAMES, subjectName } from '@/lib/ee/subjects'
-import { addSessionNote, saveRegistration, setLink } from '@/lib/ee/actions'
+import { addSessionNote, saveRegistration, setLink, submitFinal } from '@/lib/ee/actions'
+import { subjectWarnings } from '@/lib/ee/registration'
 
 const SESSIONS: { stage: SessionStage; label: string; key: string }[] = [
   { stage: 'r1', label: 'Reflection session 1', key: 'ee.r1' },
@@ -96,6 +97,11 @@ export default function StudentEe({
         checkpoint={checkpoints.find((c) => c.def.key === 'ee.draft')}
       />
 
+      {/* DIRECTLY UNDER THE DRAFT, and before the sessions — the order on this
+          page is the order of the work, and the finished PDF comes in before
+          the viva so the supervisor can read it first. */}
+      <FinalPanel view={view} checkpoint={checkpoints.find((c) => c.def.key === 'ee.final')} />
+
       <Sessions view={view} checkpoints={checkpoints} />
       <RpfPanel view={view} />
     </>
@@ -117,6 +123,12 @@ function Registration({ view }: { view: EeStudentView }) {
 
   const complete = reg != null && problems.length === 0
   const problemFor = (f: string) => problems.find((p) => p.field === f)?.message
+  // Computed from what is CURRENTLY chosen, not from what was saved — a student
+  // should see this while deciding, not after committing.
+  const warnings = subjectWarnings(
+    (second ? subjects.slice(0, 2) : subjects.slice(0, 1)).filter(Boolean),
+    view.supportedSubjects,
+  )
 
   const setAt = (i: number, value: string) =>
     setSubjects((prev) => {
@@ -152,6 +164,7 @@ function Registration({ view }: { view: EeStudentView }) {
             <SubjectSelect
               value={subjects[0] ?? ''}
               likely={view.likelySubjects}
+              supported={view.supportedSubjects}
               onChange={(v) => setAt(0, v)}
             />
           </div>
@@ -169,12 +182,18 @@ function Registration({ view }: { view: EeStudentView }) {
               <SubjectSelect
                 value={subjects[1] ?? ''}
                 likely={view.likelySubjects}
+                supported={view.supportedSubjects}
                 onChange={(v) => setAt(1, v)}
               />
             )}
           </div>
         </div>
         {problemFor('subjects') && <div className="note warn">{problemFor('subjects')}</div>}
+        {warnings.map((w) => (
+          <div key={w.subject} className="note" style={{ marginTop: 8 }}>
+            <b>{subjectName(w.subject)}:</b> {w.message}
+          </div>
+        ))}
 
         {second && (
           <div style={{ marginTop: 10 }}>
@@ -222,28 +241,36 @@ function Registration({ view }: { view: EeStudentView }) {
 function SubjectSelect({
   value,
   likely,
+  supported,
   onChange,
 }: {
   value: string
   likely: string[]
+  /** Subjects somebody here teaches. Annotates the list; never filters it. */
+  supported: string[]
   onChange: (v: string) => void
 }) {
   const rest = DP_SUBJECTS.filter((s) => !likely.includes(s.key))
   const groups = [...new Set(rest.map((s) => s.group))].sort()
+  const have = new Set(supported)
+  // The annotation matters more than the warning underneath: a student should
+  // learn this while scanning the list, not after committing to a choice.
+  const label = (key: string, name: string) =>
+    have.has(key) ? name : `${name} — no supervisor here yet`
   return (
     <select value={value} onChange={(e) => onChange(e.target.value)}>
       <option value="">Choose a subject…</option>
       {likely.length > 0 && (
         <optgroup label="Your subjects">
           {likely.map((k) => (
-            <option key={k} value={k}>{subjectName(k)}</option>
+            <option key={k} value={k}>{label(k, subjectName(k))}</option>
           ))}
         </optgroup>
       )}
       {groups.map((g) => (
         <optgroup key={g} label={GROUP_NAMES[g]}>
           {rest.filter((s) => s.group === g).map((s) => (
-            <option key={s.key} value={s.key}>{s.name}</option>
+            <option key={s.key} value={s.key}>{label(s.key, s.name)}</option>
           ))}
         </optgroup>
       ))}
@@ -397,6 +424,140 @@ function SessionBlock({
         >
           Add
         </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- final PDF
+
+/**
+ * THE FINISHED ESSAY.
+ *
+ * Why a PDF and not another Google Doc link, in the student's own terms: a link
+ * is a live document. Filing a PDF fixes the paper, so the essay the supervisor
+ * reads before the viva is the essay that is marked afterwards. Filing is what
+ * locks it — there is no separate lock button.
+ */
+function FinalPanel({ view, checkpoint }: { view: EeStudentView; checkpoint?: Checkpoint }) {
+  const [fileName, setFileName] = useState(view.final?.fileName ?? '')
+  const [words, setWords] = useState(view.final ? String(view.final.declaredWords) : '')
+  const [decl, setDecl] = useState({ code: false, anonymous: false, underLimit: false })
+  const [message, setMessage] = useState<string | null>(null)
+  const [pending, start] = useTransition()
+
+  const filed = view.final != null
+  const locked = view.finalLocked
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <h2>Finished essay (PDF)</h2>
+        <span className="spacer" />
+        {locked && <span className="pill ok">🔒 filed and locked</span>}
+        {!filed && checkpoint?.due && (
+          <span className="mut" style={{ fontSize: 12 }}>due {checkpoint.due.dueAt}</span>
+        )}
+      </div>
+      <div className="panel-b">
+        <div className="note" style={{ marginBottom: 10 }}>
+          <b>This goes in before your viva voce.</b> Your supervisor reads it to prepare, and
+          filing it fixes the paper — so the essay they read is the essay that gets marked. It
+          cannot be changed afterwards without your EE coordinator reopening it.
+        </div>
+
+        {locked ? (
+          <>
+            <p style={{ marginTop: 0 }}>
+              <b>{view.final!.fileName}</b> · {view.final!.declaredWords.toLocaleString()} words ·
+              filed {view.final!.submittedAt}
+            </p>
+            {view.final!.unlockReason && (
+              <div className="note warn">
+                Reopened by {view.final!.unlockedByName} on {view.final!.unlockedAt} —{' '}
+                {view.final!.unlockReason}
+              </div>
+            )}
+          </>
+        ) : (
+          <>
+            <div className="note gold" style={{ marginBottom: 10 }}>
+              <b>The upload itself is not built.</b> It needs cloud storage the school has not set
+              up, so the automatic check for your name, the school or your supervisor cannot read
+              your file yet. Everything else below is real and is recorded.
+            </div>
+
+            <div className="eetwo">
+              <div>
+                <label className="fld">File name</label>
+                <input
+                  type="text"
+                  value={fileName}
+                  placeholder="Smith_EE_final.pdf"
+                  onChange={(e) => setFileName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="fld">Word count — you count it, before you file</label>
+                <input
+                  type="number"
+                  value={words}
+                  placeholder="3800"
+                  onChange={(e) => setWords(e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div style={{ marginTop: 12 }}>
+              <span className="caps">Before you file</span>
+              <label className="eecheck">
+                <input
+                  type="checkbox"
+                  checked={decl.code}
+                  onChange={(e) => setDecl({ ...decl, code: e.target.checked })}
+                />
+                My candidate personal code is on the title page
+              </label>
+              <label className="eecheck">
+                <input
+                  type="checkbox"
+                  checked={decl.anonymous}
+                  onChange={(e) => setDecl({ ...decl, anonymous: e.target.checked })}
+                />
+                My name, candidate number, school and supervisor appear nowhere in the PDF
+              </label>
+              <label className="eecheck">
+                <input
+                  type="checkbox"
+                  checked={decl.underLimit}
+                  onChange={(e) => setDecl({ ...decl, underLimit: e.target.checked })}
+                />
+                The essay is under {WORD_LIMIT.toLocaleString()} words
+              </label>
+            </div>
+
+            <div className="row" style={{ marginTop: 12 }}>
+              <button
+                className="btn pri"
+                disabled={pending}
+                onClick={() =>
+                  start(async () => {
+                    const r = await submitFinal(
+                      view.studentId, fileName, Number(words), decl,
+                    )
+                    setMessage(r.message)
+                  })
+                }
+              >
+                {pending ? 'Filing…' : 'File and lock'}
+              </button>
+              <span className="mut" style={{ fontSize: 12 }}>
+                This locks the paper. Your viva voce opens once it is in.
+              </span>
+            </div>
+            {message && <div className="note warn" style={{ marginTop: 8 }}>{message}</div>}
+          </>
+        )}
       </div>
     </div>
   )

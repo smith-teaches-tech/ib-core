@@ -34,7 +34,9 @@ import { EE_CRITERIA, EE_MARK_MAX } from '../ee/rubric'
 import { registrationComplete, validateRegistration } from '../ee/registration'
 import { subjectForCourse } from '../ee/subjects'
 import { deriveEeSessionStates } from '../ee/derive'
-import type { EeRegistration, EeRosterRow, EeSession, EeSessionNote, SessionStage } from '../ee/types'
+import type {
+  EeFinal, EeRegistration, EeRosterRow, EeSession, EeSessionNote, SessionStage,
+} from '../ee/types'
 import { todayRiyadh } from './dates'
 import { sortCohorts } from '../cohorts'
 
@@ -414,7 +416,12 @@ function buildDefs(cohortId: string): RequirementDef[] {
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.draft', label: 'Full draft', lane: 'Extended Essay', recordedBy: 'student', artifact: 'link' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r2', label: 'Reflection session 2', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.final', label: 'Final essay', lane: 'Extended Essay', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
-    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.viva', label: 'Viva voce (reflection session 3)', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
+    // THE VIVA CANNOT PRECEDE THE FINISHED ESSAY. Michael, 20 Aug: the final
+    // PDF goes in BEFORE the viva so the supervisor can prepare for it, and the
+    // PDF is what stops the paper changing on either side of that conversation.
+    // `opensAfter` makes the sequence part of the record rather than a
+    // convention people remember — and it renders as locked, never as overdue.
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.viva', label: 'Viva voce (reflection session 3)', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text', opensAfter: 'ee.final' }),
     // The fix for the endless student list: the RPF cannot be actionable before the viva.
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.rpf', label: 'RPF — reflection statement', lane: 'Extended Essay', recordedBy: 'student', artifact: 'text', exportTarget: 'ecoursework', opensAfter: 'ee.viva' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.attest', label: 'Supervisor attestation', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'none' }),
@@ -659,6 +666,21 @@ export const EE_REGISTRATIONS: EeRegistration[] = pinned('ibEeRegistrations', ()
       .find((k) => k != null && k !== chosenKey)
     const interdisciplinary = s.userId === 'st04' && secondKey != null
 
+    // ONE STUDENT REGISTERED IN A SUBJECT NOBODY HERE TEACHES. Michael, 20 Aug:
+    // no theatre teacher means no theatre EE — a warning, not a blocker. Without
+    // this fixture the warning path is written but never walked, and a warning
+    // nobody has seen is a warning nobody knows is broken.
+    if (s.userId === 'st07') {
+      out.push({
+        schoolId: s.schoolId, cohortId: s.cohortId, studentId: s.userId,
+        subjects: ['film'], framework: null,
+        researchQuestion: 'How does Denis Villeneuve use sound design to convey scale in Dune (2021)?',
+        title: 'Sound as scale in Villeneuve\u2019s Dune',
+        updatedAt: '2026-05-11', updatedBy: s.userId,
+      })
+      continue
+    }
+
     out.push({
       schoolId: s.schoolId,
       cohortId: s.cohortId,
@@ -714,6 +736,21 @@ export const EE_SESSIONS: EeSession[] = pinned('ibEeSessions', () => {
   }
   return out
 })
+
+/**
+ * FINISHED ESSAYS. The graduated cohort filed theirs; the Class of 2027's is
+ * due 13 November and not one of them has, which is why their upload pack
+ * correctly reads zero ready.
+ */
+export const EE_FINALS: EeFinal[] = pinned('ibEeFinals', () =>
+  STUDENTS.filter((s) => s.cohortId === 'c14').map((s) => ({
+    schoolId: s.schoolId,
+    studentId: s.userId,
+    fileName: `${s.personalCode ?? 'no-code'}_EE.pdf`,
+    declaredWords: 3600 + ((s.userId.charCodeAt(s.userId.length - 1) * 37) % 380),
+    submittedAt: '2025-11-14',
+  })),
+)
 
 export const EE_SESSION_NOTES: EeSessionNote[] = pinned('ibEeSessionNotes', () => [
   {
@@ -787,8 +824,18 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
               recordedBy: 'H. Adeyemi',
               lockedAt: '2026-02-20T09:00:00.000Z',
             })
-          } else if (stage === 'final' || stage === 'rpf') {
-            put('submitted', '2026-01-30', { exportStatus: 'submitted', recordedBy: 'H. Adeyemi' })
+          } else if (stage === 'final') {
+            // Filed, and LOCKED by the filing — see EeFinal's file note.
+            put('submitted', '2025-11-14', {
+              exportStatus: 'submitted', recordedBy: 'student',
+              lockedAt: '2025-11-14T09:00:00.000Z',
+              artifacts: [{
+                id: `art_final_${s.userId}`, kind: 'file',
+                label: `${s.personalCode ?? 'no-code'}_EE.pdf`, addedAt: '2025-11-14',
+              }],
+            })
+          } else if (stage === 'rpf') {
+            put('submitted', '2026-01-30', { exportStatus: 'submitted', recordedBy: 'student' })
           } else if (stage === 'r1' || stage === 'r2' || stage === 'viva') {
             // Derived from EE_SESSIONS, never stored.
           } else {
@@ -1065,6 +1112,56 @@ const casRepository = makeCasRepository({
 
 // ---------------------------------------------------------------------------
 
+/**
+ * WHICH DP SUBJECTS THE SCHOOL CAN PLAUSIBLY SUPERVISE — derived, never configured.
+ *
+ * Michael, 20 Aug: no theatre teacher means no theatre EE — as a WARNING, not a
+ * blocker. Deriving it means a subject the school picks up next year clears its
+ * own warning, and one it drops raises one. A stored list would have to be
+ * maintained by somebody who will not remember to.
+ *
+ * IT READS "DOES THE SCHOOL RUN THIS COURSE?", NOT "IS A TEACHER ASSIGNED?"
+ * The sharper signal would be a named teaching assignment, and that is the one
+ * this originally used — but the assignment table is deliberately sparse in the
+ * fixtures (it exists to exercise marker permissions, not to staff a school),
+ * so it reported that nobody at ISG teaches mathematics. A warning that fires on
+ * seventeen of twenty-four candidates is not a warning, it is furniture, and the
+ * failure mode of the coarser signal is a warning that does not fire when a
+ * teacher leaves — which the coordinator would notice anyway, because they are
+ * the one finding the supervisor.
+ *
+ * Move to teaching assignments when the assignment table describes a real
+ * staffing picture. Nothing above this line changes when it does.
+ */
+/**
+ * A filed essay is LOCKED unless somebody with `items.unlock` has reopened it.
+ * The lock lives on the RequirementState (`lockedAt`, already in the spine and
+ * already used by IA marks) rather than on EeFinal, so every module that asks
+ * "may this be changed?" asks it of the same field.
+ */
+function finalIsLocked(schoolId: string, studentId: string): boolean {
+  const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+  if (!st) return false
+  const def = REQUIREMENT_DEFS.find(
+    (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === 'ee.final',
+  )
+  if (!def) return false
+  const state = REQUIREMENT_STATES.find(
+    (x) => x.studentId === studentId && x.requirementDefId === def.id,
+  )
+  return state?.lockedAt != null
+}
+
+function supportedSubjectKeys(schoolId: string): string[] {
+  const out = new Set<string>()
+  for (const section of SECTIONS) {
+    if (section.schoolId !== schoolId) continue
+    const key = subjectForCourse(section.courseId)
+    if (key) out.add(key)
+  }
+  return [...out]
+}
+
 const roleOf = (userId: string, schoolId: string) =>
   MEMBERSHIPS.find((m) => m.userId === userId && m.schoolId === schoolId)?.roles ?? []
 
@@ -1268,6 +1365,9 @@ export const fixtureRepository: Repository = {
         notes: EE_SESSION_NOTES.filter(
           (x) => x.studentId === studentId && x.schoolId === schoolId,
         ).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+        supportedSubjects: supportedSubjectKeys(schoolId),
+        final: EE_FINALS.find((x) => x.studentId === studentId && x.schoolId === schoolId) ?? null,
+        finalLocked: finalIsLocked(schoolId, studentId),
         // The RPF PANEL is always shown; the WRITING is what the viva gates.
         rpfOpen: EE_SESSIONS.some(
           (x) => x.studentId === studentId && x.schoolId === schoolId && x.stage === 'viva',
@@ -1276,6 +1376,7 @@ export const fixtureRepository: Repository = {
     },
 
     async getRoster(schoolId, cohortId, forUserId) {
+      const supported = new Set(supportedSubjectKeys(schoolId))
       const fallback = eeCoordinatorId(schoolId, MEMBERSHIPS)
       const sup = EE_SUPERVISION.filter((s) => s.schoolId === schoolId)
       const rows: EeRosterRow[] = []
@@ -1300,6 +1401,10 @@ export const fixtureRepository: Repository = {
           notes: EE_SESSION_NOTES.filter(
             (x) => x.studentId === st.userId && x.schoolId === schoolId,
           ).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+          unsupportedSubjects: (
+            EE_REGISTRATIONS.find((r2) => r2.studentId === st.userId)?.subjects ?? []
+          ).filter((k) => !supported.has(k)),
+          final: EE_FINALS.find((x) => x.studentId === st.userId && x.schoolId === schoolId) ?? null,
         })
       }
       return rows.sort((a, b) => a.studentName.localeCompare(b.studentName))
@@ -1366,6 +1471,67 @@ export const fixtureRepository: Repository = {
         })
       }
       return { ok: true, problems: [] }
+    },
+
+    async submitFinal(schoolId, studentId, fileName, declaredWords) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return
+      const def = REQUIREMENT_DEFS.find(
+        (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === 'ee.final',
+      )
+      if (!def) return
+      const at = todayRiyadh()
+
+      const existing = EE_FINALS.find((x) => x.studentId === studentId && x.schoolId === schoolId)
+      const row: EeFinal = { schoolId, studentId, fileName, declaredWords, submittedAt: at }
+      if (existing) Object.assign(existing, row, {
+        // A replacement after an unlock keeps the unlock on the record.
+        unlockedBy: existing.unlockedBy, unlockedByName: existing.unlockedByName,
+        unlockReason: existing.unlockReason, unlockedAt: existing.unlockedAt,
+      })
+      else EE_FINALS.push(row)
+
+      const state = REQUIREMENT_STATES.find(
+        (x) => x.studentId === studentId && x.requirementDefId === def.id,
+      )
+      // FILING IS WHAT LOCKS IT. There is no separate "lock" button, because a
+      // paper the student can still change is not the fixed artefact the viva
+      // needs to be about.
+      const lockedAt = new Date(`${at}T00:00:00.000Z`).toISOString()
+      if (state) {
+        state.recordStatus = 'submitted'
+        state.recordedAt = at
+        state.lockedAt = lockedAt
+        state.artifacts = [{ id: `art_final_${studentId}`, kind: 'file', label: fileName, addedAt: at }]
+      } else {
+        REQUIREMENT_STATES.push({
+          studentId, requirementDefId: def.id, schoolId,
+          recordStatus: 'submitted', recordedAt: at, recordedBy: studentId, lockedAt,
+          artifacts: [{ id: `art_final_${studentId}`, kind: 'file', label: fileName, addedAt: at }],
+        })
+      }
+    },
+
+    async unlockFinal(schoolId, studentId, byId, byName, reason) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return
+      const def = REQUIREMENT_DEFS.find(
+        (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === 'ee.final',
+      )
+      if (!def) return
+      const state = REQUIREMENT_STATES.find(
+        (x) => x.studentId === studentId && x.requirementDefId === def.id,
+      )
+      if (state) delete state.lockedAt
+      const row = EE_FINALS.find((x) => x.studentId === studentId && x.schoolId === schoolId)
+      if (row) {
+        // The unlock is kept, not erased by the next upload. Who reopened a
+        // finished paper, and why, is exactly what an authenticity question asks.
+        row.unlockedBy = byId
+        row.unlockedByName = byName
+        row.unlockReason = reason
+        row.unlockedAt = todayRiyadh()
+      }
     },
 
     async setLink(schoolId, studentId, stage, href, label) {

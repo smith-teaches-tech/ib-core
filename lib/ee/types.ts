@@ -115,6 +115,13 @@ export interface EeStudentView {
    * subject list is always available beneath it (lib/ee/subjects.ts).
    */
   likelySubjects: string[]
+  /**
+   * DP subjects somebody at the school actually teaches — derived from teaching
+   * assignments. Used to WARN, never to filter the list: a subject nobody
+   * teaches is a supervision problem for the coordinator to solve, not a
+   * registration the system should refuse.
+   */
+  supportedSubjects: string[]
   /** The three reflection sessions, recorded or not. */
   sessions: EeSession[]
   notes: EeSessionNote[]
@@ -123,6 +130,10 @@ export interface EeStudentView {
    * visible so a student knows it is coming — it is the writing that is gated.
    */
   rpfOpen: boolean
+  /** The finished essay, if it has been filed. */
+  final: EeFinal | null
+  /** Locked once filed; only an `items.unlock` holder reopens it. */
+  finalLocked: boolean
 }
 
 export interface EeRosterRow {
@@ -139,6 +150,13 @@ export interface EeRosterRow {
   /** The three sessions and BOTH sides' notes — the supervisor sees the student's too. */
   sessions: EeSession[]
   notes: EeSessionNote[]
+  /**
+   * Registered subjects nobody at the school teaches. The EE coordinator's
+   * worklist: these candidates need a supervisor found for them.
+   */
+  unsupportedSubjects: string[]
+  /** The finished essay, so a supervisor can see it is in before the viva. */
+  final: EeFinal | null
 }
 
 // ---------------------------------------------------------------------------
@@ -199,4 +217,41 @@ export interface EeSessionNote {
   authorName: string
   body: string
   createdAt: string
+}
+
+// ---------------------------------------------------------------------------
+// The finished essay
+// ---------------------------------------------------------------------------
+
+/**
+ * THE FINAL PDF — and the lock that is the point of it.
+ *
+ * Michael, 20 Aug: "Final PDF goes in before viva voce so teacher can get ready
+ * for viva voce… This is to lock the paper so that it is not changed before/
+ * after the viva voce."
+ *
+ * That is the whole reason the essay stops being a Google Doc link at this
+ * step. A link is a live document: it can be edited the night before the viva,
+ * or the night after, and the version the supervisor read is gone. A PDF filed
+ * here is a fixed artefact, and `ee.viva` carries `opensAfter: 'ee.final'` so
+ * the sequence is in the record rather than in everyone's memory.
+ *
+ * WHY THIS IS A STORED RequirementState AND NOT DERIVED, unlike the sessions:
+ * the export module WRITES to `ee.final` — `setJobSubmitted` stamps
+ * `exportStatus` onto it when the pack goes to eCoursework. A derived state
+ * cannot carry another module's write. So the state is the record and this
+ * table carries the detail beside it.
+ */
+export interface EeFinal {
+  schoolId: Id
+  studentId: Id
+  fileName: string
+  /** What the STUDENT counted. Not measured — see lib/anonymity.ts. */
+  declaredWords: number
+  submittedAt: string
+  /** Cleared only by an `items.unlock` holder, with a typed reason. */
+  unlockedBy?: Id
+  unlockedByName?: string
+  unlockReason?: string
+  unlockedAt?: string
 }

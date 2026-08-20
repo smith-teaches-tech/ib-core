@@ -26,6 +26,9 @@ export default function EeRoster({
 }) {
   const [open, setOpen] = useState<string | null>(null)
   const unallocated = rows.filter((r) => r.supervisor?.acting).length
+  // Michael, 20 Aug: no theatre teacher means no theatre EE — a warning the EE
+  // coordinator oversees, so it belongs at the top of their list, not buried.
+  const needSupervisor = rows.filter((r) => r.unsupportedSubjects.length > 0)
 
   return (
     <>
@@ -37,6 +40,25 @@ export default function EeRoster({
           : `${rows.length} candidates`}
         {scope === 'all' && unallocated > 0 && ` · ${unallocated} not yet allocated`}
       </p>
+
+      {needSupervisor.length > 0 && (
+        <div className="note" style={{ marginBottom: 14 }}>
+          <b>
+            {needSupervisor.length}{' '}
+            {needSupervisor.length === 1 ? 'candidate has' : 'candidates have'} registered in a
+            subject nobody here teaches.
+          </b>{' '}
+          Not a problem with the registration — it needs a supervisor found, which is yours to
+          arrange.
+          <div style={{ marginTop: 6 }}>
+            {needSupervisor.map((r) => (
+              <div key={r.studentId} className="mut" style={{ fontSize: 12.5 }}>
+                {r.studentName} — {r.unsupportedSubjects.map(subjectName).join(', ')}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="panel">
         <div className="panel-b" style={{ padding: 0 }}>
@@ -98,6 +120,14 @@ function Row({
           {row.registration?.subjects.length ? (
             <>
               {row.registration.subjects.map(subjectName).join(' + ')}
+              {row.unsupportedSubjects.length > 0 && (
+                <span
+                  className="pill warn"
+                  title="Nobody at the school teaches this — a supervisor needs finding"
+                >
+                  no supervisor here
+                </span>
+              )}
               {row.registration.framework && (
                 <div className="mut" style={{ fontSize: 11.5 }}>{row.registration.framework}</div>
               )}

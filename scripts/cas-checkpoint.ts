@@ -27,8 +27,9 @@ import { attestationLabel, eeCoordinatorId, supervisorFor } from '../lib/ee/supe
 import { casWindow } from '../lib/cas/window'
 import { EE_REGISTRATIONS } from '../lib/data/fixtures'
 import { BAND_PROVENANCE, EE_CRITERIA, boundariesAreOfficial, indicativeGrade } from '../lib/ee/rubric'
-import { registrationComplete, validateRegistration } from '../lib/ee/registration'
+import { registrationComplete, subjectWarnings, validateRegistration } from '../lib/ee/registration'
 import { DP_SUBJECTS, isDpSubject, subjectForCourse } from '../lib/ee/subjects'
+import { anonymityPreflight, preflightPasses } from '../lib/anonymity'
 import { DEADLINES } from '../lib/data/fixtures'
 import { matchSessionNumbers } from '../lib/ia/sample'
 import { iaTotal, templateOf } from '../lib/templates'
@@ -1661,6 +1662,144 @@ async function main() {
   check(
     eeView1.sessions.find((x) => x.stage === 'viva')?.onBehalf === true,
     'the record says a coordinator filed it, not the supervisor — a different fact, kept as one',
+  )
+
+  console.log('\n13h. No teacher for that subject — a warning, never a blocker')
+
+  const filmView = (await repo.ee.getStudentView('dhahran', 'st07'))!
+  check(
+    filmView.registration?.subjects[0] === 'film',
+    'a fixture candidate is registered in Film, which ISG does not teach — the path is walked, not merely written',
+  )
+  check(
+    !filmView.supportedSubjects.includes('film') &&
+      !filmView.supportedSubjects.includes('theatre') &&
+      ['biology', 'maths_aa', 'psychology'].every((k) => filmView.supportedSubjects.includes(k)),
+    'supported subjects are DERIVED from what the school runs — Biology, Maths and Psychology in; Film and Theatre out',
+  )
+  check(
+    subjectWarnings(['film'], filmView.supportedSubjects).length === 1 &&
+      subjectWarnings(['biology'], filmView.supportedSubjects).length === 0,
+    'so Film warns and Biology does not',
+  )
+  check(
+    validateRegistration(filmView.registration!).length === 0,
+    'and the registration is VALID — a warning travels on a different channel from a problem',
+  )
+
+  // The load-bearing one: the save must go through.
+  const saveFilm = await repo.ee.saveRegistration('dhahran', 'c15', 'st07', {
+    subjects: ['theatre'], framework: null,
+    researchQuestion: filmView.registration!.researchQuestion,
+    title: filmView.registration!.title,
+  })
+  check(
+    saveFilm.ok && saveFilm.problems.length === 0,
+    'saving a subject nobody teaches SUCCEEDS — the school decides who supervises, not the form',
+  )
+  const roster13h = await repo.ee.getRoster('dhahran', 'c15', null)
+  check(
+    roster13h.find((r2) => r2.studentId === 'st07')?.unsupportedSubjects.includes('theatre') === true,
+    'and it surfaces on the coordinator\u2019s roster, which is who Michael said would oversee it',
+  )
+  const flagged = roster13h.filter((r2) => r2.unsupportedSubjects.length > 0)
+  check(
+    flagged.length === 1,
+    'exactly one candidate needs a supervisor found — the warning is specific, not a blanket',
+  )
+  // Put the fixture back.
+  await repo.ee.saveRegistration('dhahran', 'c15', 'st07', {
+    subjects: ['film'], framework: null,
+    researchQuestion: filmView.registration!.researchQuestion,
+    title: filmView.registration!.title,
+  })
+
+  console.log('\n13i. The finished PDF — the sequence, and the lock')
+
+  const finalDef15 = eeDefs15.find((d) => d.key === 'ee.final')!
+  check(
+    finalDef15.order < vivaDef.order && vivaDef.order < rpfDef.order,
+    'the essay comes before the viva, and the viva before the RPF — the order is in the defs',
+  )
+  check(
+    vivaDef.opensAfter === 'ee.final' && rpfDef.opensAfter === 'ee.viva',
+    'and it is ENFORCED by opensAfter, not left to everyone remembering it',
+  )
+
+  const pdfStudent = 'st02'
+  const notFiled = (await repo.ee.getStudentView('dhahran', pdfStudent))!
+  check(
+    notFiled.final == null && notFiled.finalLocked === false,
+    'a Class of 2027 candidate has not filed — their essay is due in November',
+  )
+  const laneA = (await repo.getTrack('dhahran', pdfStudent))!
+    .lanes.find((l) => l.lane === 'Extended Essay')!
+  check(
+    laneA.checkpoints.find((cp) => cp.def.id === vivaDef.id)!.display === 'future',
+    'so their viva reads LOCKED — a viva cannot precede the paper it is about',
+  )
+
+  const goodDecl = { code: true, anonymous: true, underLimit: true }
+  check(
+    preflightPasses(anonymityPreflight({
+      personalCode: 'p117', identifiersState: 'confirmed',
+      declaredWords: 3900, wordLimit: 4000, declarations: goodDecl,
+    })),
+    'the pre-flight passes on a confirmed code, a count under the limit and three ticks',
+  )
+  check(
+    !preflightPasses(anonymityPreflight({
+      personalCode: 'p117', identifiersState: 'unconfirmed',
+      declaredWords: 3900, wordLimit: 4000, declarations: goodDecl,
+    })),
+    'an UNCONFIRMED personal code fails it — an unconfirmed code is inert and is never stamped on work',
+  )
+  check(
+    !preflightPasses(anonymityPreflight({
+      personalCode: 'p117', identifiersState: 'confirmed',
+      declaredWords: 4200, wordLimit: 4000, declarations: goodDecl,
+    })),
+    'and so does a declared count over the limit',
+  )
+  check(
+    anonymityPreflight({
+      personalCode: 'p117', identifiersState: 'confirmed',
+      declaredWords: 3900, wordLimit: 4000, declarations: goodDecl,
+    }).some((c) => c.status === 'waiting'),
+    'the automatic name-and-school scan reports WAITING, and waiting never blocks — the student is not to blame for storage',
+  )
+
+  await repo.ee.submitFinal('dhahran', pdfStudent, 'Al-Rashid_EE.pdf', 3842)
+  const filedNow = (await repo.ee.getStudentView('dhahran', pdfStudent))!
+  check(
+    filedNow.final?.declaredWords === 3842 && filedNow.finalLocked === true,
+    'FILING IS WHAT LOCKS IT — there is no separate lock button, because an editable paper is not a fixed artefact',
+  )
+  const laneB = (await repo.getTrack('dhahran', pdfStudent))!
+    .lanes.find((l) => l.lane === 'Extended Essay')!
+  check(
+    laneB.checkpoints.find((cp) => cp.def.id === finalDef15.id)!.display === 'done' &&
+      laneB.checkpoints.find((cp) => cp.def.id === vivaDef.id)!.display !== 'future',
+    'and filing opens the viva — the supervisor can now hold it, with the paper in front of them',
+  )
+
+  await repo.ee.unlockFinal('dhahran', pdfStudent, 'u_msmith', 'Michael Smith', 'Wrong file uploaded.')
+  const reopened = (await repo.ee.getStudentView('dhahran', pdfStudent))!
+  check(
+    reopened.finalLocked === false && reopened.final?.unlockReason === 'Wrong file uploaded.',
+    'an items.unlock holder can reopen it, and the typed reason is kept on the record',
+  )
+  await repo.ee.submitFinal('dhahran', pdfStudent, 'Al-Rashid_EE_v2.pdf', 3844)
+  const refiled = (await repo.ee.getStudentView('dhahran', pdfStudent))!
+  check(
+    refiled.finalLocked === true && refiled.final?.unlockReason === 'Wrong file uploaded.',
+    'refiling locks it again and does NOT erase the unlock — who reopened a finished paper is the question that gets asked later',
+  )
+
+  const filed14 = (await repo.ee.getStudentView('dhahran', STUDENTS.find((x) => x.cohortId === 'c14')!.userId))!
+  check(
+    filed14.final != null && filed14.finalLocked === true,
+    'and the graduated cohort\u2019s essays are all filed and locked, which is why their pack reads ready',
   )
 
   console.log('\n' + '='.repeat(60))
