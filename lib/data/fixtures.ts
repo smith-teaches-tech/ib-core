@@ -1405,6 +1405,16 @@ export const fixtureRepository: Repository = {
             EE_REGISTRATIONS.find((r2) => r2.studentId === st.userId)?.subjects ?? []
           ).filter((k) => !supported.has(k)),
           final: EE_FINALS.find((x) => x.studentId === st.userId && x.schoolId === schoolId) ?? null,
+          finalLocked: finalIsLocked(schoolId, st.userId),
+          // Pulled off the SAME checkpoints the student's own screen shows, so
+          // the supervisor is never looking at a different set of documents.
+          links: (['outline', 'draft'] as const).flatMap((stage) => {
+            const cp = lane?.checkpoints.find((c) => c.def.key === `ee.${stage}`)
+            const a = cp?.state?.artifacts.find((x) => x.kind === 'link' && x.href)
+            return a?.href
+              ? [{ stage, label: a.label, href: a.href, addedAt: a.addedAt }]
+              : []
+          }),
         })
       }
       return rows.sort((a, b) => a.studentName.localeCompare(b.studentName))
@@ -1443,6 +1453,21 @@ export const fixtureRepository: Repository = {
       return EE_SESSION_NOTES.filter(
         (x) => x.studentId === studentId && x.schoolId === schoolId,
       ).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    },
+
+    async listAssignableStaff(schoolId, cohortId) {
+      const live = EE_SUPERVISION.filter(
+        (x) => x.schoolId === schoolId && x.cohortId === cohortId && x.endedAt == null,
+      )
+      return MEMBERSHIPS.filter(
+        (m) => m.schoolId === schoolId && !m.roles.includes('student'),
+      ).map((m) => ({
+        userId: m.userId,
+        name: USERS.find((u) => u.id === m.userId)?.name ?? m.userId,
+        // Shown so a coordinator can spread the load rather than discovering in
+        // February that one person took eleven of them.
+        load: live.filter((x) => x.supervisorId === m.userId).length,
+      })).sort((a, b) => a.name.localeCompare(b.name))
     },
 
     async saveRegistration(schoolId, cohortId, studentId, input) {

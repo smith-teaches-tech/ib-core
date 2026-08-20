@@ -23,7 +23,7 @@ import type {
   InterviewKind, LoKey, Strand, SupervisorRequest, SupervisorView,
 } from '../cas/types'
 import type {
-  EeRosterRow, EeSessionNote, EeStudentView, ResolvedSupervisor, SessionStage,
+  EeAssignableStaff, EeRosterRow, EeSessionNote, EeStudentView, ResolvedSupervisor, SessionStage,
 } from '../ee/types'
 import type {
   CohortSummary, CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
@@ -160,6 +160,8 @@ export interface EeRepository {
     cohortId: string,
     forUserId: string | null,
   ): Promise<EeRosterRow[]>
+  /** Who can be given a supervisee, with their current load so it can be spread. */
+  listAssignableStaff(schoolId: string, cohortId: string): Promise<EeAssignableStaff[]>
   /** Student writes their own registration. `ee.rq` follows from validity. */
   saveRegistration(
     schoolId: string,

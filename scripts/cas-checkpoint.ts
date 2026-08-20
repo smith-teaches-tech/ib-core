@@ -1806,6 +1806,51 @@ async function main() {
     'and the graduated cohort\u2019s essays are all filed and locked, which is why their pack reads ready',
   )
 
+  console.log('\n13j. The staff view — the work, and allocation')
+
+  const staffRows = await repo.ee.getRoster('dhahran', 'c15', null)
+  const withLinks = staffRows.find((r2) => r2.links.length > 0)
+  check(
+    withLinks != null && withLinks.links.every((l) => /^https?:/.test(l.href)),
+    'staff can open the students\u2019 process documents — the drawer shows work, not a summary of work',
+  )
+  const filedRow = staffRows.find((r2) => r2.final != null)
+  check(
+    filedRow != null && filedRow.finalLocked === true,
+    'and the filed essay is on the row, showing as locked',
+  )
+
+  // BOTH COORDINATORS, ONE VIEW — the thing Michael expected to be settled.
+  const asEe = await repo.ee.getRoster('dhahran', 'c15', null)
+  check(
+    asEe.length === STUDENTS.filter((x) => x.cohortId === 'c15').length,
+    'an ee.manage holder sees the whole cohort — the EE coordinator and the IB coordinator hold the same capability, so they get the same list',
+  )
+  const oneSup = (await repo.ee.listSupervision('dhahran', 'c15'))
+    .map((r2) => r2.supervisor!).find((sv) => !sv.acting)!
+  const asSupervisor = await repo.ee.getRoster('dhahran', 'c15', oneSup.userId)
+  check(
+    asSupervisor.length > 0 && asSupervisor.length < asEe.length &&
+      asSupervisor.every((r2) => r2.supervisor?.userId === oneSup.userId),
+    'a supervisor sees their own supervisees and nobody else\u2019s — decided in the repository, not filtered in a component',
+  )
+
+  const assignable = await repo.ee.listAssignableStaff('dhahran', 'c15')
+  check(
+    assignable.length > 0 && assignable.every((p2) => !p2.userId.startsWith('st')),
+    'the allocation list is staff only — no student can be given a supervisee',
+  )
+  check(
+    assignable.some((p2) => p2.load > 0),
+    'and it carries each person\u2019s current load, so the work can be spread rather than discovered in February',
+  )
+  const beforeLoad = assignable.find((p2) => p2.userId === 'u_adeyemi')!.load
+  const unallocated = asEe.find((r2) => r2.supervisor?.acting)!
+  await repo.ee.assignSupervisor('dhahran', 'c15', unallocated.studentId, 'u_adeyemi', 'u_msmith')
+  const afterLoad = (await repo.ee.listAssignableStaff('dhahran', 'c15'))
+    .find((p2) => p2.userId === 'u_adeyemi')!.load
+  check(afterLoad === beforeLoad + 1, 'allocating moves the load count — it is derived, not typed in')
+
   console.log('\n' + '='.repeat(60))
   if (fail.length) {
     console.log(`CHECKPOINT FAILED — ${fail.length} problem(s). Fix the spine before building screens.\n`)

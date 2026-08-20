@@ -370,7 +370,10 @@ export default async function CoursePage({
       // Passing null vs the user id is the whole of the scoping decision, and
       // it is made here rather than filtered in the component.
       const all = session.can('ee.manage')
-      const rows = await repo.ee.getRoster(school.id, cohortId, all ? null : user.id)
+      const [rows, staff] = await Promise.all([
+        repo.ee.getRoster(school.id, cohortId, all ? null : user.id),
+        all ? repo.ee.listAssignableStaff(school.id, cohortId) : Promise.resolve([]),
+      ])
       body = (
         <>
           {isCoordinator && (
@@ -383,8 +386,14 @@ export default async function CoursePage({
           <EeRoster
             rows={rows}
             cohortLabel={cohort ? cohortTitle(cohort) : ''}
+            cohortId={cohortId}
             scope={all ? 'all' : 'mine'}
             canWrite={!readOnly}
+            // Allocation is the coordinator's job; reopening a filed essay is
+            // the same `items.unlock` capability CAS and IA marks use.
+            canAllocate={all && !readOnly}
+            canUnlock={session.can('items.unlock') && !readOnly}
+            staff={staff}
           />
         </>
       )

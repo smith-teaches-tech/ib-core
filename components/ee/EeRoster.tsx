@@ -8,7 +8,8 @@
 import { useState, useTransition } from 'react'
 import type { EeRosterRow, SessionStage } from '@/lib/ee/types'
 import { subjectName } from '@/lib/ee/subjects'
-import { addSessionNote, recordSession } from '@/lib/ee/actions'
+import { addSessionNote, assignSupervisor, recordSession, unlockFinal } from '@/lib/ee/actions'
+import type { EeAssignableStaff } from '@/lib/ee/types'
 
 const SESSIONS: { stage: SessionStage; label: string }[] = [
   { stage: 'r1', label: 'Reflection session 1' },
@@ -17,12 +18,18 @@ const SESSIONS: { stage: SessionStage; label: string }[] = [
 ]
 
 export default function EeRoster({
-  rows, cohortLabel, scope, canWrite,
+  rows, cohortLabel, cohortId, scope, canWrite, canAllocate, canUnlock, staff,
 }: {
   rows: EeRosterRow[]
   cohortLabel: string
+  cohortId: string
   scope: 'mine' | 'all'
   canWrite: boolean
+  /** `ee.manage` — allocation is the coordinator's job, not a supervisor's. */
+  canAllocate: boolean
+  /** `items.unlock` — reopening a filed essay. */
+  canUnlock: boolean
+  staff: EeAssignableStaff[]
 }) {
   const [open, setOpen] = useState<string | null>(null)
   const unallocated = rows.filter((r) => r.supervisor?.acting).length
@@ -78,9 +85,13 @@ export default function EeRoster({
                 <Row
                   key={r.studentId}
                   row={r}
+                  cohortId={cohortId}
                   open={open === r.studentId}
                   onToggle={() => setOpen(open === r.studentId ? null : r.studentId)}
                   canWrite={canWrite}
+                  canAllocate={canAllocate}
+                  canUnlock={canUnlock}
+                  staff={staff}
                 />
               ))}
             </tbody>
@@ -92,12 +103,16 @@ export default function EeRoster({
 }
 
 function Row({
-  row, open, onToggle, canWrite,
+  row, cohortId, open, onToggle, canWrite, canAllocate, canUnlock, staff,
 }: {
   row: EeRosterRow
+  cohortId: string
   open: boolean
   onToggle: () => void
   canWrite: boolean
+  canAllocate: boolean
+  canUnlock: boolean
+  staff: EeAssignableStaff[]
 }) {
   return (
     <>
@@ -155,6 +170,13 @@ function Row({
               ) : (
                 <p className="mut" style={{ marginTop: 0 }}>Not registered yet.</p>
               )}
+
+              {/* THE WORK ITSELF. A drawer that summarises documents nobody can
+                  open is a summary, not a record — and Michael asked for the
+                  links and files in the first pass. */}
+              <Work row={row} canUnlock={canUnlock} />
+
+              {canAllocate && <Allocate row={row} cohortId={cohortId} staff={staff} />}
 
               {SESSIONS.map((s) => {
                 const held = row.sessions.find((x) => x.stage === s.stage)
@@ -265,6 +287,130 @@ function SessionRow({
           </button>
         </div>
       )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- the work
+
+function Work({ row, canUnlock }: { row: EeRosterRow; canUnlock: boolean }) {
+  const [reason, setReason] = useState('')
+  const [asking, setAsking] = useState(false)
+  const [pending, start] = useTransition()
+
+  return (
+    <div className="eework">
+      <span className="caps">Process documents</span>
+      {row.links.length === 0 && <p className="mut" style={{ margin: '4px 0 0' }}>Nothing filed yet.</p>}
+      {row.links.map((l) => (
+        <div key={l.stage} className="eelinkrow">
+          <span className="eelinkrow-l">{l.stage === 'outline' ? 'Outline' : 'Full draft'}</span>
+          <a href={l.href} target="_blank" rel="noreferrer">open ↗</a>
+          <span className="mut" style={{ fontSize: 11.5 }}>{l.addedAt}</span>
+        </div>
+      ))}
+
+      <span className="caps" style={{ display: 'block', marginTop: 10 }}>Finished essay</span>
+      {row.final ? (
+        <>
+          <div className="eelinkrow">
+            <span className="eelinkrow-l">{row.final.fileName}</span>
+            {row.finalLocked && <span className="pill ok">🔒 locked</span>}
+            <span className="mut" style={{ fontSize: 11.5 }}>
+              {row.final.declaredWords.toLocaleString()} words · filed {row.final.submittedAt}
+            </span>
+            {/* Viewing needs the bytes, and storage is a stub — so the button
+                that would lie is simply absent rather than present and dead. */}
+            <span className="mut" style={{ fontSize: 11.5 }}>
+              (viewing needs cloud storage)
+            </span>
+          </div>
+          {row.final.unlockReason && (
+            <div className="note warn" style={{ marginTop: 6 }}>
+              Reopened by {row.final.unlockedByName} on {row.final.unlockedAt} —{' '}
+              {row.final.unlockReason}
+            </div>
+          )}
+          {canUnlock && row.finalLocked && (
+            asking ? (
+              <div className="row" style={{ marginTop: 6 }}>
+                <input
+                  type="text"
+                  value={reason}
+                  placeholder="Why is this being reopened? (kept on the record)"
+                  onChange={(e) => setReason(e.target.value)}
+                />
+                <button
+                  className="btn sm"
+                  disabled={pending || !reason.trim()}
+                  onClick={() => start(async () => {
+                    await unlockFinal(row.studentId, reason)
+                    setAsking(false)
+                    setReason('')
+                  })}
+                >
+                  Reopen
+                </button>
+                <button className="btn sm ghost" onClick={() => setAsking(false)}>Cancel</button>
+              </div>
+            ) : (
+              <button className="btn sm ghost" style={{ marginTop: 6 }} onClick={() => setAsking(true)}>
+                Reopen for editing…
+              </button>
+            )
+          )}
+        </>
+      ) : (
+        <p className="mut" style={{ margin: '4px 0 0' }}>
+          Not filed. The viva stays locked until it is.
+        </p>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- allocation
+
+/**
+ * ALLOCATION — the September job, and the reason the coordinator's list looks
+ * full at the start of the year. `load` is shown against each name so the work
+ * can be spread deliberately rather than discovered in February.
+ */
+function Allocate({
+  row, cohortId, staff,
+}: {
+  row: EeRosterRow
+  cohortId: string
+  staff: EeAssignableStaff[]
+}) {
+  const [pending, start] = useTransition()
+  const current = row.supervisor?.acting ? '' : row.supervisor?.userId ?? ''
+
+  return (
+    <div className="eework">
+      <span className="caps">Supervisor</span>
+      <div className="row" style={{ marginTop: 4 }}>
+        <select
+          value={current}
+          disabled={pending}
+          onChange={(e) =>
+            e.target.value &&
+            start(async () => { await assignSupervisor(cohortId, row.studentId, e.target.value) })
+          }
+        >
+          <option value="">Not allocated — sitting with the coordinator</option>
+          {staff.map((p) => (
+            <option key={p.userId} value={p.userId}>
+              {p.name} — {p.load} {p.load === 1 ? 'supervisee' : 'supervisees'}
+            </option>
+          ))}
+        </select>
+        {row.supervisor?.acting && <span className="pill grey">acting</span>}
+      </div>
+      <p className="mut" style={{ fontSize: 11.5, margin: '4px 0 0' }}>
+        Reassigning ends the current allocation rather than editing it — whoever held the earlier
+        sessions stays named on them.
+      </p>
     </div>
   )
 }

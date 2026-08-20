@@ -157,6 +157,23 @@ export interface EeRosterRow {
   unsupportedSubjects: string[]
   /** The finished essay, so a supervisor can see it is in before the viva. */
   final: EeFinal | null
+  /** Filed essays are locked; only an `items.unlock` holder reopens one. */
+  finalLocked: boolean
+  /**
+   * The student's process documents. Michael asked for this in the first pass —
+   * "EE coordinator can see everyone and the supervisor and all links and
+   * files" — and the first staff screen shipped without them, which made the
+   * drawer a summary of work nobody could open.
+   */
+  links: { stage: 'outline' | 'draft'; label: string; href: string; addedAt: string }[]
+}
+
+/** Somebody who can be given a supervisee. Staff at the school, students excluded. */
+export interface EeAssignableStaff {
+  userId: Id
+  name: string
+  /** How many supervisees they already hold in this cohort. */
+  load: number
 }
 
 // ---------------------------------------------------------------------------
