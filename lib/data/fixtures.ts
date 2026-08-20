@@ -30,12 +30,13 @@ import { pinned } from './pin'
 import { lateFrom, withDue } from '../deadlines'
 import type { EeSupervision } from '../ee/types'
 import { eeCoordinatorId, supervisorFor } from '../ee/supervision'
-import { EE_CRITERIA, EE_MARK_MAX } from '../ee/rubric'
+import { EE_CRITERIA, EE_MARK_MAX, indicativeGrade } from '../ee/rubric'
+import { countWords } from '../ee/scoring'
 import { registrationComplete, validateRegistration } from '../ee/registration'
 import { subjectForCourse } from '../ee/subjects'
-import { deriveEeSessionStates } from '../ee/derive'
+import { deriveEeAttestStates, deriveEeSessionStates } from '../ee/derive'
 import type {
-  EeFinal, EeRegistration, EeRosterRow, EeSession, EeSessionNote, SessionStage,
+  EeFinal, EeRegistration, EeRosterRow, EeScoring, EeSession, EeSessionNote, SessionStage,
 } from '../ee/types'
 import { todayRiyadh } from './dates'
 import { sortCohorts } from '../cohorts'
@@ -752,6 +753,27 @@ export const EE_FINALS: EeFinal[] = pinned('ibEeFinals', () =>
   })),
 )
 
+/** The supervisor's scoring record — everything around the marks. */
+export const EE_SCORING: EeScoring[] = pinned('ibEeScoring', () =>
+  STUDENTS.filter((s) => s.cohortId === 'c14').map((s) => ({
+    schoolId: s.schoolId,
+    studentId: s.userId,
+    comment:
+      'Question narrowed twice and answered. Method justified against the sources available. ' +
+      'Evaluation is specific about what the sample size does to the conclusion. Sessions held as ' +
+      'recorded; the work is the candidate\u2019s own.',
+    hoursSupervised: 4.5,
+    attestedSessions: true,
+    attestedAuthentic: true,
+    attestedBy: 'u_adeyemi',
+    attestedByName: 'H. Adeyemi',
+    attestedAt: '2026-02-18',
+    releasedBy: 'u_adeyemi',
+    releasedByName: 'H. Adeyemi',
+    releasedAt: '2026-02-20',
+  })),
+)
+
 export const EE_SESSION_NOTES: EeSessionNote[] = pinned('ibEeSessionNotes', () => [
   {
     id: 'een1', schoolId: 'dhahran', studentId: 'st01', stage: 'r1',
@@ -835,9 +857,26 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
               }],
             })
           } else if (stage === 'rpf') {
-            put('submitted', '2026-01-30', { exportStatus: 'submitted', recordedBy: 'student' })
+            put('submitted', '2026-01-30', {
+              exportStatus: 'submitted', recordedBy: 'student',
+              lockedAt: '2026-01-30T09:00:00.000Z',
+              artifacts: [{
+                id: `art_rpf_${s.userId}`, kind: 'text', label: 'Reflection statement',
+                body:
+                  'I began believing the answer was already in the literature and my job was to find it. ' +
+                  'The turning point was the week my second source contradicted the first on the same data, ' +
+                  'and I had to decide which to trust rather than which to quote. I rebuilt the middle section ' +
+                  'around that decision and cut two pages I had been protecting because they were hard to write. ' +
+                  'What I will carry forward is the habit of asking what would have to be true for a source to be ' +
+                  'wrong — it changed how I read every paper after it, and it is why the conclusion is narrower ' +
+                  'than the one I set out to defend.',
+                addedAt: '2026-01-30',
+              }],
+            })
           } else if (stage === 'r1' || stage === 'r2' || stage === 'viva') {
             // Derived from EE_SESSIONS, never stored.
+          } else if (stage === 'attest') {
+            // Derived from EE_SCORING, never stored.
           } else {
             put('submitted', '2025-11-14', { recordedBy: 'H. Adeyemi' })
           }
@@ -986,6 +1025,7 @@ function allStates(): RequirementState[] {
     ...REQUIREMENT_STATES,
     ...deriveCasStates(STUDENTS, REQUIREMENT_DEFS, CAS_DATA),
     ...deriveEeSessionStates(EE_SESSIONS, REQUIREMENT_DEFS),
+    ...deriveEeAttestStates(EE_SCORING, REQUIREMENT_DEFS),
   ]
 }
 
@@ -1139,6 +1179,30 @@ const casRepository = makeCasRepository({
  * already used by IA marks) rather than on EeFinal, so every module that asks
  * "may this be changed?" asks it of the same field.
  */
+/** The state behind an EE requirement for one student, or null. */
+function eeState(schoolId: string, studentId: string, key: string) {
+  const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+  if (!st) return null
+  const def = REQUIREMENT_DEFS.find(
+    (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === key,
+  )
+  if (!def) return null
+  return REQUIREMENT_STATES.find(
+    (x) => x.studentId === studentId && x.requirementDefId === def.id,
+  ) ?? null
+}
+
+/** The RPF text lives as a text ARTIFACT on ee.rpf — no module table needed. */
+function eeRpfOf(schoolId: string, studentId: string) {
+  const state = eeState(schoolId, studentId, 'ee.rpf')
+  const a = state?.artifacts.find((x) => x.kind === 'text')
+  if (!a?.body) return null
+  return { body: a.body, words: countWords(a.body), submittedAt: state!.recordedAt ?? a.addedAt }
+}
+
+const eeMarksOf = (schoolId: string, studentId: string): (number | null)[] =>
+  eeState(schoolId, studentId, 'ee.score')?.criterionMarks ?? EE_CRITERIA.map(() => null)
+
 function finalIsLocked(schoolId: string, studentId: string): boolean {
   const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
   if (!st) return false
@@ -1368,6 +1432,16 @@ export const fixtureRepository: Repository = {
         supportedSubjects: supportedSubjectKeys(schoolId),
         final: EE_FINALS.find((x) => x.studentId === studentId && x.schoolId === schoolId) ?? null,
         finalLocked: finalIsLocked(schoolId, studentId),
+        rpf: eeRpfOf(schoolId, studentId),
+        // A STUDENT SEES NOTHING BEFORE RELEASE. Not a partial total, not a
+        // band — a mark in progress is a supervisor's working, not a result.
+        releasedScore: (() => {
+          const st2 = eeState(schoolId, studentId, 'ee.score')
+          if (st2?.recordStatus !== 'released') return null
+          const marks = st2.criterionMarks ?? []
+          const total = marks.reduce<number>((n, m) => n + (m ?? 0), 0)
+          return { marks, total, band: indicativeGrade(total) }
+        })(),
         // The RPF PANEL is always shown; the WRITING is what the viva gates.
         rpfOpen: EE_SESSIONS.some(
           (x) => x.studentId === studentId && x.schoolId === schoolId && x.stage === 'viva',
@@ -1408,6 +1482,11 @@ export const fixtureRepository: Repository = {
           finalLocked: finalIsLocked(schoolId, st.userId),
           // Pulled off the SAME checkpoints the student's own screen shows, so
           // the supervisor is never looking at a different set of documents.
+          rpf: eeRpfOf(schoolId, st.userId),
+          marks: eeMarksOf(schoolId, st.userId),
+          scoring: EE_SCORING.find(
+            (x) => x.studentId === st.userId && x.schoolId === schoolId,
+          ) ?? null,
           links: (['outline', 'draft'] as const).flatMap((stage) => {
             const cp = lane?.checkpoints.find((c) => c.def.key === `ee.${stage}`)
             const a = cp?.state?.artifacts.find((x) => x.kind === 'link' && x.href)
@@ -1453,6 +1532,139 @@ export const fixtureRepository: Repository = {
       return EE_SESSION_NOTES.filter(
         (x) => x.studentId === studentId && x.schoolId === schoolId,
       ).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    },
+
+    async submitRpf(schoolId, studentId, body) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return
+      const def = REQUIREMENT_DEFS.find(
+        (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === 'ee.rpf',
+      )
+      if (!def) return
+      const at = todayRiyadh()
+      const artifact = {
+        id: `art_rpf_${studentId}`, kind: 'text' as const,
+        label: 'Reflection statement', body: body.trim(), addedAt: at,
+      }
+      const lockedAt = new Date(`${at}T00:00:00.000Z`).toISOString()
+      const state = REQUIREMENT_STATES.find(
+        (x) => x.studentId === studentId && x.requirementDefId === def.id,
+      )
+      if (state) {
+        state.recordStatus = 'submitted'
+        state.artifacts = [artifact]
+        state.recordedAt = at
+        state.lockedAt = lockedAt
+      } else {
+        REQUIREMENT_STATES.push({
+          studentId, requirementDefId: def.id, schoolId,
+          recordStatus: 'submitted', artifacts: [artifact],
+          recordedAt: at, recordedBy: studentId, lockedAt,
+        })
+      }
+    },
+
+    async saveMark(schoolId, studentId, criterionIndex, mark, byName) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return
+      const def = REQUIREMENT_DEFS.find(
+        (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === 'ee.score',
+      )
+      if (!def) return
+      let state = REQUIREMENT_STATES.find(
+        (x) => x.studentId === studentId && x.requirementDefId === def.id,
+      )
+      if (!state) {
+        state = {
+          studentId, requirementDefId: def.id, schoolId,
+          recordStatus: 'in_progress', artifacts: [],
+          criterionMarks: EE_CRITERIA.map(() => null),
+        }
+        REQUIREMENT_STATES.push(state)
+      }
+      const marks = state.criterionMarks ?? EE_CRITERIA.map(() => null)
+      marks[criterionIndex] = mark
+      state.criterionMarks = marks
+      state.recordedBy = byName
+      state.recordedAt = todayRiyadh()
+      // THE TOTAL IS NEVER STORED — iaTotal() sums criterionMarks on read
+      // (invariant #2). Partially marked reads in_progress, which is exactly
+      // what a supervisor who has done A–D before the viva looks like.
+      const all = marks.every((m) => m != null)
+      if (state.recordStatus !== 'released') {
+        state.recordStatus = all ? 'marked' : 'in_progress'
+      }
+    },
+
+    async saveScoring(schoolId, studentId, input, byId, byName) {
+      const existing = EE_SCORING.find(
+        (x) => x.studentId === studentId && x.schoolId === schoolId,
+      )
+      const attested = input.attestedSessions && input.attestedAuthentic
+      const at = todayRiyadh()
+      if (existing) {
+        Object.assign(existing, input)
+        // The attestation is DATED when it becomes complete, and the date is
+        // not moved by later edits to the comment.
+        if (attested && !existing.attestedAt) {
+          existing.attestedBy = byId
+          existing.attestedByName = byName
+          existing.attestedAt = at
+        }
+        if (!attested) {
+          delete existing.attestedBy
+          delete existing.attestedByName
+          delete existing.attestedAt
+        }
+        return
+      }
+      EE_SCORING.push({
+        schoolId, studentId, ...input,
+        ...(attested ? { attestedBy: byId, attestedByName: byName, attestedAt: at } : {}),
+      })
+    },
+
+    async releaseScore(schoolId, studentId, byId, byName) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return
+      const def = REQUIREMENT_DEFS.find(
+        (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === 'ee.score',
+      )
+      const state = def && REQUIREMENT_STATES.find(
+        (x) => x.studentId === studentId && x.requirementDefId === def.id,
+      )
+      if (state) {
+        state.recordStatus = 'released'
+        state.lockedAt = new Date(`${todayRiyadh()}T00:00:00.000Z`).toISOString()
+      }
+      const sc = EE_SCORING.find((x) => x.studentId === studentId && x.schoolId === schoolId)
+      if (sc) {
+        sc.releasedBy = byId
+        sc.releasedByName = byName
+        sc.releasedAt = todayRiyadh()
+      }
+    },
+
+    async revokeScore(schoolId, studentId) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return
+      const def = REQUIREMENT_DEFS.find(
+        (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === 'ee.score',
+      )
+      const state = def && REQUIREMENT_STATES.find(
+        (x) => x.studentId === studentId && x.requirementDefId === def.id,
+      )
+      if (state) {
+        state.recordStatus = (state.criterionMarks ?? []).every((m) => m != null)
+          ? 'marked' : 'in_progress'
+        delete state.lockedAt
+      }
+      const sc = EE_SCORING.find((x) => x.studentId === studentId && x.schoolId === schoolId)
+      if (sc) {
+        delete sc.releasedBy
+        delete sc.releasedByName
+        delete sc.releasedAt
+      }
     },
 
     async listAssignableStaff(schoolId, cohortId) {

@@ -971,3 +971,18 @@ table.eeroster tr.eedrawer td{background:#fafbfc}
 .eework{padding:10px 0;border-bottom:1px solid var(--line)}
 .eelinkrow{display:flex;align-items:center;gap:10px;margin-top:4px;font-size:12.5px}
 .eelinkrow-l{font-weight:600}
+.eecrit{padding:9px 0;border-bottom:1px solid var(--line)}
+.eecrit.shut{opacity:.55}
+.eecrit-h{display:flex;align-items:center;gap:9px;font-size:13px}
+.eecrit-h b{background:#eef2f6;border-radius:4px;padding:1px 6px}
+.eecrit-s{font-size:12px;margin-top:5px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.eemarks{display:flex;gap:3px}
+.eemark{width:24px;height:24px;border:1px solid var(--line);background:#fff;border-radius:4px;font-size:12px;cursor:pointer}
+.eemark.on{background:var(--info,#2b6cb0);border-color:var(--info,#2b6cb0);color:#fff;font-weight:700}
+.eemark:disabled{opacity:.4;cursor:not-allowed}
+.eebands{margin-top:6px;padding:8px 10px;background:#f6f8fa;border-radius:6px}
+.eeband{font-size:12px;padding:4px 0;border-bottom:1px solid #e6ebf0}
+.eeband:last-child{border-bottom:none}
+.eeband.on{font-weight:600;background:#eef5fb;margin:0 -10px;padding:4px 10px}
+.eetotal{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:10px;padding-top:8px;border-top:2px solid var(--line);font-size:14px}
+.eerpf{margin-top:6px;padding:9px 11px;background:#f3f7fb;border-left:3px solid var(--info,#2b6cb0);border-radius:6px;font-size:12.5px;white-space:pre-wrap}

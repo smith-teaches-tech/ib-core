@@ -42,3 +42,32 @@ export function deriveEeSessionStates(
   }
   return out
 }
+
+/**
+ * The attestation is DERIVED from the scoring record, for the same reason the
+ * sessions are: it is a fact the module already holds, and storing it a second
+ * time would let the two disagree. `ee.attest` carries no exportTarget, so
+ * nothing outside the module writes to it — which is the test for whether a
+ * state can be derived at all (see EeFinal's note for the case that fails it).
+ */
+export function deriveEeAttestStates(
+  scoring: { schoolId: string; studentId: string; attestedSessions: boolean; attestedAuthentic: boolean; attestedByName?: string; attestedAt?: string }[],
+  defs: RequirementDef[],
+): RequirementState[] {
+  const out: RequirementState[] = []
+  for (const sc of scoring) {
+    if (!sc.attestedSessions || !sc.attestedAuthentic || !sc.attestedAt) continue
+    for (const def of defs.filter((d) => d.key === 'ee.attest' && d.schoolId === sc.schoolId)) {
+      out.push({
+        studentId: sc.studentId,
+        requirementDefId: def.id,
+        schoolId: sc.schoolId,
+        recordStatus: 'submitted',
+        artifacts: [],
+        recordedBy: sc.attestedByName,
+        recordedAt: sc.attestedAt,
+      })
+    }
+  }
+  return out
+}

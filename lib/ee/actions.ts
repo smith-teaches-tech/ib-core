@@ -10,7 +10,11 @@ import { getSession } from '../session'
 import { assertLiveCohort } from '../cohorts'
 import { anonymityPreflight, preflightPasses } from '../anonymity'
 import { storage } from '../storage'
-import { WORD_LIMIT } from './rubric'
+import { EE_CRITERIA, WORD_LIMIT } from './rubric'
+import { countWords, criterionOpen, markingGates, releaseBlockers } from './scoring'
+
+/** The reflection statement's own limit — not the essay's 4,000. */
+const RPF_WORD_LIMIT = 500
 
 function refresh() {
   revalidatePath('/', 'layout')
@@ -201,6 +205,131 @@ export async function addSessionNote(
     session.school.id, studentId, stage,
     own ? 'student' : 'staff', session.user.id, session.user.name, body,
   )
+  refresh()
+  return { ok: true, message: null }
+}
+
+/**
+ * THE STUDENT'S REFLECTION STATEMENT.
+ *
+ * Written in a Doc and pasted (Michael, 19 Aug), so this is a submission box
+ * rather than an editor. Submitting LOCKS it — the supervisor marks Criterion E
+ * from it, and a statement that can change after it has been read is not
+ * evidence of anything.
+ */
+export async function submitRpf(studentId: string, body: string) {
+  const { session } = await asOwner(studentId)
+  const view = await repo.ee.getStudentView(session.school.id, studentId)
+  if (!view?.rpfOpen) {
+    return { ok: false, message: 'Your viva voce has not been recorded yet.' }
+  }
+  if (view.rpf) {
+    return { ok: false, message: 'Your reflection is submitted and locked. Ask your coordinator to reopen it.' }
+  }
+  const words = countWords(body)
+  if (words === 0) return { ok: false, message: 'Nothing to submit.' }
+  if (words > RPF_WORD_LIMIT) {
+    return {
+      ok: false,
+      message: `${words} words — the limit is ${RPF_WORD_LIMIT}. An examiner stops reading at the limit.`,
+    }
+  }
+  await repo.ee.submitRpf(session.school.id, studentId, body)
+  refresh()
+  return { ok: true, message: null }
+}
+
+/**
+ * May this person mark this student? The supervisor of record, or `ee.manage`.
+ *
+ * A coordinator marking is not an override — an EE coordinator may hold
+ * supervisees of their own, and may also be covering for a colleague. What is
+ * recorded is who entered the mark, which is enough.
+ */
+async function marker(studentId: string) {
+  const session = await getSession()
+  const supervisor = await repo.ee.getSupervisor(session.school.id, studentId)
+  if (supervisor?.userId !== session.user.id && !session.can('ee.manage')) {
+    throw new Error('Only this student’s supervisor or an EE coordinator can mark this essay.')
+  }
+  assertLiveCohort(await repo.setup.cohortOf(session.school.id, { studentId }))
+  return session
+}
+
+/**
+ * ONE CRITERION, SAVED AS IT IS ENTERED.
+ *
+ * The gate is per criterion, not per essay: A–D need the finished essay and
+ * nothing else, so a supervisor can mark them before the viva and not read the
+ * essay a third time. E needs the RPF, because E is marked from it.
+ */
+export async function saveMark(studentId: string, criterionIndex: number, mark: number | null) {
+  const session = await marker(studentId)
+  const view = await repo.ee.getStudentView(session.school.id, studentId)
+  const gates = markingGates({ finalFiled: view?.final != null, rpfIn: view?.rpf != null })
+  const criterion = EE_CRITERIA[criterionIndex]
+  if (!criterion) return { ok: false, message: 'No such criterion.' }
+  if (!criterionOpen(criterion.key, gates)) {
+    return {
+      ok: false,
+      message: criterion.key === 'E' ? gates.reflectionReason! : gates.coreReason!,
+    }
+  }
+  if (mark != null && (mark < 0 || mark > criterion.max)) {
+    return { ok: false, message: `Criterion ${criterion.key} is out of ${criterion.max}.` }
+  }
+  await repo.ee.saveMark(session.school.id, studentId, criterionIndex, mark, session.user.name)
+  refresh()
+  return { ok: true, message: null }
+}
+
+export async function saveScoring(
+  studentId: string,
+  input: {
+    comment: string
+    hoursSupervised: number | null
+    attestedSessions: boolean
+    attestedAuthentic: boolean
+  },
+) {
+  const session = await marker(studentId)
+  await repo.ee.saveScoring(session.school.id, studentId, input, session.user.id, session.user.name)
+  refresh()
+  return { ok: true, message: null }
+}
+
+/**
+ * RELEASE — the supervisor's, decided 19 Aug. It puts a grade in front of a
+ * student and into the EE×TOK bonus-point matrix, so it asks for everything:
+ * five marks, both attestation ticks, and the written justification. The
+ * blockers are computed in one place so this and the button cannot disagree.
+ */
+export async function releaseScore(studentId: string) {
+  const session = await marker(studentId)
+  const rows = await repo.ee.getRoster(
+    session.school.id,
+    (await repo.setup.cohortOf(session.school.id, { studentId }))!.id,
+    null,
+  )
+  const row = rows.find((r) => r.studentId === studentId)
+  const blockers = releaseBlockers({
+    marks: row?.marks ?? [],
+    attestedSessions: row?.scoring?.attestedSessions ?? false,
+    attestedAuthentic: row?.scoring?.attestedAuthentic ?? false,
+    comment: row?.scoring?.comment ?? '',
+  })
+  if (blockers.length) return { ok: false, message: blockers[0].message }
+  await repo.ee.releaseScore(session.school.id, studentId, session.user.id, session.user.name)
+  refresh()
+  return { ok: true, message: null }
+}
+
+/** `scores.revoke` — editing or revoking a released score is the coordinator's. */
+export async function revokeScore(studentId: string) {
+  const session = await getSession()
+  if (!session.can('scores.revoke')) throw new Error('You cannot revoke a released score.')
+  assertLiveCohort(await repo.setup.cohortOf(session.school.id, { studentId }))
+  await repo.ee.revokeScore(session.school.id, studentId)
   refresh()
   return { ok: true, message: null }
 }

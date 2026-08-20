@@ -10,6 +10,8 @@ import type { EeRosterRow, SessionStage } from '@/lib/ee/types'
 import { subjectName } from '@/lib/ee/subjects'
 import { addSessionNote, assignSupervisor, recordSession, unlockFinal } from '@/lib/ee/actions'
 import type { EeAssignableStaff } from '@/lib/ee/types'
+import EeMarking from './EeMarking'
+import { summariseScore } from '@/lib/ee/scoring'
 
 const SESSIONS: { stage: SessionStage; label: string }[] = [
   { stage: 'r1', label: 'Reflection session 1' },
@@ -18,13 +20,16 @@ const SESSIONS: { stage: SessionStage; label: string }[] = [
 ]
 
 export default function EeRoster({
-  rows, cohortLabel, cohortId, scope, canWrite, canAllocate, canUnlock, staff,
+  rows, cohortLabel, cohortId, scope, canWrite, canAllocate, canUnlock, canRevoke, staff, meId,
 }: {
   rows: EeRosterRow[]
   cohortLabel: string
   cohortId: string
   scope: 'mine' | 'all'
   canWrite: boolean
+  canRevoke: boolean
+  /** The viewer, so a coordinator who also supervises can filter to their own. */
+  meId: string
   /** `ee.manage` — allocation is the coordinator's job, not a supervisor's. */
   canAllocate: boolean
   /** `items.unlock` — reopening a filed essay. */
@@ -32,7 +37,12 @@ export default function EeRoster({
   staff: EeAssignableStaff[]
 }) {
   const [open, setOpen] = useState<string | null>(null)
+  const [mineOnly, setMineOnly] = useState(false)
   const unallocated = rows.filter((r) => r.supervisor?.acting).length
+  // THE EE COORDINATOR MAY ALSO BE A SUPERVISOR (Michael, 20 Aug). They need
+  // both views, so the full list gets a filter rather than a second screen.
+  const mine = meId ? rows.filter((r) => r.supervisor?.userId === meId) : []
+  const shown = mineOnly ? mine : rows
   // Michael, 20 Aug: no theatre teacher means no theatre EE — a warning the EE
   // coordinator oversees, so it belongs at the top of their list, not buried.
   const needSupervisor = rows.filter((r) => r.unsupportedSubjects.length > 0)
@@ -47,6 +57,23 @@ export default function EeRoster({
           : `${rows.length} candidates`}
         {scope === 'all' && unallocated > 0 && ` · ${unallocated} not yet allocated`}
       </p>
+
+      {scope === 'all' && mine.length > 0 && (
+        <div className="row" style={{ marginBottom: 12 }}>
+          <button
+            className={`btn sm ${mineOnly ? '' : 'pri'}`}
+            onClick={() => setMineOnly(false)}
+          >
+            Whole cohort ({rows.length})
+          </button>
+          <button
+            className={`btn sm ${mineOnly ? 'pri' : ''}`}
+            onClick={() => setMineOnly(true)}
+          >
+            ★ My supervisees ({mine.length})
+          </button>
+        </div>
+      )}
 
       {needSupervisor.length > 0 && (
         <div className="note" style={{ marginBottom: 14 }}>
@@ -76,12 +103,13 @@ export default function EeRoster({
                 <th>Supervisor</th>
                 <th>Subject</th>
                 <th>Sessions</th>
+                <th>Score</th>
                 <th style={{ textAlign: 'right' }}>In</th>
                 <th style={{ textAlign: 'right' }}>Late</th>
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {shown.map((r) => (
                 <Row
                   key={r.studentId}
                   row={r}
@@ -91,6 +119,7 @@ export default function EeRoster({
                   canWrite={canWrite}
                   canAllocate={canAllocate}
                   canUnlock={canUnlock}
+                  canRevoke={canRevoke}
                   staff={staff}
                 />
               ))}
@@ -103,7 +132,7 @@ export default function EeRoster({
 }
 
 function Row({
-  row, cohortId, open, onToggle, canWrite, canAllocate, canUnlock, staff,
+  row, cohortId, open, onToggle, canWrite, canAllocate, canUnlock, canRevoke, staff,
 }: {
   row: EeRosterRow
   cohortId: string
@@ -112,6 +141,7 @@ function Row({
   canWrite: boolean
   canAllocate: boolean
   canUnlock: boolean
+  canRevoke: boolean
   staff: EeAssignableStaff[]
 }) {
   return (
@@ -151,7 +181,25 @@ function Row({
             <span className="pill grey">not registered</span>
           )}
         </td>
-        <td>{row.sessions.length} / 3</td>
+        <td>
+          {(['r1', 'r2', 'viva'] as const).map((st) => (
+            <i
+              key={st}
+              className={`eedot ${row.sessions.some((x) => x.stage === st) ? 'done' : 'not_started'}`}
+              style={{ display: 'inline-block', marginRight: 4 }}
+              title={st === 'viva' ? 'Viva voce' : `Reflection session ${st.slice(1)}`}
+            />
+          ))}
+        </td>
+        <td>
+          {row.scoring?.releasedAt ? (
+            <span className="pill ok">{summariseScore(row.marks).total}</span>
+          ) : summariseScore(row.marks).entered > 0 ? (
+            <span className="mut">{summariseScore(row.marks).entered}/5 marked</span>
+          ) : (
+            <span className="mut">—</span>
+          )}
+        </td>
         <td style={{ textAlign: 'right' }}>{row.done} / {row.total}</td>
         <td style={{ textAlign: 'right' }}>
           {row.late > 0 ? <span className="pill bad">{row.late}</span> : <span className="mut">—</span>}
@@ -159,7 +207,7 @@ function Row({
       </tr>
       {open && (
         <tr className="eedrawer">
-          <td colSpan={6}>
+          <td colSpan={7}>
             <div className="eedrawer-in">
               {row.registration ? (
                 <p style={{ marginTop: 0 }}>
@@ -195,10 +243,7 @@ function Row({
                 )
               })}
 
-              <div className="note gold" style={{ marginTop: 10 }}>
-                <b>Marking is the next step.</b> The rubric, the attestation and release come with
-                step 6 — see <b>IB-EE-Build-Plan.md</b>.
-              </div>
+              <EeMarking row={row} canMark={canWrite} canRevoke={canRevoke} />
             </div>
           </td>
         </tr>

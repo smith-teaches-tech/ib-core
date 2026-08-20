@@ -33,6 +33,15 @@ export interface RubricBand {
   label: string
   min: number
   max: number
+  /**
+   * A few words. THE COLLAPSED STATE OF THE MARKING SCREEN.
+   *
+   * Michael, 20 Aug: "The rubric is large… so should be brief key points that
+   * can be expanded." Five criteria of full band text is a wall nobody reads at
+   * the moment of marking; a marker placing an essay needs the ladder at a
+   * glance and opens only the band they are deciding between.
+   */
+  summary: string
   guidance: string
 }
 
@@ -67,20 +76,27 @@ export const EE_CRITERIA: RubricCriterion[] = [
     bands: [
       {
         label: '5–6', min: 5, max: 6,
+        summary: 'Focused, answerable question · method justified · discipline’s structure throughout',
         guidance:
           'The research question is sharply focused, stated consistently, and genuinely answerable in 4,000 words. Methods and sources are well chosen for the subject and explained clearly enough that a reader could follow the approach. The essay follows the structural conventions of its discipline throughout, and the required elements are all present and correct.',
       },
       {
         label: '3–4', min: 3, max: 4,
+        summary: 'Question drifts or over-scoped · method thinly explained · structure uneven',
         guidance:
           'The research question is stated and broadly answerable, but drifts in wording between title page, introduction and conclusion, or is wider than the word limit comfortably allows. Methods are appropriate but thinly explained. Structure is recognisable but uneven — sections do not consistently do the work the discipline expects of them.',
       },
       {
         label: '1–2', min: 1, max: 2,
+        summary: 'Vague or unanswerable question · little method · generic essay structure',
         guidance:
           'The research question is vague, descriptive, or so broad that no 4,000-word essay could answer it. Little or no account of method. Structure is generic essay-writing rather than the conventions of the subject; required elements may be missing.',
       },
-      { label: '0', min: 0, max: 0, guidance: 'Does not reach a standard described by the bands above.' },
+      {
+        label: '0', min: 0, max: 0,
+        summary: 'Below the bands above',
+        guidance: 'Does not reach a standard described by the bands above.',
+      },
     ],
     notes: [
       {
@@ -110,20 +126,27 @@ export const EE_CRITERIA: RubricCriterion[] = [
     bands: [
       {
         label: '5–6', min: 5, max: 6,
+        summary: 'Accurate and clearly their own · terminology precise · concepts applied, not just defined',
         guidance:
           'Knowledge is accurate, relevant and clearly the student’s own. Subject terminology is used precisely and consistently, in the way a specialist would use it. Concepts are applied to the material rather than defined and abandoned — the reader sees the discipline doing work on the topic.',
       },
       {
         label: '3–4', min: 3, max: 4,
+        summary: 'Sound but partly general · terminology mostly right · concepts applied loosely',
         guidance:
           'Knowledge is sound but partly general; some material is included because it was found rather than because it serves the question. Terminology is mostly correct with occasional slips or inconsistency. Concepts are named and explained accurately but applied only loosely.',
       },
       {
         label: '1–2', min: 1, max: 2,
+        summary: 'Thin, dated or inaccurate · terminology avoided or misused',
         guidance:
           'Knowledge is thin, dated, or substantially inaccurate. Terminology is avoided, misused, or replaced by everyday language. Little evidence the student is working inside a subject discipline at all.',
       },
-      { label: '0', min: 0, max: 0, guidance: 'Does not reach a standard described by the bands above.' },
+      {
+        label: '0', min: 0, max: 0,
+        summary: 'Below the bands above',
+        guidance: 'Does not reach a standard described by the bands above.',
+      },
     ],
     notes: [
       {
@@ -146,20 +169,27 @@ export const EE_CRITERIA: RubricCriterion[] = [
     bands: [
       {
         label: '5–6', min: 5, max: 6,
+        summary: 'Evidence interpreted · one traceable line from question to conclusion',
         guidance:
           'Evidence is interpreted, not merely reported: the student explains what it shows and why it matters to the question. The argument runs in a single traceable line from research question through evidence to conclusion, each section advancing it. A reader can state the essay’s case in one sentence after finishing.',
       },
       {
         label: '3–4', min: 3, max: 4,
+        summary: 'Analysis intermittent · argument discernible but loses direction',
         guidance:
           'Analysis is present but intermittent — stretches of description sit between the analytical passages. The argument is discernible but loses direction; some sections are relevant to the topic without advancing the case. The conclusion follows from the essay but not inevitably.',
       },
       {
         label: '1–2', min: 1, max: 2,
+        summary: 'Largely descriptive · no sustained argument',
         guidance:
           'Largely descriptive or narrative. Evidence is presented and left to speak for itself. No sustained argument — the essay is a sequence of information about the topic rather than a case answering a question.',
       },
-      { label: '0', min: 0, max: 0, guidance: 'Does not reach a standard described by the bands above.' },
+      {
+        label: '0', min: 0, max: 0,
+        summary: 'Below the bands above',
+        guidance: 'Does not reach a standard described by the bands above.',
+      },
     ],
     notes: [
       {
@@ -186,25 +216,33 @@ export const EE_CRITERIA: RubricCriterion[] = [
     bands: [
       {
         label: '7–8', min: 7, max: 8,
+        summary: 'Conclusion answers the question · set in context · limitations named and consequences drawn',
         guidance:
           'The conclusion answers the research question clearly and follows logically from the evidence presented. Findings are set in a wider scholarly context. The student evaluates genuinely — naming specific limitations of method, source base and reasoning, and explaining what those limitations do to the strength of the conclusion. Unresolved questions are identified honestly.',
       },
       {
         label: '5–6', min: 5, max: 6,
+        summary: 'Clear conclusion · evaluation present but uneven',
         guidance:
           'A clear conclusion that answers the question, with some contextualisation. Evaluation is present and specific in places but uneven — perhaps strong on source limitations and silent on method, or listing limitations without saying what follows from them.',
       },
       {
         label: '3–4', min: 3, max: 4,
+        summary: 'Conclusion restates or overreaches · evaluation generic',
         guidance:
           'The conclusion restates the essay rather than answering the question, or reaches beyond what the evidence supports. Evaluation is generic — "more time would have helped", "the sample was small" — with no consequence drawn.',
       },
       {
         label: '1–2', min: 1, max: 2,
+        summary: 'Summary only · no meaningful evaluation',
         guidance:
           'Little discussion beyond summary. No meaningful evaluation, or evaluation limited to an apology for the essay’s length.',
       },
-      { label: '0', min: 0, max: 0, guidance: 'Does not reach a standard described by the bands above.' },
+      {
+        label: '0', min: 0, max: 0,
+        summary: 'Below the bands above',
+        guidance: 'Does not reach a standard described by the bands above.',
+      },
     ],
     notes: [
       {
@@ -232,16 +270,19 @@ export const EE_CRITERIA: RubricCriterion[] = [
     bands: [
       {
         label: '3–4', min: 3, max: 4,
+        summary: 'Evaluates growth with concrete evidence from this project · skills named and connected',
         guidance:
           'The statement evaluates the student’s development as a learner with concrete evidence from this project: a decision that had to be reversed, a method that failed and what replaced it, a view that changed under the weight of evidence. Skills gained are named and connected to future contexts. The voice is analytical and specific to this essay — it could not describe anyone else’s.',
       },
       {
         label: '1–2', min: 1, max: 2,
+        summary: 'Descriptive not evaluative · would fit almost any essay',
         guidance:
           'Reflection is descriptive rather than evaluative: an account of what was done and when, or general statements about time management and stress. Skills are asserted rather than evidenced. The statement would fit almost any extended essay.',
       },
       {
         label: '0', min: 0, max: 0,
+        summary: 'No statement, or nothing about their learning',
         guidance: 'No reflective statement, or nothing that addresses the student’s learning.',
       },
     ],

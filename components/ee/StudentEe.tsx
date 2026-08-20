@@ -15,9 +15,15 @@
 import { useState, useTransition } from 'react'
 import type { Checkpoint } from '@/lib/types'
 import type { EeSessionNote, EeStudentView, SessionStage } from '@/lib/ee/types'
-import { INTERDISCIPLINARY_FRAMEWORKS, WORD_COUNT_RULES, WORD_LIMIT } from '@/lib/ee/rubric'
+import { EE_CRITERIA, INTERDISCIPLINARY_FRAMEWORKS, WORD_COUNT_RULES, WORD_LIMIT } from '@/lib/ee/rubric'
 import { DP_SUBJECTS, GROUP_NAMES, subjectName } from '@/lib/ee/subjects'
-import { addSessionNote, saveRegistration, setLink, submitFinal } from '@/lib/ee/actions'
+import {
+  addSessionNote, saveRegistration, setLink, submitFinal, submitRpf,
+} from '@/lib/ee/actions'
+import { countWords } from '@/lib/ee/scoring'
+
+/** The statement's own limit — the essay's 4,000 is a different number. */
+const RPF_LIMIT = 500
 import { subjectWarnings } from '@/lib/ee/registration'
 
 const SESSIONS: { stage: SessionStage; label: string; key: string }[] = [
@@ -104,6 +110,7 @@ export default function StudentEe({
 
       <Sessions view={view} checkpoints={checkpoints} />
       <RpfPanel view={view} />
+      <ReleasedScore view={view} />
     </>
   )
 }
@@ -587,38 +594,109 @@ function FinalPanel({ view, checkpoint }: { view: EeStudentView; checkpoint?: Ch
  * filed the meeting is to RECORD THE MEETING — not to override the gate.
  */
 function RpfPanel({ view }: { view: EeStudentView }) {
+  const [body, setBody] = useState('')
+  const [message, setMessage] = useState<string | null>(null)
+  const [pending, start] = useTransition()
+  const words = countWords(body)
+  const over = words > RPF_LIMIT
+
   return (
     <div className="panel">
       <div className="panel-h">
         <h2>Reflection statement (RPF)</h2>
         <span className="spacer" />
-        {view.rpfOpen ? (
-          <span className="pill ok">open</span>
+        {view.rpf ? (
+          <span className="pill ok">🔒 submitted {view.rpf.submittedAt}</span>
+        ) : view.rpfOpen ? (
+          <span className="pill info">open</span>
         ) : (
           <span className="pill grey">🔒 unlocks after your viva voce</span>
         )}
       </div>
       <div className="panel-b">
-        {!view.rpfOpen && (
-          <div className="note" style={{ marginBottom: 10 }}>
-            This opens as soon as your supervisor records your viva voce. If the viva has happened
-            and this is still locked, tell your EE coordinator — they can record it.
-          </div>
+        {view.rpf ? (
+          <>
+            <p className="mut" style={{ marginTop: 0, fontSize: 12 }}>
+              {view.rpf.words} words · locked. Your supervisor reads this to mark Criterion E.
+            </p>
+            <div className="eerpf">{view.rpf.body}</div>
+          </>
+        ) : (
+          <>
+            {!view.rpfOpen && (
+              <div className="note" style={{ marginBottom: 10 }}>
+                This opens as soon as your supervisor records your viva voce. If the viva has
+                happened and this is still locked, tell your EE coordinator — they can record it.
+              </div>
+            )}
+            <p className="mut" style={{ marginTop: 0 }}>
+              <b>One</b> statement, up to <b>{RPF_LIMIT} words</b>, written after the viva. It is
+              Criterion E — 4 of the 30 marks. Write it in a Doc and paste it here. It is{' '}
+              <b>not</b> part of your {WORD_LIMIT.toLocaleString()}-word essay limit.
+            </p>
+            <div className="mut" style={{ fontSize: 12, marginBottom: 6 }}>
+              What it is for: how your thinking changed, which skills transfer, what you would do
+              differently — not a summary of what you did.
+            </div>
+            <textarea
+              rows={8}
+              value={body}
+              disabled={!view.rpfOpen}
+              placeholder={view.rpfOpen ? 'Paste your statement…' : 'Opens after your viva voce…'}
+              onChange={(e) => setBody(e.target.value)}
+            />
+            <div className="row" style={{ marginTop: 6 }}>
+              <span className={over ? 'pill bad' : 'mut'} style={{ fontSize: 12 }}>
+                {words} / {RPF_LIMIT} words
+              </span>
+              <span className="spacer" />
+              <button
+                className="btn pri"
+                disabled={pending || !view.rpfOpen || words === 0 || over}
+                onClick={() =>
+                  start(async () => setMessage((await submitRpf(view.studentId, body)).message))
+                }
+              >
+                Submit and lock
+              </button>
+            </div>
+            <p className="mut" style={{ fontSize: 11.5, margin: '6px 0 0' }}>
+              Submitting locks it — your supervisor marks Criterion E from it, so it cannot change
+              after they have read it.
+            </p>
+            {message && <div className="note warn" style={{ marginTop: 8 }}>{message}</div>}
+          </>
         )}
-        <p className="mut" style={{ marginTop: 0 }}>
-          <b>One</b> statement, up to <b>500 words</b>, written after the viva. It is Criterion E —
-          4 of the 30 marks. Write it in a Doc and paste it here. It is <b>not</b> part of your{' '}
-          {WORD_LIMIT.toLocaleString()}-word limit.
-        </p>
-        <textarea rows={6} disabled placeholder="Opens after your viva voce…" />
-        <div className="note gold" style={{ marginTop: 10 }}>
-          <b>Not built yet.</b> Pasting and locking the statement, and uploading the finished PDF,
-          are the next steps. The upload also needs cloud storage the school has not set up, so the
-          anonymity check cannot read your file yet.
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- released score
+
+function ReleasedScore({ view }: { view: EeStudentView }) {
+  if (!view.releasedScore) return null
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <h2>Your score</h2>
+        <span className="spacer" />
+        <span className="pill ok">
+          {view.releasedScore.total} / 30
+          {view.releasedScore.band ? ` · indicative ${view.releasedScore.band}` : ''}
+        </span>
+      </div>
+      <div className="panel-b">
+        <div className="eecrit-s">
+          {EE_CRITERIA.map((c, i) => (
+            <span key={c.key} style={{ marginRight: 14 }}>
+              <b>{c.key}</b> {view.releasedScore!.marks[i] ?? '—'}/{c.max}
+            </span>
+          ))}
         </div>
         <p className="mut" style={{ fontSize: 12, marginBottom: 0 }}>
-          <b>The {WORD_LIMIT.toLocaleString()} words count:</b> {WORD_COUNT_RULES.counted.join(', ')}.{' '}
-          <b>They do not count:</b> {WORD_COUNT_RULES.notCounted.join(', ')}.
+          This is your school&rsquo;s predicted mark. The IB marks the essay itself and sets its own
+          grade boundaries, so your final grade can differ.
         </p>
       </div>
     </div>

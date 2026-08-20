@@ -393,7 +393,9 @@ export default async function CoursePage({
             // the same `items.unlock` capability CAS and IA marks use.
             canAllocate={all && !readOnly}
             canUnlock={session.can('items.unlock') && !readOnly}
+            canRevoke={session.can('scores.revoke') && !readOnly}
             staff={staff}
+            meId={user.id}
           />
         </>
       )

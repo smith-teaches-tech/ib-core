@@ -132,6 +132,10 @@ export interface EeStudentView {
   rpfOpen: boolean
   /** The finished essay, if it has been filed. */
   final: EeFinal | null
+  /** The reflection statement, once submitted. Locks on submission. */
+  rpf: { body: string; words: number; submittedAt: string } | null
+  /** The released score, if the supervisor has released it. Students see nothing before that. */
+  releasedScore: { marks: (number | null)[]; total: number; band: string | null } | null
   /** Locked once filed; only an `items.unlock` holder reopens it. */
   finalLocked: boolean
 }
@@ -166,6 +170,11 @@ export interface EeRosterRow {
    * drawer a summary of work nobody could open.
    */
   links: { stage: 'outline' | 'draft'; label: string; href: string; addedAt: string }[]
+  /** The reflection statement — the supervisor reads it to mark Criterion E. */
+  rpf: { body: string; words: number; submittedAt: string } | null
+  /** Marks entered so far. `null` per criterion means not yet marked. */
+  marks: (number | null)[]
+  scoring: EeScoring | null
 }
 
 /** Somebody who can be given a supervisee. Staff at the school, students excluded. */
@@ -274,4 +283,37 @@ export interface EeFinal {
   unlockedByName?: string
   unlockReason?: string
   unlockedAt?: string
+}
+
+/**
+ * THE SUPERVISOR'S SCORING RECORD — everything around the marks that is not a
+ * mark. The marks themselves live on `ee.score`'s `criterionMarks`, because
+ * scoring an EE is the IA marks module doing its job (IB-EE-Build-Plan.md §4).
+ */
+export interface EeScoring {
+  schoolId: Id
+  studentId: Id
+  /**
+   * The written justification. Michael, 20 Aug: "Supervisor also needs to write
+   * a few sentences after grading to justify score/authenticity."
+   *
+   * Staff-only, and it travels with the RPF to the IB. Examiner reports say
+   * repeatedly that per-criterion justification materially helps a moderator —
+   * and it is what an authenticity query is answered from a year later.
+   */
+  comment: string
+  hoursSupervised: number | null
+  /**
+   * TWO TICKS, deliberately. An acting supervisor can honestly confirm the work
+   * is the candidate's own without claiming to have held sessions they were not
+   * at. One combined tick would force a false claim or an unsigned attestation.
+   */
+  attestedSessions: boolean
+  attestedAuthentic: boolean
+  attestedBy?: Id
+  attestedByName?: string
+  attestedAt?: string
+  releasedBy?: Id
+  releasedByName?: string
+  releasedAt?: string
 }

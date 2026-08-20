@@ -30,6 +30,9 @@ import { BAND_PROVENANCE, EE_CRITERIA, boundariesAreOfficial, indicativeGrade } 
 import { registrationComplete, subjectWarnings, validateRegistration } from '../lib/ee/registration'
 import { DP_SUBJECTS, isDpSubject, subjectForCourse } from '../lib/ee/subjects'
 import { anonymityPreflight, preflightPasses } from '../lib/anonymity'
+import {
+  countWords, criterionOpen, markingGates, releaseBlockers, summariseScore,
+} from '../lib/ee/scoring'
 import { DEADLINES } from '../lib/data/fixtures'
 import { matchSessionNumbers } from '../lib/ia/sample'
 import { iaTotal, templateOf } from '../lib/templates'
@@ -1850,6 +1853,93 @@ async function main() {
   const afterLoad = (await repo.ee.listAssignableStaff('dhahran', 'c15'))
     .find((p2) => p2.userId === 'u_adeyemi')!.load
   check(afterLoad === beforeLoad + 1, 'allocating moves the load count — it is derived, not typed in')
+
+  console.log('\n13k. Marking — the per-criterion gate, and release')
+
+  check(
+    EE_CRITERIA.every((c) => c.bands.every((b) => b.summary.length > 0 && b.summary.length < 110)),
+    'every band has a short summary as well as its full text — the rubric collapses before it expands',
+  )
+
+  const g0 = markingGates({ finalFiled: false, rpfIn: false })
+  check(
+    !criterionOpen('A', g0) && !criterionOpen('E', g0),
+    'nothing is markable before the essay is filed',
+  )
+  const g1 = markingGates({ finalFiled: true, rpfIn: false })
+  check(
+    ['A', 'B', 'C', 'D'].every((k) => criterionOpen(k, g1)) && !criterionOpen('E', g1),
+    'THE RULE: with the essay filed and no reflection yet, A–D are open and E is not — a supervisor marks four criteria before the viva and does not read the essay a third time',
+  )
+  const g2 = markingGates({ finalFiled: true, rpfIn: true })
+  check(criterionOpen('E', g2), 'and E opens when the reflection arrives — it is marked from it')
+
+  const partial = [6, 5, 5, 7, null]
+  const ps = summariseScore(partial)
+  check(
+    ps.entered === 4 && ps.soFar === 23 && ps.total === null && ps.band === null,
+    'a partial mark has NO total and NO band — a grade off four of five criteria would be a lie',
+  )
+  const full = summariseScore([6, 5, 5, 7, 3])
+  check(full.total === 26 && full.band === 'A', 'a complete one totals 26, which is inside the indicative A band (24+)')
+  check(
+    summariseScore([5, 4, 4, 6, 2]).band === 'B' && summariseScore([1, 1, 1, 1, 1]).band === 'E',
+    'and the ladder below lands where the boundaries say — 21 is a B, 5 is an E',
+  )
+
+  const noBlockers = releaseBlockers({
+    marks: [6, 5, 5, 7, 3], attestedSessions: true, attestedAuthentic: true,
+    comment: 'x'.repeat(60),
+  })
+  check(noBlockers.length === 0, 'five marks, both ticks and a written justification clear release')
+  check(
+    releaseBlockers({ marks: partial, attestedSessions: true, attestedAuthentic: true, comment: 'x'.repeat(60) })
+      .some((b) => b.key === 'marks'),
+    'an unmarked criterion blocks release',
+  )
+  check(
+    releaseBlockers({ marks: [6, 5, 5, 7, 3], attestedSessions: false, attestedAuthentic: true, comment: 'x'.repeat(60) })
+      .some((b) => b.key === 'sessions') &&
+    releaseBlockers({ marks: [6, 5, 5, 7, 3], attestedSessions: true, attestedAuthentic: false, comment: 'x'.repeat(60) })
+      .some((b) => b.key === 'authentic'),
+    'and BOTH attestation ticks are required separately — someone covering for a colleague can sign one without the other',
+  )
+  check(
+    releaseBlockers({ marks: [6, 5, 5, 7, 3], attestedSessions: true, attestedAuthentic: true, comment: 'ok' })
+      .some((b) => b.key === 'comment'),
+    'a two-word justification does not count as one',
+  )
+
+  check(
+    countWords('It  changed   how I read.') === 5 &&
+      countWords('The\u00a0“turning”\u00a0point was ‘clear’.') === 5,
+    'the word counter survives pasted text — non-breaking spaces and smart quotes come with every Google Doc',
+  )
+
+  // --- the round trip, against real data ---
+  const marker14 = STUDENTS.find((x) => x.cohortId === 'c14')!.userId
+  const rows14 = await repo.ee.getRoster('dhahran', 'c14', null)
+  const marked14 = rows14.find((r2) => r2.studentId === marker14)!
+  check(
+    marked14.rpf != null && marked14.rpf.words > 50,
+    'a graduated candidate\u2019s reflection statement is on the supervisor\u2019s row, ready to mark Criterion E from',
+  )
+  check(
+    marked14.scoring?.releasedAt != null && summariseScore(marked14.marks).complete,
+    'and their score is complete and released',
+  )
+  const attestDef14 = REQUIREMENT_DEFS.find((d) => d.cohortId === 'c14' && d.key === 'ee.attest')
+  check(
+    attestDef14 != null &&
+      REQUIREMENT_STATES.every((x) => x.requirementDefId !== attestDef14.id),
+    'the attestation is DERIVED from the scoring record — nothing is stored against ee.attest',
+  )
+  const track14 = (await repo.getTrack('dhahran', marker14))!
+  check(
+    track14.lanes.find((l) => l.lane === 'Extended Essay')!
+      .checkpoints.find((cp) => cp.def.key === 'ee.attest')!.display === 'done',
+    'and it still reads done on the track, from the same derivation',
+  )
 
   console.log('\n' + '='.repeat(60))
   if (fail.length) {

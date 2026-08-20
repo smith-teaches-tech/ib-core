@@ -160,6 +160,36 @@ export interface EeRepository {
     cohortId: string,
     forUserId: string | null,
   ): Promise<EeRosterRow[]>
+  /** The student pastes their reflection statement. Submitting locks it. */
+  submitRpf(schoolId: string, studentId: string, body: string): Promise<void>
+  /**
+   * One criterion's mark. Saved as it is entered, because a supervisor marking
+   * A–D before the viva must not lose them waiting for Criterion E.
+   */
+  saveMark(
+    schoolId: string,
+    studentId: string,
+    criterionIndex: number,
+    mark: number | null,
+    byName: string,
+  ): Promise<void>
+  /** The justification, hours, and the two attestation ticks. */
+  saveScoring(
+    schoolId: string,
+    studentId: string,
+    input: {
+      comment: string
+      hoursSupervised: number | null
+      attestedSessions: boolean
+      attestedAuthentic: boolean
+    },
+    byId: string,
+    byName: string,
+  ): Promise<void>
+  /** Release puts the grade in front of the student and into the bonus-point matrix. */
+  releaseScore(schoolId: string, studentId: string, byId: string, byName: string): Promise<void>
+  /** `scores.revoke` — the coordinator's undo. */
+  revokeScore(schoolId: string, studentId: string): Promise<void>
   /** Who can be given a supervisee, with their current load so it can be spread. */
   listAssignableStaff(schoolId: string, cohortId: string): Promise<EeAssignableStaff[]>
   /** Student writes their own registration. `ee.rq` follows from validity. */
