@@ -28,6 +28,7 @@ import { casWindow } from '../lib/cas/window'
 import { EE_REGISTRATIONS } from '../lib/data/fixtures'
 import { BAND_PROVENANCE, EE_CRITERIA, boundariesAreOfficial, indicativeGrade } from '../lib/ee/rubric'
 import { registrationComplete, validateRegistration } from '../lib/ee/registration'
+import { DP_SUBJECTS, isDpSubject, subjectForCourse } from '../lib/ee/subjects'
 import { DEADLINES } from '../lib/data/fixtures'
 import { matchSessionNumbers } from '../lib/ia/sample'
 import { iaTotal, templateOf } from '../lib/templates'
@@ -1482,23 +1483,44 @@ async function main() {
   console.log('\n13c. Registration — what ee.rq actually means')
 
   check(
-    validateRegistration({ subjects: ['bio_hl'], researchQuestion: 'q', title: 't' }).length === 0,
+    validateRegistration({ subjects: ['biology'], researchQuestion: 'q', title: 't' }).length === 0,
     'a single-subject registration with a question and a title is valid',
   )
   check(
-    validateRegistration({ subjects: ['bio_hl', 'psych_hl'], researchQuestion: 'q', title: 't' })
+    validateRegistration({ subjects: ['biology', 'psychology'], researchQuestion: 'q', title: 't' })
       .some((p) => p.field === 'framework'),
     'an interdisciplinary essay without one of the five frameworks is refused — an unregistered one is a registration error',
   )
   check(
-    validateRegistration({ subjects: ['ess', 'psych_hl'], framework: 'movement and time', researchQuestion: 'q', title: 't' })
+    validateRegistration({ subjects: ['ess', 'psychology'], framework: 'movement and time', researchQuestion: 'q', title: 't' })
       .some((p) => p.field === 'subjects'),
     'ESS and Literature and Performance cannot be half of an interdisciplinary pair — they are already cross-disciplinary',
   )
   check(
-    validateRegistration({ subjects: ['bio_hl'], framework: 'movement and time', researchQuestion: 'q', title: 't' })
+    validateRegistration({ subjects: ['biology'], framework: 'movement and time', researchQuestion: 'q', title: 't' })
       .some((p) => p.field === 'framework'),
     'and a framework on a single-subject essay is refused too — the rule runs both ways',
+  )
+  // THE SUBJECT LIST IS THE IB'S, NOT THE SCHOOL'S — an essay can be registered
+  // in a subject ISG does not timetable, which the first build got wrong.
+  check(
+    validateRegistration({ subjects: ['bio_hl'], researchQuestion: 'q', title: 't' })
+      .some((p) => p.field === 'subjects'),
+    'a school COURSE id is not a subject — registration is in a DP subject, and IBIS would refuse the other',
+  )
+  check(
+    ['film', 'theatre', 'global_politics', 'psychology', 'physics'].every(isDpSubject),
+    'Film, Theatre, Global politics, Psychology and Physics are all registrable, whether or not the school teaches them',
+  )
+  const taught = new Set(
+    COURSES.filter((c) => c.type === 'subject')
+      .map((c) => subjectForCourse(c.id))
+      .filter((k): k is string => k != null),
+  )
+  const untaught = DP_SUBJECTS.filter((x) => !taught.has(x.key))
+  check(
+    untaught.length > 0 && untaught.some((x) => x.key === 'film'),
+    `${untaught.length} DP subjects the school does not timetable are still registrable — Film among them, which is the point of separating the two lists`,
   )
 
   const rqDef15 = eeDefs15.find((d) => d.key === 'ee.rq')!
@@ -1588,6 +1610,57 @@ async function main() {
   check(
     !restoredSpaces.some((g) => g.courses.some((x) => x.id === 'ee')),
     'reassign their last supervisee and it goes again',
+  )
+
+  console.log('\n13g. Reflection sessions, and the RPF gate')
+
+  const sessionStudent = 'st01'
+  const eeView0 = (await repo.ee.getStudentView('dhahran', sessionStudent))!
+  check(
+    eeView0.sessions.some((x) => x.stage === 'r1'),
+    'session 1 is on the student view, derived from EE_SESSIONS rather than stored twice',
+  )
+  check(
+    eeView0.sessions.every((x) => x.heldOn <= x.recordedAt),
+    'heldOn and recordedAt are separate — a meeting typed up a week later still reads as held on the day',
+  )
+  check(
+    eeView0.notes.some((n) => n.authorType === 'student') &&
+      eeView0.notes.some((n) => n.authorType === 'staff'),
+    'both sides can write about a session, and the supervisor sees both — the student\u2019s voice is on the record, dated',
+  )
+  check(eeView0.rpfOpen === false, 'the RPF is closed before the viva')
+
+  const vivaDef = eeDefs15.find((d) => d.key === 'ee.viva')!
+  const rpfDef = eeDefs15.find((d) => d.key === 'ee.rpf')!
+  const track0 = (await repo.getTrack('dhahran', sessionStudent))!
+  const lane0 = track0.lanes.find((l) => l.lane === 'Extended Essay')!
+  check(
+    lane0.checkpoints.find((cp) => cp.def.id === rpfDef.id)!.display === 'future',
+    'and the track shows it locked, not overdue',
+  )
+
+  // The coordinator files a viva the supervisor held but never entered — the
+  // route Michael asked for, taken WITHOUT an override of opensAfter.
+  await repo.ee.recordSession(
+    'dhahran', sessionStudent, 'viva', '2026-11-28', 'u_msmith', 'Michael Smith', true,
+  )
+  const eeView1 = (await repo.ee.getStudentView('dhahran', sessionStudent))!
+  check(eeView1.rpfOpen === true, 'recording the viva opens the RPF — no override, no unlock token')
+  const lane1 = (await repo.getTrack('dhahran', sessionStudent))!
+    .lanes.find((l) => l.lane === 'Extended Essay')!
+  check(
+    lane1.checkpoints.find((cp) => cp.def.id === vivaDef.id)!.display === 'done' &&
+      lane1.checkpoints.find((cp) => cp.def.id === rpfDef.id)!.display !== 'future',
+    'the viva reads done on the track and the RPF is no longer locked — one derivation, both screens',
+  )
+  check(
+    REQUIREMENT_STATES.every((x) => x.requirementDefId !== vivaDef.id),
+    'and NOTHING was stored against ee.viva — it is derived from the session, per invariant #2',
+  )
+  check(
+    eeView1.sessions.find((x) => x.stage === 'viva')?.onBehalf === true,
+    'the record says a coordinator filed it, not the supervisor — a different fact, kept as one',
   )
 
   console.log('\n' + '='.repeat(60))

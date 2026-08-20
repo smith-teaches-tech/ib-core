@@ -343,6 +343,7 @@ export type InterdisciplinaryFramework = (typeof INTERDISCIPLINARY_FRAMEWORKS)[n
 
 /**
  * Already cross-disciplinary, so they may NOT be used in the interdisciplinary
- * pathway. Matched on course id; keep in step with lib/data/catalogue.ts.
+ * pathway. Matched on SUBJECT KEY from lib/ee/subjects.ts — not on course id,
+ * because a student can register in a subject the school does not teach.
  */
 export const NOT_ELIGIBLE_INTERDISCIPLINARY = ['ess', 'lit_perf']

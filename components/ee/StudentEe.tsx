@@ -1,74 +1,38 @@
 'use client'
 
-// MY EXTENDED ESSAY — the student's own screen.
+// MY EXTENDED ESSAY.
 //
-// It renders the SAME checkpoints the coordinator board and the student track
-// render, passed in from getTrack rather than fetched separately. That is
-// deliberate: the moment this screen computes its own view of what a student
-// owes, it can disagree with the board, and one of them will be wrong in March.
+// The checkpoints come from getTrack, not from the EE repository. The moment
+// this screen computes its own view of what a student owes it can disagree with
+// the coordinator board, and one of them will be wrong in March.
+//
+// COMPACTED 20 Aug on Michael's note — "I like the 'where you are' but it takes
+// up too much space… a bit too much information." The track is now one row per
+// requirement with no explanatory prose: a student who has been told what an
+// outline is does not need telling again every time they open the page. The
+// long-form guidance moved to the panel that needs it, once.
 
 import { useState, useTransition } from 'react'
 import type { Checkpoint } from '@/lib/types'
-import type { EeStudentView } from '@/lib/ee/types'
+import type { EeSessionNote, EeStudentView, SessionStage } from '@/lib/ee/types'
 import { INTERDISCIPLINARY_FRAMEWORKS, WORD_COUNT_RULES, WORD_LIMIT } from '@/lib/ee/rubric'
-import { saveRegistration, setLink } from '@/lib/ee/actions'
+import { DP_SUBJECTS, GROUP_NAMES, subjectName } from '@/lib/ee/subjects'
+import { addSessionNote, saveRegistration, setLink } from '@/lib/ee/actions'
 
-const STAGE_NOTE: Record<string, string> = {
-  'ee.rq': 'Your subject, research question and title. These go on the title page.',
-  'ee.outline': 'A Google Doc link. Share it so your supervisor can open it.',
-  'ee.r1': 'Recorded by your supervisor after your first reflection session.',
-  'ee.draft': 'A Google Doc link, discussed at reflection session 2.',
-  'ee.r2': 'Recorded by your supervisor after your second reflection session.',
-  'ee.final': 'The finished PDF, uploaded here.',
-  'ee.viva': 'Your concluding interview — reflection session 3.',
-  'ee.rpf': 'One reflection of up to 500 words, written after the viva.',
-  'ee.attest': 'Your supervisor confirms the sessions were held and the work is your own.',
-  'ee.score': 'Marked by your supervisor and released when it is ready.',
-}
-
-function Dot({ display }: { display: Checkpoint['display'] }) {
-  const cls =
-    display === 'done' ? 'ok' : display === 'partial' ? 'warn' : display === 'future' ? 'future' : 'grey'
-  return <i className={`eedot ${cls}`} />
-}
+const SESSIONS: { stage: SessionStage; label: string; key: string }[] = [
+  { stage: 'r1', label: 'Reflection session 1', key: 'ee.r1' },
+  { stage: 'r2', label: 'Reflection session 2', key: 'ee.r2' },
+  { stage: 'viva', label: 'Viva voce · session 3', key: 'ee.viva' },
+]
 
 export default function StudentEe({
   view,
   checkpoints,
 }: {
   view: EeStudentView
-  /** The Extended Essay lane, straight off getTrack. */
   checkpoints: Checkpoint[]
 }) {
-  const reg = view.registration
-  const [subjects, setSubjects] = useState<string[]>(reg?.subjects ?? [])
-  const [framework, setFramework] = useState(reg?.framework ?? '')
-  const [rq, setRq] = useState(reg?.researchQuestion ?? '')
-  const [title, setTitle] = useState(reg?.title ?? '')
-  const [problems, setProblems] = useState(view.problems)
-  const [saved, setSaved] = useState(false)
-  const [pending, start] = useTransition()
-
-  const interdisciplinary = subjects.length === 2
-
-  const toggleSubject = (id: string) =>
-    setSubjects((prev) =>
-      prev.includes(id) ? prev.filter((x) => x !== id) : prev.length >= 2 ? prev : [...prev, id],
-    )
-
-  const save = () =>
-    start(async () => {
-      const r = await saveRegistration(view.studentId, {
-        subjects,
-        framework: interdisciplinary ? framework : null,
-        researchQuestion: rq,
-        title,
-      })
-      setProblems(r.problems)
-      setSaved(r.ok)
-    })
-
-  const problemFor = (field: string) => problems.find((p) => p.field === field)?.message
+  const done = checkpoints.filter((c) => c.display === 'done').length
 
   return (
     <>
@@ -79,128 +43,46 @@ export default function StudentEe({
             Supervisor: <b>{view.supervisor.name}</b>
             {view.supervisor.acting && (
               <span className="pill grey" style={{ marginLeft: 8 }}>
-                acting — you have not been allocated a supervisor yet
+                not allocated yet
               </span>
             )}
           </>
         ) : (
           'No supervisor yet.'
         )}
+        {' · '}
+        {done} of {checkpoints.length} recorded
       </p>
 
-      {/* ------------------------------------------------ the track, first */}
+      {/* ---- the track: one compact row each, no prose ------------------- */}
       <div className="panel">
-        <div className="panel-h">
-          <h2>Where you are</h2>
-          <span className="spacer" />
-          <span className="mut" style={{ fontSize: 12 }}>
-            {checkpoints.filter((c) => c.display === 'done').length} of {checkpoints.length} recorded
-          </span>
-        </div>
-        <div className="panel-b">
-          <div className="eetrack">
-            {checkpoints.map((c) => (
-              <div key={c.def.key} className={`eestep ${c.display}`}>
-                <Dot display={c.display} />
-                <div className="eestep-b">
-                  <div className="eestep-t">
-                    {c.def.label}
-                    {c.display === 'future' && <span className="pill grey">not open yet</span>}
-                    {c.due?.late && <span className="pill bad">overdue</span>}
-                    {c.due?.deferredTo && (
-                      <span className="pill grey" title={`Not counted late until ${c.due.deferredTo}`}>
-                        you joined after this date
-                      </span>
-                    )}
-                  </div>
-                  <div className="eestep-d mut">
-                    {STAGE_NOTE[c.def.key]}
-                    {c.due && ` · due ${c.due.dueAt}`}
-                  </div>
-                  {c.state?.artifacts.map((a) => (
-                    <div key={a.id} className="eelink">
-                      {a.kind === 'link' && a.href ? (
-                        <a href={a.href} target="_blank" rel="noreferrer">
-                          {a.label} ↗
-                        </a>
-                      ) : (
-                        <span>{a.label}</span>
-                      )}
-                    </div>
-                  ))}
-                </div>
+        <div className="panel-b eecompact">
+          {checkpoints.map((c) => {
+            const link = c.state?.artifacts.find((a) => a.kind === 'link')
+            return (
+              <div key={c.def.key} className={`eerow ${c.display}`}>
+                <i className={`eedot ${c.display}`} />
+                <span className="eerow-l">{c.def.label}</span>
+                <span className="spacer" />
+                {link?.href && (
+                  <a className="eerow-a" href={link.href} target="_blank" rel="noreferrer">
+                    open ↗
+                  </a>
+                )}
+                {c.display === 'future' && <span className="pill grey">locked</span>}
+                {c.due?.late && <span className="pill bad">overdue</span>}
+                {c.due && !c.due.late && <span className="eerow-d mut">{c.due.dueAt}</span>}
+                {c.state?.recordedAt && c.display === 'done' && (
+                  <span className="eerow-d mut">{c.state.recordedAt}</span>
+                )}
               </div>
-            ))}
-          </div>
+            )
+          })}
         </div>
       </div>
 
-      {/* ------------------------------------------------ registration */}
-      <div className="panel">
-        <div className="panel-h">
-          <h2>Registration</h2>
-          <span className="spacer" />
-          {reg && problems.length === 0 && <span className="pill ok">complete</span>}
-        </div>
-        <div className="panel-b">
-          <span className="caps">Subject — pick one, or two for an interdisciplinary essay</span>
-          <div className="eechips">
-            {view.subjectChoices.map((c) => (
-              <button
-                key={c.id}
-                type="button"
-                className={`eechip ${subjects.includes(c.id) ? 'on' : ''}`}
-                onClick={() => toggleSubject(c.id)}
-              >
-                {c.name}
-              </button>
-            ))}
-          </div>
-          {problemFor('subjects') && <div className="note warn">{problemFor('subjects')}</div>}
+      <Registration view={view} />
 
-          {interdisciplinary && (
-            <div style={{ marginTop: 12 }}>
-              <span className="caps">Interdisciplinary framework — required, and named on the title page</span>
-              <select
-                value={framework}
-                onChange={(e) => setFramework(e.target.value)}
-                style={{ display: 'block', marginTop: 6, maxWidth: 360 }}
-              >
-                <option value="">Choose a framework…</option>
-                {INTERDISCIPLINARY_FRAMEWORKS.map((f) => (
-                  <option key={f} value={f}>
-                    {f}
-                  </option>
-                ))}
-              </select>
-              {problemFor('framework') && <div className="note warn">{problemFor('framework')}</div>}
-            </div>
-          )}
-
-          <label className="fld" style={{ marginTop: 14 }}>
-            Research question
-          </label>
-          <textarea rows={2} value={rq} onChange={(e) => setRq(e.target.value)} />
-          {problemFor('researchQuestion') && (
-            <div className="note warn">{problemFor('researchQuestion')}</div>
-          )}
-
-          <label className="fld" style={{ marginTop: 10 }}>
-            Title
-          </label>
-          <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} />
-          {problemFor('title') && <div className="note warn">{problemFor('title')}</div>}
-
-          <div className="row" style={{ marginTop: 12 }}>
-            <button className="btn pri" onClick={save} disabled={pending}>
-              {pending ? 'Saving…' : 'Save registration'}
-            </button>
-            {saved && <span className="mut">Saved.</span>}
-          </div>
-        </div>
-      </div>
-
-      {/* ------------------------------------------------ links */}
       <LinkPanel
         studentId={view.studentId}
         stage="outline"
@@ -214,33 +96,165 @@ export default function StudentEe({
         checkpoint={checkpoints.find((c) => c.def.key === 'ee.draft')}
       />
 
-      {/* ------------------------------------------------ what is not built */}
-      <div className="panel">
-        <div className="panel-h">
-          <h2>The finished essay, and your reflection</h2>
-        </div>
-        <div className="panel-b">
-          <div className="note gold">
-            <b>Not built yet.</b> Uploading the finished PDF needs cloud storage, which the school
-            has not set up — so the anonymity check cannot read your file yet either. The
-            reflection statement (RPF) unlocks after your viva voce and is not open to you.
-          </div>
-          <h3 style={{ marginBottom: 4 }}>The word limit is {WORD_LIMIT.toLocaleString()}</h3>
-          <p style={{ marginTop: 0 }} className="mut">
-            <b>Counted:</b> {WORD_COUNT_RULES.counted.join(', ')}.<br />
-            <b>Not counted:</b> {WORD_COUNT_RULES.notCounted.join(', ')}.
-          </p>
-        </div>
-      </div>
+      <Sessions view={view} checkpoints={checkpoints} />
+      <RpfPanel view={view} />
     </>
   )
 }
 
+// ---------------------------------------------------------------- registration
+
+function Registration({ view }: { view: EeStudentView }) {
+  const reg = view.registration
+  const [subjects, setSubjects] = useState<string[]>(reg?.subjects ?? [])
+  const [framework, setFramework] = useState(reg?.framework ?? '')
+  const [rq, setRq] = useState(reg?.researchQuestion ?? '')
+  const [title, setTitle] = useState(reg?.title ?? '')
+  const [problems, setProblems] = useState(view.problems)
+  const [saved, setSaved] = useState(false)
+  const [second, setSecond] = useState(Boolean(reg && reg.subjects.length === 2))
+  const [pending, start] = useTransition()
+
+  const complete = reg != null && problems.length === 0
+  const problemFor = (f: string) => problems.find((p) => p.field === f)?.message
+
+  const setAt = (i: number, value: string) =>
+    setSubjects((prev) => {
+      const next = [...prev]
+      if (value) next[i] = value
+      else next.splice(i, 1)
+      return next.filter(Boolean)
+    })
+
+  const save = () =>
+    start(async () => {
+      const r = await saveRegistration(view.studentId, {
+        subjects: second ? subjects.slice(0, 2) : subjects.slice(0, 1),
+        framework: second ? framework : null,
+        researchQuestion: rq,
+        title,
+      })
+      setProblems(r.problems)
+      setSaved(r.ok)
+    })
+
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <h2>Registration</h2>
+        <span className="spacer" />
+        {complete && <span className="pill ok">complete</span>}
+      </div>
+      <div className="panel-b">
+        <div className="eetwo">
+          <div>
+            <label className="fld">Subject</label>
+            <SubjectSelect
+              value={subjects[0] ?? ''}
+              likely={view.likelySubjects}
+              onChange={(v) => setAt(0, v)}
+            />
+          </div>
+          <div>
+            <label className="fld">
+              <input
+                type="checkbox"
+                checked={second}
+                onChange={(e) => setSecond(e.target.checked)}
+                style={{ marginRight: 6 }}
+              />
+              Interdisciplinary — a second subject
+            </label>
+            {second && (
+              <SubjectSelect
+                value={subjects[1] ?? ''}
+                likely={view.likelySubjects}
+                onChange={(v) => setAt(1, v)}
+              />
+            )}
+          </div>
+        </div>
+        {problemFor('subjects') && <div className="note warn">{problemFor('subjects')}</div>}
+
+        {second && (
+          <div style={{ marginTop: 10 }}>
+            <label className="fld">Framework — required, and named on your title page</label>
+            <select value={framework} onChange={(e) => setFramework(e.target.value)}>
+              <option value="">Choose a framework…</option>
+              {INTERDISCIPLINARY_FRAMEWORKS.map((f) => (
+                <option key={f} value={f}>{f}</option>
+              ))}
+            </select>
+            {problemFor('framework') && <div className="note warn">{problemFor('framework')}</div>}
+          </div>
+        )}
+
+        <label className="fld" style={{ marginTop: 12 }}>Research question</label>
+        <textarea rows={2} value={rq} onChange={(e) => setRq(e.target.value)} />
+        {problemFor('researchQuestion') && (
+          <div className="note warn">{problemFor('researchQuestion')}</div>
+        )}
+
+        <label className="fld" style={{ marginTop: 10 }}>Title</label>
+        <textarea rows={2} value={title} onChange={(e) => setTitle(e.target.value)} />
+        {problemFor('title') && <div className="note warn">{problemFor('title')}</div>}
+
+        <div className="row" style={{ marginTop: 12 }}>
+          <button className="btn pri" onClick={save} disabled={pending}>
+            {pending ? 'Saving…' : 'Save registration'}
+          </button>
+          {saved && <span className="mut">Saved.</span>}
+          <span className="spacer" />
+          <span className="mut" style={{ fontSize: 12 }}>
+            Subject, question and title all appear on your title page.
+          </span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Every DP subject, not just the ones this school timetables — an essay can be
+ * registered in a subject the student does not take. Their own subjects sit at
+ * the top as a shortcut, and the rest of the programme is underneath.
+ */
+function SubjectSelect({
+  value,
+  likely,
+  onChange,
+}: {
+  value: string
+  likely: string[]
+  onChange: (v: string) => void
+}) {
+  const rest = DP_SUBJECTS.filter((s) => !likely.includes(s.key))
+  const groups = [...new Set(rest.map((s) => s.group))].sort()
+  return (
+    <select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">Choose a subject…</option>
+      {likely.length > 0 && (
+        <optgroup label="Your subjects">
+          {likely.map((k) => (
+            <option key={k} value={k}>{subjectName(k)}</option>
+          ))}
+        </optgroup>
+      )}
+      {groups.map((g) => (
+        <optgroup key={g} label={GROUP_NAMES[g]}>
+          {rest.filter((s) => s.group === g).map((s) => (
+            <option key={s.key} value={s.key}>{s.name}</option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  )
+}
+
+// ---------------------------------------------------------------- links
+
 function LinkPanel({
-  studentId,
-  stage,
-  label,
-  checkpoint,
+  studentId, stage, label, checkpoint,
 }: {
   studentId: string
   stage: 'outline' | 'draft'
@@ -258,13 +272,11 @@ function LinkPanel({
         <h2>{label}</h2>
         <span className="spacer" />
         {current && <span className="pill ok">in</span>}
-        {checkpoint?.due && <span className="mut" style={{ fontSize: 12 }}>due {checkpoint.due.dueAt}</span>}
+        {checkpoint?.due && (
+          <span className="mut" style={{ fontSize: 12 }}>due {checkpoint.due.dueAt}</span>
+        )}
       </div>
       <div className="panel-b">
-        <div className="note" style={{ marginBottom: 10 }}>
-          📎 Before pasting, set sharing so your supervisor can open it:{' '}
-          <b>Share → Anyone at International Schools Group with the link → Viewer</b>.
-        </div>
         <div className="row">
           <input
             type="text"
@@ -276,16 +288,162 @@ function LinkPanel({
             className="btn"
             disabled={pending}
             onClick={() =>
-              start(async () => {
-                const r = await setLink(studentId, stage, href, label)
-                setMessage(r.message)
-              })
+              start(async () => setMessage((await setLink(studentId, stage, href, label)).message))
             }
           >
             {current ? 'Replace' : 'Save link'}
           </button>
         </div>
+        <p className="mut" style={{ fontSize: 12, margin: '8px 0 0' }}>
+          Share it first: <b>Anyone at International Schools Group with the link → Viewer</b>.
+        </p>
         {message && <div className="note warn" style={{ marginTop: 8 }}>{message}</div>}
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- sessions
+
+function Sessions({ view, checkpoints }: { view: EeStudentView; checkpoints: Checkpoint[] }) {
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <h2>Reflection sessions</h2>
+        <span className="spacer" />
+        <span className="mut" style={{ fontSize: 12 }}>
+          {view.sessions.length} of 3 held
+        </span>
+      </div>
+      <div className="panel-b">
+        {SESSIONS.map((s) => {
+          const held = view.sessions.find((x) => x.stage === s.stage)
+          const notes = view.notes.filter((n) => n.stage === s.stage)
+          return (
+            <SessionBlock
+              key={s.stage}
+              studentId={view.studentId}
+              stage={s.stage}
+              label={s.label}
+              heldOn={held?.heldOn ?? null}
+              onBehalf={held?.onBehalf}
+              notes={notes}
+              locked={checkpoints.find((c) => c.def.key === s.key)?.display === 'future'}
+            />
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function SessionBlock({
+  studentId, stage, label, heldOn, onBehalf, notes, locked,
+}: {
+  studentId: string
+  stage: SessionStage
+  label: string
+  heldOn: string | null
+  onBehalf?: boolean
+  notes: EeSessionNote[]
+  locked: boolean
+}) {
+  const [body, setBody] = useState('')
+  const [pending, start] = useTransition()
+
+  return (
+    <div className="eesession">
+      <div className="eerow-l" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+        <i className={`eedot ${heldOn ? 'done' : locked ? 'future' : 'not_started'}`} />
+        <b>{label}</b>
+        {heldOn ? (
+          <span className="pill ok">held {heldOn}</span>
+        ) : (
+          <span className="mut" style={{ fontSize: 12 }}>not yet recorded by your supervisor</span>
+        )}
+        {onBehalf && (
+          <span className="pill grey" title="Filed by a coordinator, not by the supervisor">
+            recorded on the supervisor’s behalf
+          </span>
+        )}
+      </div>
+
+      {notes.map((n) => (
+        <div key={n.id} className={`eenote ${n.authorType}`}>
+          <div className="eenote-h">
+            {n.authorName}
+            <span className="mut"> · {n.createdAt}</span>
+          </div>
+          {n.body}
+        </div>
+      ))}
+
+      <div className="row" style={{ marginTop: 6 }}>
+        <input
+          type="text"
+          value={body}
+          placeholder="Add a note about this session (optional) — your supervisor will see it"
+          onChange={(e) => setBody(e.target.value)}
+        />
+        <button
+          className="btn sm"
+          disabled={pending || !body.trim()}
+          onClick={() =>
+            start(async () => {
+              await addSessionNote(studentId, stage, body)
+              setBody('')
+            })
+          }
+        >
+          Add
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- RPF
+
+/**
+ * ALWAYS VISIBLE, so a student knows it is coming; writable only once the viva
+ * is recorded. Michael, 20 Aug. The lock is `opensAfter: ee.viva` in the spine,
+ * and the way a coordinator opens it for a student whose supervisor has not
+ * filed the meeting is to RECORD THE MEETING — not to override the gate.
+ */
+function RpfPanel({ view }: { view: EeStudentView }) {
+  return (
+    <div className="panel">
+      <div className="panel-h">
+        <h2>Reflection statement (RPF)</h2>
+        <span className="spacer" />
+        {view.rpfOpen ? (
+          <span className="pill ok">open</span>
+        ) : (
+          <span className="pill grey">🔒 unlocks after your viva voce</span>
+        )}
+      </div>
+      <div className="panel-b">
+        {!view.rpfOpen && (
+          <div className="note" style={{ marginBottom: 10 }}>
+            This opens as soon as your supervisor records your viva voce. If the viva has happened
+            and this is still locked, tell your EE coordinator — they can record it.
+          </div>
+        )}
+        <p className="mut" style={{ marginTop: 0 }}>
+          <b>One</b> statement, up to <b>500 words</b>, written after the viva. It is Criterion E —
+          4 of the 30 marks. Write it in a Doc and paste it here. It is <b>not</b> part of your{' '}
+          {WORD_LIMIT.toLocaleString()}-word limit.
+        </p>
+        <textarea rows={6} disabled placeholder="Opens after your viva voce…" />
+        <div className="note gold" style={{ marginTop: 10 }}>
+          <b>Not built yet.</b> Pasting and locking the statement, and uploading the finished PDF,
+          are the next steps. The upload also needs cloud storage the school has not set up, so the
+          anonymity check cannot read your file yet.
+        </div>
+        <p className="mut" style={{ fontSize: 12, marginBottom: 0 }}>
+          <b>The {WORD_LIMIT.toLocaleString()} words count:</b> {WORD_COUNT_RULES.counted.join(', ')}.{' '}
+          <b>They do not count:</b> {WORD_COUNT_RULES.notCounted.join(', ')}.
+        </p>
       </div>
     </div>
   )

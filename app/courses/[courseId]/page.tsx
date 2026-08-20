@@ -384,6 +384,7 @@ export default async function CoursePage({
             rows={rows}
             cohortLabel={cohort ? cohortTitle(cohort) : ''}
             scope={all ? 'all' : 'mine'}
+            canWrite={!readOnly}
           />
         </>
       )

@@ -6,6 +6,7 @@
 // when the registration would survive contact with IBIS records a fact.
 
 import { INTERDISCIPLINARY_FRAMEWORKS, NOT_ELIGIBLE_INTERDISCIPLINARY } from './rubric'
+import { isDpSubject } from './subjects'
 import type { EeRegistration } from './types'
 
 export interface RegistrationProblem {
@@ -23,6 +24,10 @@ export function validateRegistration(reg: Partial<EeRegistration>): Registration
     p.push({ field: 'subjects', message: 'An extended essay is registered in one subject, or two for the interdisciplinary pathway.' })
   } else if (new Set(subjects).size !== subjects.length) {
     p.push({ field: 'subjects', message: 'The two subjects must be different.' })
+  } else if (!subjects.every(isDpSubject)) {
+    // A subject outside the DP list is a registration error, which is why the
+    // form offers a list rather than a free-text box: IBIS will not accept it.
+    p.push({ field: 'subjects', message: 'That is not a Diploma Programme subject.' })
   }
 
   const interdisciplinary = subjects.length === 2

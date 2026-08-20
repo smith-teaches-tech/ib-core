@@ -22,7 +22,9 @@ import type {
   CasCohortTotals, CasRosterRow, CasStudentView, ExperienceStatus, IndicatorValue,
   InterviewKind, LoKey, Strand, SupervisorRequest, SupervisorView,
 } from '../cas/types'
-import type { EeRosterRow, EeStudentView, ResolvedSupervisor } from '../ee/types'
+import type {
+  EeRosterRow, EeSessionNote, EeStudentView, ResolvedSupervisor, SessionStage,
+} from '../ee/types'
 import type {
   CohortSummary, CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
 } from '../setup/types'
@@ -165,6 +167,34 @@ export interface EeRepository {
     studentId: string,
     input: { subjects: string[]; framework: string | null; researchQuestion: string; title: string },
   ): Promise<{ ok: boolean; problems: { field: string; message: string }[] }>
+  /**
+   * Record that a reflection session HAPPENED, on the day it happened.
+   *
+   * `onBehalf` is the coordinator filing a session the supervisor held but
+   * never entered — Michael, 20 Aug: "sometimes teachers don't do their work."
+   * That route is preferred to an RPF unlock override, because it keeps
+   * `opensAfter` meaning one thing and never claims a viva that did not happen.
+   */
+  recordSession(
+    schoolId: string,
+    studentId: string,
+    stage: SessionStage,
+    heldOn: string,
+    recordedBy: string,
+    recordedByName: string,
+    onBehalf?: boolean,
+  ): Promise<void>
+  /** A note about a session, from either side. Optional, always. */
+  addSessionNote(
+    schoolId: string,
+    studentId: string,
+    stage: SessionStage,
+    authorType: 'student' | 'staff',
+    authorId: string,
+    authorName: string,
+    body: string,
+  ): Promise<void>
+  listNotes(schoolId: string, studentId: string): Promise<EeSessionNote[]>
   /** Attach or replace a Google Doc link on ee.outline / ee.draft. */
   setLink(
     schoolId: string,

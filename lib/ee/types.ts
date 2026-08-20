@@ -109,8 +109,20 @@ export interface EeStudentView {
   /** Live validation of the SAVED registration — empty means `ee.rq` is complete. */
   problems: { field: string; message: string }[]
   supervisor: ResolvedSupervisor | null
-  /** The student's own subject courses — what they may register the essay in. */
-  subjectChoices: { id: Id; name: string }[]
+  /**
+   * The DP subjects this student is most likely to pick — derived from their
+   * enrolments. A SHORTLIST shown first, never a restriction: the full DP
+   * subject list is always available beneath it (lib/ee/subjects.ts).
+   */
+  likelySubjects: string[]
+  /** The three reflection sessions, recorded or not. */
+  sessions: EeSession[]
+  notes: EeSessionNote[]
+  /**
+   * Is the RPF writable? True once the viva is recorded. The panel is ALWAYS
+   * visible so a student knows it is coming — it is the writing that is gated.
+   */
+  rpfOpen: boolean
 }
 
 export interface EeRosterRow {
@@ -124,4 +136,67 @@ export interface EeRosterRow {
   total: number
   /** Requirements past their date and not in. */
   late: number
+  /** The three sessions and BOTH sides' notes — the supervisor sees the student's too. */
+  sessions: EeSession[]
+  notes: EeSessionNote[]
+}
+
+// ---------------------------------------------------------------------------
+// Reflection sessions — the three required meetings, and what was said
+// ---------------------------------------------------------------------------
+
+export type SessionStage = 'r1' | 'r2' | 'viva'
+
+/**
+ * A reflection session that HAPPENED.
+ *
+ * `heldOn` and `recordedAt` are separate on purpose. Michael, 20 Aug: the date
+ * of the interaction is what matters, and it is routinely typed in weeks later.
+ * Collapsing them would make the record say the meeting happened the day
+ * somebody got round to filing it, which is exactly the kind of quiet
+ * inaccuracy the authenticity trail exists to prevent.
+ *
+ * `onBehalf` covers the case Michael named plainly: "sometimes teachers don't
+ * do their work." A coordinator can record a session the supervisor held but
+ * never filed — which unlocks the RPF through the ordinary `opensAfter` route
+ * rather than through an override. The record then says who filed it, and the
+ * viva is never marked as having happened when it did not.
+ *
+ * The ee.r1 / ee.r2 / ee.viva RequirementStates are DERIVED from these rows —
+ * the CAS pattern (IB-CAS-Build-Plan.md §2). Nothing is stored twice.
+ */
+export interface EeSession {
+  schoolId: Id
+  studentId: Id
+  stage: SessionStage
+  /** The day the meeting actually happened. */
+  heldOn: string
+  recordedBy: Id
+  recordedByName: string
+  recordedAt: string
+  /** Set when a coordinator filed it for the supervisor who should have. */
+  onBehalf?: boolean
+}
+
+/**
+ * A note about a session — from EITHER side.
+ *
+ * Michael, 20 Aug: both the student and the supervisor may add one, and the
+ * supervisor sees both. The student's own account of a meeting, written at the
+ * time, is authenticity evidence of a kind a supervisor's note alone cannot be:
+ * it is the candidate's voice on the record, dated.
+ *
+ * Optional, always. A required reflection note would produce twenty-four
+ * identical sentences and evidence nothing.
+ */
+export interface EeSessionNote {
+  id: Id
+  schoolId: Id
+  studentId: Id
+  stage: SessionStage
+  authorType: 'student' | 'staff'
+  authorId: Id
+  authorName: string
+  body: string
+  createdAt: string
 }

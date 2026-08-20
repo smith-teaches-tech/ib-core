@@ -32,7 +32,9 @@ import type { EeSupervision } from '../ee/types'
 import { eeCoordinatorId, supervisorFor } from '../ee/supervision'
 import { EE_CRITERIA, EE_MARK_MAX } from '../ee/rubric'
 import { registrationComplete, validateRegistration } from '../ee/registration'
-import type { EeRegistration, EeRosterRow } from '../ee/types'
+import { subjectForCourse } from '../ee/subjects'
+import { deriveEeSessionStates } from '../ee/derive'
+import type { EeRegistration, EeRosterRow, EeSession, EeSessionNote, SessionStage } from '../ee/types'
 import { todayRiyadh } from './dates'
 import { sortCohorts } from '../cohorts'
 
@@ -638,24 +640,30 @@ export const EE_REGISTRATIONS: EeRegistration[] = pinned('ibEeRegistrations', ()
     if (s.cohortId === 'c16') continue
     if (s.cohortId === 'c15' && r() > 0.92) continue
 
+    // The essay is registered in a DP SUBJECT, not in a school course — so the
+    // enrolments are only a hint about what a student is likely to pick.
     const subjectCourses = coursesOf(s.userId, ENROLLMENTS, SECTIONS, COURSES)
       .filter((c) => c.type === 'subject')
     if (!subjectCourses.length) continue
     const chosen = subjectCourses[Math.floor(r() * subjectCourses.length)]
+    const chosenKey = subjectForCourse(chosen.id)
+    if (!chosenKey) continue
     const group = chosen.subjectGroup.slice(0, 7)
     const pool = RQ_POOL[group] ?? RQ_POOL['Group 3']
     const pick = pool[Math.floor(r() * pool.length)]
 
     // ONE interdisciplinary registration, so the two-subject pathway and its
     // framework requirement are exercised rather than merely permitted.
-    const second = subjectCourses.find((c) => c.id !== chosen.id)
-    const interdisciplinary = s.userId === 'st04' && second != null
+    const secondKey = subjectCourses
+      .map((c) => subjectForCourse(c.id))
+      .find((k) => k != null && k !== chosenKey)
+    const interdisciplinary = s.userId === 'st04' && secondKey != null
 
     out.push({
       schoolId: s.schoolId,
       cohortId: s.cohortId,
       studentId: s.userId,
-      subjects: interdisciplinary ? [chosen.id, second!.id] : [chosen.id],
+      subjects: interdisciplinary ? [chosenKey, secondKey!] : [chosenKey],
       framework: interdisciplinary ? 'evidence and measurement' : null,
       researchQuestion: pick.rq,
       title: pick.title,
@@ -665,6 +673,62 @@ export const EE_REGISTRATIONS: EeRegistration[] = pinned('ibEeRegistrations', ()
   }
   return out
 })
+
+/**
+ * REFLECTION SESSIONS — the three required supervisor meetings.
+ *
+ * Seeded before the states because ee.r1 / ee.r2 / ee.viva DERIVE from these
+ * (lib/ee/derive.ts). The Class of 2027 has had session 1 with most of its
+ * supervisors; the graduated cohort has all three.
+ */
+export const EE_SESSIONS: EeSession[] = pinned('ibEeSessions', () => {
+  const out: EeSession[] = []
+  const r = rng(5027)
+  for (const s of STUDENTS) {
+    if (s.cohortId === 'c16') continue
+    if (s.cohortId === 'c14') {
+      const dates: Record<SessionStage, string> = {
+        r1: '2024-10-09', r2: '2025-01-28', viva: '2025-11-20',
+      }
+      for (const stage of ['r1', 'r2', 'viva'] as SessionStage[]) {
+        out.push({
+          schoolId: s.schoolId, studentId: s.userId, stage,
+          heldOn: dates[stage], recordedBy: 'u_adeyemi', recordedByName: 'H. Adeyemi',
+          recordedAt: dates[stage],
+        })
+      }
+      continue
+    }
+    // c15 — session 1 held in the first weeks of DP2 for most.
+    if (r() < 0.78) {
+      const day = 4 + Math.floor(r() * 10)
+      out.push({
+        schoolId: s.schoolId, studentId: s.userId, stage: 'r1',
+        heldOn: `2026-09-${String(day).padStart(2, '0')}`,
+        recordedBy: 'u_adeyemi', recordedByName: 'H. Adeyemi',
+        // Typed up a week or so after the meeting, which is the normal case
+        // and the reason heldOn and recordedAt are separate fields.
+        recordedAt: `2026-09-${String(Math.min(28, day + 6)).padStart(2, '0')}`,
+      })
+    }
+  }
+  return out
+})
+
+export const EE_SESSION_NOTES: EeSessionNote[] = pinned('ibEeSessionNotes', () => [
+  {
+    id: 'een1', schoolId: 'dhahran', studentId: 'st01', stage: 'r1',
+    authorType: 'staff', authorId: 'u_adeyemi', authorName: 'H. Adeyemi',
+    body: 'Scope is still too wide. Agreed to cut the comparison and keep one site.',
+    createdAt: '2026-09-14',
+  },
+  {
+    id: 'een2', schoolId: 'dhahran', studentId: 'st01', stage: 'r1',
+    authorType: 'student', authorId: 'st01', authorName: 'Layla Ahmed',
+    body: 'I had wanted to compare two sites but I can see that is two essays. Narrowing to the one I can actually sample.',
+    createdAt: '2026-09-09',
+  },
+])
 
 export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementStates', () => {
   const out: RequirementState[] = []
@@ -725,6 +789,8 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
             })
           } else if (stage === 'final' || stage === 'rpf') {
             put('submitted', '2026-01-30', { exportStatus: 'submitted', recordedBy: 'H. Adeyemi' })
+          } else if (stage === 'r1' || stage === 'r2' || stage === 'viva') {
+            // Derived from EE_SESSIONS, never stored.
           } else {
             put('submitted', '2025-11-14', { recordedBy: 'H. Adeyemi' })
           }
@@ -758,18 +824,10 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
           }
           continue
         }
-        if (stage === 'r1' && r() < 0.78) {
-          put('submitted', '2026-09-08', {
-            recordedBy: 'H. Adeyemi',
-            artifacts: [{
-              id: `art_r1_${s.userId}`, kind: 'text', label: 'Session note',
-              body: 'Discussed scope and the shape of the source base. Agreed to narrow the question before the outline.',
-              addedAt: '2026-09-08',
-            }],
-          })
-          continue
-        }
-        // draft, r2, final, viva, rpf, attest, score: genuinely still ahead.
+        // r1, r2 and viva are DERIVED from EE_SESSIONS — see lib/ee/derive.ts.
+        // Seeding them here as well would store a derived value, which is the
+        // one thing spine invariant #2 forbids.
+        // draft, final, rpf, attest, score: genuinely still ahead.
         continue
       }
 
@@ -877,7 +935,11 @@ const DOCUMENTS: LibraryDocument[] = [
 const redact = (s: Student): Student => ({ ...s, resultsPin: null })
 
 function allStates(): RequirementState[] {
-  return [...REQUIREMENT_STATES, ...deriveCasStates(STUDENTS, REQUIREMENT_DEFS, CAS_DATA)]
+  return [
+    ...REQUIREMENT_STATES,
+    ...deriveCasStates(STUDENTS, REQUIREMENT_DEFS, CAS_DATA),
+    ...deriveEeSessionStates(EE_SESSIONS, REQUIREMENT_DEFS),
+  ]
 }
 
 /**
@@ -1191,9 +1253,25 @@ export const fixtureRepository: Repository = {
           eeCoordinatorId(schoolId, MEMBERSHIPS),
           USERS,
         ),
-        subjectChoices: coursesOf(studentId, ENROLLMENTS, SECTIONS, COURSES)
-          .filter((c) => c.type === 'subject')
-          .map((c) => ({ id: c.id, name: c.name })),
+        // A SHORTLIST, never a restriction — the full DP list sits under it.
+        likelySubjects: [
+          ...new Set(
+            coursesOf(studentId, ENROLLMENTS, SECTIONS, COURSES)
+              .filter((c) => c.type === 'subject')
+              .map((c) => subjectForCourse(c.id))
+              .filter((k): k is string => k != null),
+          ),
+        ],
+        sessions: EE_SESSIONS.filter(
+          (x) => x.studentId === studentId && x.schoolId === schoolId,
+        ),
+        notes: EE_SESSION_NOTES.filter(
+          (x) => x.studentId === studentId && x.schoolId === schoolId,
+        ).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+        // The RPF PANEL is always shown; the WRITING is what the viva gates.
+        rpfOpen: EE_SESSIONS.some(
+          (x) => x.studentId === studentId && x.schoolId === schoolId && x.stage === 'viva',
+        ),
       }
     },
 
@@ -1218,9 +1296,48 @@ export const fixtureRepository: Repository = {
           done: lane?.done ?? 0,
           total: lane?.total ?? 0,
           late: lane?.checkpoints.filter((cp) => cp.due?.late).length ?? 0,
+          sessions: EE_SESSIONS.filter((x) => x.studentId === st.userId && x.schoolId === schoolId),
+          notes: EE_SESSION_NOTES.filter(
+            (x) => x.studentId === st.userId && x.schoolId === schoolId,
+          ).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
         })
       }
       return rows.sort((a, b) => a.studentName.localeCompare(b.studentName))
+    },
+
+    async recordSession(schoolId, studentId, stage, heldOn, recordedBy, recordedByName, onBehalf) {
+      const at = todayRiyadh()
+      const existing = EE_SESSIONS.find(
+        (x) => x.studentId === studentId && x.schoolId === schoolId && x.stage === stage,
+      )
+      if (existing) {
+        // Correcting a date is not a second meeting.
+        existing.heldOn = heldOn
+        existing.recordedBy = recordedBy
+        existing.recordedByName = recordedByName
+        existing.recordedAt = at
+        existing.onBehalf = onBehalf
+        return
+      }
+      EE_SESSIONS.push({
+        schoolId, studentId, stage, heldOn, recordedBy, recordedByName,
+        recordedAt: at, onBehalf,
+      })
+    },
+
+    async addSessionNote(schoolId, studentId, stage, authorType, authorId, authorName, body) {
+      EE_SESSION_NOTES.push({
+        id: `een_${EE_SESSION_NOTES.length + 1}_${studentId}_${stage}`,
+        schoolId, studentId, stage, authorType, authorId, authorName,
+        body: body.trim(),
+        createdAt: todayRiyadh(),
+      })
+    },
+
+    async listNotes(schoolId, studentId) {
+      return EE_SESSION_NOTES.filter(
+        (x) => x.studentId === studentId && x.schoolId === schoolId,
+      ).sort((a, b) => a.createdAt.localeCompare(b.createdAt))
     },
 
     async saveRegistration(schoolId, cohortId, studentId, input) {
