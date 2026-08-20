@@ -14,6 +14,7 @@ import {
   type CasStudentView, type LoKey, type Strand,
 } from '@/lib/cas/types'
 import CasProgress from './CasProgress'
+import InstallBanner from './InstallBanner'
 import ExperienceCard from './ExperienceCard'
 import { IndicatorGlyph, StrandChips, prettyDate } from './parts'
 
@@ -86,6 +87,7 @@ export default function StudentCas({
 
   return (
     <>
+      <InstallBanner />
       <h1>My CAS</h1>
       <p className="sub">
         Your own record of creativity, activity and service. Only you and your CAS coordinator
@@ -135,6 +137,12 @@ export default function StudentCas({
           say whether a student kept showing up. `showPrompt` is on here and
           ONLY here — see CasProgress's file header. */}
       <CasProgress summary={summary} gradYear={gradYear} joinedAt={view.joinedAt} showPrompt />
+      {/* Said here and on the install banner. Nowhere else: a rule repeated at
+          every action becomes noise, and noise is what people learn to skip. */}
+      <p className="phonerule">
+        Phones are not allowed at school without a teacher&rsquo;s permission — add to CAS outside
+        school, or when you have been told you may.
+      </p>
 
       {summary.complete && (
         <div className="note ok" style={{ marginBottom: 16 }}>

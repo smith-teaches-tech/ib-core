@@ -917,6 +917,60 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
         continue
       }
 
+      /**
+       * THEORY OF KNOWLEDGE — the last dice-rolled numbers on the board.
+       *
+       * The same problem EE had until 19 Aug: the generic roll was inventing
+       * exhibition marks and essays for candidates whose essay is not due until
+       * March 2027, so a coordinator opening the board saw TOK progress nothing
+       * in the product could produce, explain or change. Removing it is the
+       * point at which EVERY number on the board comes from a state something
+       * actually wrote.
+       *
+       * What follows is a school in the September of DP2: titles chosen at the
+       * end of DP1, the exhibition due in November and mostly not started, the
+       * essay a long way off. The TK/PPF chain is deliberately sparse — its
+       * opensAfter chain means most students sit at "1 of 3".
+       */
+      if (d.lane === 'TOK') {
+        const stage = d.key.slice(4)
+        const put = (
+          recordStatus: RequirementState['recordStatus'],
+          recordedAt: string,
+          extra: Partial<RequirementState> = {},
+        ) => out.push({
+          studentId: s.userId, requirementDefId: d.id, schoolId: s.schoolId,
+          recordStatus, artifacts: [], recordedAt, ...extra,
+        })
+
+        if (s.cohortId === 'c16') continue // two weeks into DP1
+
+        if (s.cohortId === 'c14') {
+          if (stage === 'exhmark') {
+            put('marked', '2025-12-02', { mark: 6 + Math.floor(r() * 4), recordedBy: 'H. Adeyemi' })
+          } else if (stage === 'exh' || stage === 'essay') {
+            put('submitted', '2026-01-30', { exportStatus: 'submitted', recordedBy: 'student' })
+          } else {
+            put('submitted', '2025-10-20', { recordedBy: 'student' })
+          }
+          continue
+        }
+
+        // ---- Class of 2027, September of DP2 ----
+        if (stage === 'title') {
+          // Due 5 June 2026 and passed; a few are still outstanding, which is
+          // what a late cell on the board is for.
+          if (r() < 0.88) put('submitted', '2026-06-02', { recordedBy: 'student' })
+          continue
+        }
+        if (stage === 'ppf1') {
+          if (r() < 0.42) put('submitted', '2026-09-11', { recordedBy: 'student' })
+          continue
+        }
+        // exhibition, exhibition mark, TK/PPF 2 and 3, essay: still ahead.
+        continue
+      }
+
       if (d.lane === 'Predicted grades') {
         const point = d.key.slice(d.key.lastIndexOf('.') + 1)
         // The new cohort has predicted nothing; the archived one is complete.

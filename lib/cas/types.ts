@@ -104,6 +104,33 @@ export interface ThreadEntry {
   authorName: string
   createdAt: string
   /** Set on the replacement entry; the original is kept — the authenticity trail. */
+  /**
+   * A SPOKEN REFLECTION'S TYPED ONE-LINER — required by the action whenever a
+   * reflection carries audio, never asked for on a typed one.
+   *
+   * The asymmetry is the point: a coordinator can READ two hundred reflections
+   * in an evening and cannot LISTEN to them, and IB-Media-and-Uploads.md §1
+   * exists because reviewing a portfolio slowly is the problem this system was
+   * built to fix. Audio-only would make the student's job easier and the
+   * coordinator's materially worse.
+   *
+   * Named `transcript` rather than `summary` so real speech-to-text can fill it
+   * later without a migration. Today it is one typed line.
+   */
+  transcript?: string
+  /**
+   * REFLECT LATER ON SOMETHING UPLOADED EARLIER — points at the entry this one
+   * responds to. Upload the video from a phone on Saturday, write about it from
+   * a laptop on Tuesday, see them together.
+   *
+   * A REPLY, NOT AN EDIT, and the reason is dates: editing would make it one
+   * post dated Saturday, so the timeline and the consistency strip would report
+   * one act of engagement where there were two, a week apart. The strip exists
+   * to show turning up repeatedly — collapsing them undercounts precisely the
+   * behaviour it was built to measure (§11.2 refused per-reflection counting
+   * for the same family of reason).
+   */
+  inReplyTo?: Id
   editedFrom?: Id
   /** Superseded entries stay in the record but drop out of the visible thread. */
   supersededBy?: Id

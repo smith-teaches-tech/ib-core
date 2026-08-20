@@ -14,6 +14,8 @@ import { getSession } from '../session'
 import { storage } from '../storage'
 import type { ExperienceStatus, IndicatorValue, InterviewKind, LoKey, Strand } from './types'
 import { assertLiveCohort } from '../cohorts'
+import { MAX_RECORDING_SECONDS } from './recording'
+
 
 function refresh() {
   revalidatePath('/', 'layout')
@@ -102,12 +104,67 @@ export async function createExperience(input: {
   refresh()
 }
 
-export async function addReflection(experienceId: string, body: string) {
+export async function addReflection(
+  experienceId: string,
+  body: string,
+  opts?: { inReplyTo?: string },
+) {
   const session = await asOwner(experienceId)
   await open(session.school.id, session.user.id)
   if (!body.trim()) return
-  await repo.cas.addReflection(session.school.id, experienceId, body.trim(), session.user.name)
+  await repo.cas.addReflection(
+    session.school.id, experienceId, body.trim(), session.user.name,
+    { inReplyTo: opts?.inReplyTo },
+  )
   refresh()
+}
+
+/**
+ * A SPOKEN REFLECTION.
+ *
+ * `kind` stays `'reflection'`. That is the whole of IB-CAS-Phone-Build-Plan.md
+ * §3.3 and the single line most worth getting right in this file: the timeline
+ * draws a filled dot for a reflection and a ring for evidence, and the strip
+ * counts them separately. File a spoken reflection as evidence and a student
+ * who talks rather than types shows up — on their own screen and on the
+ * coordinator's — as somebody who uploaded some files and reflected on
+ * nothing. It would stay invisible until March.
+ *
+ * THE TYPED ONE-LINER IS REQUIRED (Michael, 20 Aug). A coordinator can read two
+ * hundred reflections in an evening and cannot listen to them.
+ */
+export async function addVoiceReflection(
+  experienceId: string,
+  audio: { name: string; mime: string; bytes: number; seconds: number },
+  transcript: string,
+  title: string,
+  opts?: { inReplyTo?: string },
+) {
+  const session = await asOwner(experienceId)
+  await open(session.school.id, session.user.id)
+
+  if (!transcript.trim()) {
+    return { ok: false, message: 'Add one line saying what this reflection is about.' }
+  }
+  if (!title.trim()) {
+    return { ok: false, message: 'Give the recording a title.' }
+  }
+  // The cap is enforced by the recorder AND here, because the recorder is
+  // courtesy and this is the guarantee.
+  if (audio.seconds > MAX_RECORDING_SECONDS) {
+    return { ok: false, message: `Recordings are up to ${MAX_RECORDING_SECONDS / 60} minutes.` }
+  }
+
+  const ref = await storage.put(
+    { name: audio.name, mime: audio.mime, bytes: audio.bytes },
+    { schoolId: session.school.id, studentId: session.user.id },
+  )
+  await repo.cas.addReflection(
+    session.school.id, experienceId, '', session.user.name,
+    { audio: { ...ref, title: title.trim() }, transcript: transcript.trim(), inReplyTo: opts?.inReplyTo },
+  )
+  refresh()
+  return { ok: true, message: null }
 }
 
 export async function editReflection(entryId: string, experienceId: string, body: string) {
@@ -134,18 +191,33 @@ export async function editReflection(entryId: string, experienceId: string, body
  */
 export async function addEvidence(
   experienceId: string,
-  files: { name: string; mime: string; bytes: number }[],
+  files: { name: string; mime: string; bytes: number; title?: string }[],
   note: string,
+  opts?: { inReplyTo?: string },
 ) {
   const session = await asOwner(experienceId)
   await open(session.school.id, session.user.id)
   if (files.length === 0 && !note.trim()) return
+
+  // A title is required on video, optional on a photo. Nobody should have to
+  // name eleven pictures of a bake sale; a coordinator scanning a portfolio of
+  // `IMG_4821.mov` is looking at a folder rather than a record.
+  const untitledVideo = files.find((f) => f.mime.startsWith('video/') && !f.title?.trim())
+  if (untitledVideo) {
+    return { ok: false, message: `Give "${untitledVideo.name}" a title so it can be found later.` }
+  }
+
   const refs = []
   for (const f of files) {
-    refs.push(await storage.put(f, { schoolId: session.school.id, studentId: session.user.id }))
+    const ref = await storage.put(f, { schoolId: session.school.id, studentId: session.user.id })
+    refs.push(f.title?.trim() ? { ...ref, title: f.title.trim() } : ref)
   }
-  await repo.cas.addEvidence(session.school.id, experienceId, refs, note.trim(), session.user.name)
+  await repo.cas.addEvidence(
+    session.school.id, experienceId, refs, note.trim(), session.user.name,
+    { inReplyTo: opts?.inReplyTo },
+  )
   refresh()
+  return { ok: true, message: null }
 }
 
 export async function submitForApproval(experienceId: string) {

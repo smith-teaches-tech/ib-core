@@ -14,6 +14,13 @@ import { todayRiyadh } from './data/dates'
 export interface StoredRef {
   id: string
   name: string
+  /**
+   * WHAT THE STUDENT CALLED IT — required on audio and video, optional on a
+   * photo. Nobody should have to name eleven pictures of a bake sale, but a
+   * coordinator scanning a portfolio of `IMG_4821.mov` is looking at a folder
+   * rather than a record. See IB-CAS-Phone-Build-Plan.md §3A.1.
+   */
+  title?: string
   mime: string
   bytes: number
   /** Opaque to the app. A local path today is a bucket key tomorrow. */

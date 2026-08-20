@@ -13,6 +13,7 @@ import {
 import { assertLiveCohort, isArchived, sortCohorts } from '../lib/cohorts'
 import { CAS_DATA } from '../lib/data/cas-fixtures'
 import { summarise } from '../lib/cas/derive'
+import { MAX_RECORDING_SECONDS, extensionFor } from '../lib/cas/recording'
 import { marksWriteGrant } from '../lib/ia/authorize'
 import { pgWriteGrant, restrictStudentView } from '../lib/pg/authorize'
 import { REPORTING_POINTS, pgKey } from '../lib/pg/types'
@@ -844,10 +845,20 @@ async function main() {
   // the pack looked partly ready because the generic roll had fabricated
   // states nothing could produce. The mechanism is unchanged; only the vehicle
   // is, and §13 asserts the emptiness directly rather than losing it.
-  const stampDef = REQUIREMENT_DEFS.find((d) => d.cohortId === 'c15' && d.key === 'tok.essay')!
-  await repo.export.setJobSubmitted('dhahran', 'c15', 'tok.essay', true)
+  // AND NOW FROM tok.essay TO A GROUP 6 PORTFOLIO, for the same reason again:
+  // TOK's fabricated states went the way EE's did on 20 Aug, so the Class of
+  // 2027's TOK packs are legitimately empty too. A Group 6 portfolio reads from
+  // `<courseId>.file`, which IS still generically seeded — and that is a
+  // defensible fixture rather than a lie, because the IA marks module EXISTS
+  // and can produce those states. The line is not "was this rolled?" but "could
+  // anything in the product have written it?"
+  const stampJob = board11.cohortJobs.find((j) => j.key.startsWith('g6:') && j.ready > 0)!
+  const stampDef = REQUIREMENT_DEFS.find(
+    (d) => d.cohortId === 'c15' && d.key === `${stampJob.key.slice(3)}.file`,
+  )!
+  await repo.export.setJobSubmitted('dhahran', 'c15', stampJob.key, true)
   const after11 = (await repo.export.getUploadBoard('dhahran', 'c15'))!.cohortJobs.find(
-    (j) => j.key === 'tok.essay',
+    (j) => j.key === stampJob.key,
   )!
   const missing11 = new Set(after11.rows.filter((r) => !r.present).map((r) => r.studentId))
   check(
@@ -858,7 +869,7 @@ async function main() {
       ).every((s) => s.exportStatus !== 'submitted'),
     'marking a pack submitted stamps exportStatus on exactly the slots that were in it',
   )
-  await repo.export.setJobSubmitted('dhahran', 'c15', 'tok.essay', false)
+  await repo.export.setJobSubmitted('dhahran', 'c15', stampJob.key, false)
   check(
     REQUIREMENT_STATES.filter((s) => s.requirementDefId === stampDef.id).every(
       (s) => s.exportStatus == null,
@@ -1968,6 +1979,110 @@ async function main() {
   check(
     c15Hours.reduce((n, h) => n + h.missing, 0) > 0,
     'a cohort mid-programme shows candidates NOT yet logged — a payroll run that treated those as zero would underpay somebody',
+  )
+
+  console.log('\n14. TOK — the last dice-rolled numbers are gone')
+
+  const tokDefs15 = REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15' && d.lane === 'TOK')
+  const tokAhead = new Set(
+    tokDefs15.filter((d) => ['tok.exh', 'tok.exhmark', 'tok.ppf2', 'tok.ppf3', 'tok.essay']
+      .includes(d.key)).map((d) => d.id),
+  )
+  check(
+    REQUIREMENT_STATES.every((x) => !tokAhead.has(x.requirementDefId)),
+    'not one Class of 2027 state exists for TOK work still ahead of them — the exhibition is due in November and the essay in March',
+  )
+  const tokBoard = (await repo.export.getUploadBoard('dhahran', 'c15'))!
+  check(
+    tokBoard.cohortJobs.find((j) => j.key === 'tok.essay')!.ready === 0 &&
+      tokBoard.cohortJobs.find((j) => j.key === 'tok.tkppf')!.ready === 0,
+    'so the TOK packs read zero ready, like the EE ones',
+  )
+  const tokBoard14 = (await repo.export.getUploadBoard('dhahran', 'c14'))!
+  const tokEssay14 = tokBoard14.cohortJobs.find((j) => j.key === 'tok.essay')!
+  check(
+    tokEssay14.total > 0 && tokEssay14.ready === tokEssay14.total,
+    'and a graduated cohort still reads fully ready — again a fact about the calendar, not a broken pipeline',
+  )
+
+  // THE WHOLE POINT, stated once: every lane the board shows is now either
+  // produced by a built module or genuinely empty.
+  const boardNow = await repo.getBoard('dhahran', 'c15')
+  const producible = new Set(['CAS', 'Extended Essay', 'TOK', 'Internal assessment', 'Predicted grades', 'IB admin'])
+  check(
+    boardNow.groups.every((g) => producible.has(g.lane)),
+    'every lane on the coordinator board is now backed by a module that can write it, or is honestly empty',
+  )
+
+  console.log('\n15. CAS on a phone — a spoken reflection IS a reflection')
+
+  const voiceStudent = 'st01'
+  const voiceExp = (await repo.cas.getStudentView('dhahran', voiceStudent))!
+    .experiences.find((x) => x.experience.status !== 'complete')!.experience.id
+  const before15 = (await repo.cas.getStudentView('dhahran', voiceStudent))!.summary
+  const beforeRefl = before15.posts.filter((p2) => p2.kind === 'reflection').length
+  const beforeEvid = before15.posts.filter((p2) => p2.kind === 'evidence').length
+
+  await repo.cas.addReflection(
+    'dhahran', voiceExp, '', 'Layla Ahmed',
+    {
+      audio: {
+        id: 'ref_v1', name: 'reflection.m4a', mime: 'audio/mp4', bytes: 402_113,
+        key: 'stub://voice/1', addedAt: '2026-08-20', title: 'After the last match',
+      },
+      transcript: 'Realised I had been organising rather than coaching.',
+    },
+  )
+  const after15 = (await repo.cas.getStudentView('dhahran', voiceStudent))!.summary
+  check(
+    after15.posts.filter((p2) => p2.kind === 'reflection').length === beforeRefl + 1,
+    'THE ONE THAT MATTERS: an audio-only reflection counts as a REFLECTION on the timeline — a filled dot, not a ring',
+  )
+  check(
+    after15.posts.filter((p2) => p2.kind === 'evidence').length === beforeEvid,
+    'and it adds NOTHING to the evidence count — a student who speaks must not read as one who only uploaded files',
+  )
+
+  const voiceEntry = (await repo.cas.getStudentView('dhahran', voiceStudent))!
+    .experiences.find((x) => x.experience.id === voiceExp)!
+    .entries.find((x) => x.media?.some((m) => m.mime === 'audio/mp4'))!
+  check(
+    voiceEntry.kind === 'reflection' && !voiceEntry.body,
+    'the entry is kind:reflection with no typed body — the recording is the substance',
+  )
+  check(
+    voiceEntry.transcript === 'Realised I had been organising rather than coaching.',
+    'the required one-liner is on the entry, which is what keeps the portfolio readable',
+  )
+  check(
+    voiceEntry.media?.[0].title === 'After the last match',
+    'and the recording carries the title the student gave it, not `reflection.m4a`',
+  )
+
+  // The reply, and the reason it is not an edit.
+  await repo.cas.addReflection(
+    'dhahran', voiceExp, 'Watching it back, the substitutions were the giveaway.', 'Layla Ahmed',
+    { inReplyTo: voiceEntry.id },
+  )
+  const replied = (await repo.cas.getStudentView('dhahran', voiceStudent))!
+  const reply = replied.experiences.find((x) => x.experience.id === voiceExp)!
+    .entries.find((x) => x.inReplyTo === voiceEntry.id)!
+  check(
+    reply.kind === 'reflection' && reply.inReplyTo === voiceEntry.id,
+    'reflecting later on an earlier upload is a REPLY, attached to what it answers',
+  )
+  check(
+    replied.summary.posts.filter((p2) => p2.kind === 'reflection').length === beforeRefl + 2,
+    'and it is its OWN dated post — an edit would have collapsed two acts of engagement into one, which is exactly what the consistency strip exists to count',
+  )
+
+  check(
+    MAX_RECORDING_SECONDS === 180,
+    'the recording cap is three minutes, and the recorder keeps what it has rather than discarding it',
+  )
+  check(
+    extensionFor('audio/mp4') === 'm4a' && extensionFor('audio/webm;codecs=opus') === 'webm',
+    'the file extension matches what the browser actually recorded — Safari and Chrome do not agree, and IB-Media-and-Uploads.md §3 is why that matters',
   )
 
   console.log('\n' + '='.repeat(60))

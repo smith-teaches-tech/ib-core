@@ -7,6 +7,7 @@
 
 import { useState, useTransition } from 'react'
 import * as cas from '@/lib/cas/actions'
+import Capture from './Capture'
 import { LEARNING_OUTCOMES, type ExperienceView, type LoKey } from '@/lib/cas/types'
 import { LoChips, StatusPill, StrandChips, Thread, prettyDate } from './parts'
 
@@ -168,100 +169,33 @@ export default function ExperienceCard({
                 </span>
               </div>
 
-              {panel === 'reflect' && (
-                <div className="cob">
-                  <div style={{ marginBottom: 8 }}>
-                    <span className="caps">Prompts</span>{' '}
-                    {PROMPTS.map((p) => (
-                      <button
-                        key={p}
-                        className="snip"
-                        onClick={() => setText((t) => (t ? t + ' ' : '') + p + ' ')}
-                      >
-                        {p}
-                      </button>
-                    ))}
-                  </div>
-                  <div className="note" style={{ marginBottom: 8 }}>
-                    Write about <b>a paragraph</b> — the box is resizable, so make it as big as
-                    you need.
-                  </div>
-                  <textarea
-                    className="big"
-                    rows={6}
-                    value={text}
-                    placeholder="Write your reflection here…"
-                    onChange={(ev) => setText(ev.target.value)}
-                  />
-                  <div className="resize-hint">
-                    ↕ Drag the bottom edge to make this taller — some students write a lot.
-                  </div>
-                  <div style={{ marginTop: 8 }}>
-                    <button
-                      className="btn pri sm"
-                      disabled={pending || !text.trim()}
-                      onClick={() => run(() => cas.addReflection(e.id, text))}
-                    >
-                      Save dated reflection
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {panel === 'evidence' && (
-                <div className="cob">
-                  <label className="fld">Photos, video, audio or PDFs</label>
-                  <input
-                    type="file"
-                    multiple
-                    accept="image/*,video/*,audio/*,application/pdf"
-                    onChange={(ev) => setFiles(Array.from(ev.target.files ?? []))}
-                  />
-                  <label className="fld">
-                    A note, or a link — either on its own counts as evidence
-                  </label>
-                  <textarea
-                    rows={2}
-                    value={text}
-                    placeholder="e.g. Finished mural and volunteer group photos — or paste a link: https://…"
-                    onChange={(ev) => setText(ev.target.value)}
-                  />
-                  <p className="mut" style={{ fontSize: 12, margin: '6px 0 0' }}>
-                    A link to a video, an article or a shared album is evidence like anything else.
-                    Paste it here and it becomes a link in the thread.
-                  </p>
-                  <div className="note" style={{ marginTop: 8 }}>
-                    Cloud storage is not connected yet, so the files themselves are not kept.
-                    The record of what you added, when, and of what type is real and permanent.
-                  </div>
-                  <div style={{ marginTop: 8 }}>
-                    <button
-                      className="btn pri sm"
-                      disabled={pending || (files.length === 0 && !text.trim())}
-                      onClick={() =>
-                        run(() =>
-                          cas.addEvidence(
-                            e.id,
-                            files.map((f) => ({
-                              name: f.name,
-                              mime: f.type || 'application/octet-stream',
-                              bytes: f.size,
-                            })),
-                            text,
-                          ),
-                        )
-                      }
-                    >
-                      {files.length > 0
-                        ? `Add ${files.length} file${files.length === 1 ? '' : 's'}`
-                        : 'Add link / note as evidence'}
-                    </button>
-                  </div>
-                </div>
+              {(panel === 'reflect' || panel === 'evidence') && (
+                <Capture experienceId={e.id} onDone={() => setPanel(null)} />
               )}
 
               {panel === 'complete' && (
                 <div className="cob">
+                  {/* A FACT AT A DECISION POINT, not a nudge.
+                      Michael has students write a closing reflection before
+                      sign-off; that is his practice, not a rule the system
+                      should enforce (IB-CAS-Phone-Build-Plan.md §3B.1). So the
+                      screen states what the supervisor is about to see and
+                      stops. A student who reads it and thinks "that is thin"
+                      writes one. No threshold, no imperative, nothing stored. */}
+                  <div className="note">
+                    Your supervisor will see{' '}
+                    <b>
+                      {entries.filter((t) => t.kind === 'reflection').length} reflection
+                      {entries.filter((t) => t.kind === 'reflection').length === 1 ? '' : 's'}
+                    </b>{' '}
+                    and{' '}
+                    <b>
+                      {entries.filter((t) => t.kind === 'evidence').length} piece
+                      {entries.filter((t) => t.kind === 'evidence').length === 1 ? '' : 's'} of
+                      evidence
+                    </b>
+                    .
+                  </div>
                   <div className="note">
                     <b>Two ways to finish.</b> Email your supervisor a secure link to review and
                     sign, <b>or</b> print a form for paper sign-off, then photograph and upload it.

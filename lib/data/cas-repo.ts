@@ -159,10 +159,17 @@ export function makeCasRepository(deps: {
       return id
     },
 
-    async addReflection(schoolId, experienceId, body, authorName) {
+    async addReflection(schoolId, experienceId, body, authorName, opts) {
       if (!find(schoolId, experienceId)) return
       append({
-        experienceId, kind: 'reflection', body,
+        experienceId,
+        // kind STAYS 'reflection' when audio is attached. This one line is the
+        // whole of §3.3, and getting it wrong would be invisible until March.
+        kind: 'reflection',
+        body: body || undefined,
+        media: opts?.audio ? [opts.audio] : undefined,
+        transcript: opts?.transcript,
+        inReplyTo: opts?.inReplyTo,
         authorType: 'student', authorName, createdAt: today(),
       })
     },
@@ -197,10 +204,11 @@ export function makeCasRepository(deps: {
       prior.supersededBy = replacement.id
     },
 
-    async addEvidence(schoolId, experienceId, media, note, authorName) {
+    async addEvidence(schoolId, experienceId, media, note, authorName, opts) {
       if (!find(schoolId, experienceId)) return
       append({
         experienceId, kind: 'evidence', body: note || undefined, media,
+        inReplyTo: opts?.inReplyTo,
         authorType: 'student', authorName, createdAt: today(),
       })
     },

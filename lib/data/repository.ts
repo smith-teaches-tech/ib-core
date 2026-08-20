@@ -559,8 +559,15 @@ export interface CasRepository {
     },
     authorName: string,
   ): Promise<string>
+  /**
+   * A reflection. `audio` makes it a SPOKEN one — still `kind: 'reflection'`,
+   * never evidence, because the timeline and the consistency strip count the
+   * two differently and a student who speaks must not read as a student who
+   * only uploaded files (IB-CAS-Phone-Build-Plan.md §3.3).
+   */
   addReflection(
     schoolId: string, experienceId: string, body: string, authorName: string,
+    opts?: { audio?: StoredRef; transcript?: string; inReplyTo?: string },
   ): Promise<void>
   /** Versioned: the prior entry is kept and superseded, never overwritten. */
   editReflection(
@@ -568,6 +575,7 @@ export interface CasRepository {
   ): Promise<void>
   addEvidence(
     schoolId: string, experienceId: string, media: StoredRef[], note: string, authorName: string,
+    opts?: { inReplyTo?: string },
   ): Promise<void>
   requestSupervisor(
     schoolId: string, experienceId: string, email: string, authorName: string,
