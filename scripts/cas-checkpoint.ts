@@ -11,6 +11,7 @@ import {
   SAMPLE_REQUESTS, SECTIONS, STUDENTS, TEACHING_ASSIGNMENTS, fixtureRepository as repo,
 } from '../lib/data/fixtures'
 import { assertLiveCohort, isArchived, sortCohorts } from '../lib/cohorts'
+import { DEV_USERS } from '../lib/session'
 import { CAS_DATA } from '../lib/data/cas-fixtures'
 import { summarise } from '../lib/cas/derive'
 import { MAX_RECORDING_SECONDS, extensionFor } from '../lib/cas/recording'
@@ -2083,6 +2084,42 @@ async function main() {
   check(
     extensionFor('audio/mp4') === 'm4a' && extensionFor('audio/webm;codecs=opus') === 'webm',
     'the file extension matches what the browser actually recorded — Safari and Chrome do not agree, and IB-Media-and-Uploads.md §3 is why that matters',
+  )
+
+  console.log('\n16. The demo students — both ends of the cohort')
+
+  const demoIds = DEV_USERS.filter((u) => u.id.startsWith('st')).map((u) => u.id)
+  check(
+    ['st01', 'st24', 'st11'].every((id) => demoIds.includes(id)),
+    'the switcher offers three states, not one — a screen only ever demoed against a finished portfolio hides every empty state it has',
+  )
+
+  const done = (await repo.cas.getStudentView('dhahran', 'st01'))!
+  const midway = (await repo.cas.getStudentView('dhahran', 'st24'))!
+  const empty = (await repo.cas.getStudentView('dhahran', 'st11'))!
+
+  check(done.summary.outcomes.length === 7, 'Layla: all seven outcomes — the finished end')
+
+  // THE MOST USEFUL DEMO OF THE THREE. Four experiences and nothing confirmed
+  // is what most of a cohort looks like in September, and it is the only one
+  // that shows the claimed-vs-confirmed distinction the whole roster turns on
+  // (IB-CAS-Build-Plan.md §10.4).
+  check(
+    midway.experiences.length >= 3 && midway.summary.outcomes.length === 0,
+    `Deniz: ${midway.experiences.length} experiences and ${midway.summary.outcomes.length} outcomes confirmed — busy, nothing signed off`,
+  )
+  check(
+    midway.summary.tallies.some((t) => t.open > 0),
+    'so her strip shows amber CLAIMED outcomes against no green confirmed ones — the gap that is the whole point of counting confirmations',
+  )
+  check(
+    midway.joinedAt > '2025-08-01',
+    'and she is the transfer student, so her CAS window opens when she arrived rather than a year before it',
+  )
+
+  check(
+    empty.experiences.length === 0 && !empty.summary.complete,
+    'Pieter: nothing at all — the true empty state, which no other student in the fixture shows',
   )
 
   console.log('\n' + '='.repeat(60))

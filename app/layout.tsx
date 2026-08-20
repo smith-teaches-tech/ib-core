@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   // iOS Safari fires no install event and ignores the manifest's icons — Add to
   // Home Screen reads these instead. Without them an installed CAS shows a
   // screenshot of the page as its icon.
-  appleWebApp: { capable: true, title: 'CAS', statusBarStyle: 'default' },
+  appleWebApp: { capable: true, title: 'IB Core', statusBarStyle: 'default' },
   icons: { apple: '/icons/apple-touch-icon.png', icon: '/icons/cas-192.png' },
 }
 

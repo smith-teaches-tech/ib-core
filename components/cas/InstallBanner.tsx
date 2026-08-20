@@ -62,9 +62,10 @@ export default function InstallBanner() {
     <div className="pwabar">
       <span style={{ fontSize: 20, lineHeight: 1 }}>📱</span>
       <div className="pwabar-b">
-        <div className="pwabar-t">Add CAS to your Home Screen</div>
+        <div className="pwabar-t">Add IB Core to your Home Screen</div>
         <div className="pwabar-d">
-          Photos, evidence and reflections wherever you are — no App Store needed.
+          Add CAS evidence and reflections wherever you are — no App Store needed. It works on a
+          laptop too.
         </div>
         <div className="pwabar-d" style={{ marginTop: 4 }}>
           <b>Phones are not allowed at school without permission.</b> Use this outside school, or

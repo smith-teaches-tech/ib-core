@@ -13,10 +13,16 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'IB Core · CAS',
-    short_name: 'CAS',
-    description: 'Add reflections and evidence to your CAS portfolio, wherever you are.',
-    start_url: '/courses/cas',
+    name: 'IB Core',
+    short_name: 'IB Core',
+    description: 'CAS, Extended Essay and TOK for the IB Diploma Programme.',
+    // '/' RATHER THAN '/courses/cas', and the reason is that a manifest is
+    // per-SITE, not per-page. Pointing it at CAS would mean a coordinator who
+    // installs this on their laptop — which they will, because an installed PWA
+    // is a perfectly good desktop app — opens on a student module every time.
+    // `landingFor()` already routes each person to the right place from '/',
+    // so one start_url serves everybody and the icon's 'IB' stays honest.
+    start_url: '/',
     display: 'standalone',
     orientation: 'portrait',
     background_color: '#ffffff',

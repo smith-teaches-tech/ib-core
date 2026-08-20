@@ -19,7 +19,20 @@ export const DEV_USERS = [
   { id: 'u_haddad', label: 'S. Haddad — School coordinator (Jubail)' },
   { id: 'u_adeyemi', label: 'H. Adeyemi — Core teacher (CAS/EE/TOK)' },
   { id: 'u_farouk', label: 'R. Farouk — Teacher (Biology)' },
-  { id: 'st01', label: 'Layla Ahmed — Student' },
+  // THREE STUDENTS, NOT ONE. Layla is the exemplar — seven outcomes, a
+  // completed project, the mockup made real — and a screen only ever demoed
+  // against a finished portfolio hides everything its empty states do.
+  { id: 'st01', label: 'Layla Ahmed — Student · CAS complete (7/7)' },
+  // The most useful of the three: four experiences, NOTHING confirmed. That is
+  // what most of a cohort looks like in September, and it is the only one that
+  // shows claimed-but-unconfirmed outcomes — the distinction the roster turns
+  // on. She is also the transfer student, so her CAS timeline opens in January
+  // when she arrived rather than the previous August.
+  { id: 'st24', label: 'Deniz Yildiz — Student · CAS in progress, nothing signed off' },
+  // And the true empty state: no experiences at all. One of the two candidates
+  // the fixtures deliberately leave sparse — "they are the reason the
+  // coordinator opens this screen at all" (cas-fixtures.ts).
+  { id: 'st11', label: 'Pieter Jansen — Student · CAS not started' },
 ]
 
 export interface Session {
