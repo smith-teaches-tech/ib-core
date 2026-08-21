@@ -14,6 +14,9 @@
 // new method here, a module underneath is missing something real.
 
 import type {
+  AuthorshipConcern, TokMarkingRow, TokStudentView, TokTitleSet,
+} from '../tok/types'
+import type {
   Board, Course, LibraryDocument, Membership, School, Student, StudentTrack, User,
 } from '../types'
 import type { BoardOptions } from '../board'
@@ -115,6 +118,7 @@ export interface Repository {
 
   /** EE supervision. The first piece of the EE module — see lib/ee/supervision.ts. */
   ee: EeRepository
+  tok: TokRepository
 }
 
 /**
@@ -124,6 +128,102 @@ export interface Repository {
  * IB-CAS-Build-Plan.md §10.3 gives: this is the module's own screen data, not
  * something a coordinator view needs. `getBoard` and `getTrack` are untouched.
  */
+/**
+ * TOK — the module's own screen data, like EE's. `getBoard` and `getTrack` are
+ * untouched: the coordinator reads TOK through the board it already has, which
+ * is the whole of the "a coordinator view selects, it never asks for anything
+ * new" rule (IB-Philosophy-and-Scope.md).
+ */
+export interface TokRepository {
+  /** The student's own screen. Checkpoints come from getTrack, not from here. */
+  getStudentView(schoolId: string, studentId: string): Promise<TokStudentView | null>
+  /**
+   * The six for one session. Returns null for a cohort whose teacher has not
+   * posted them — which is EVERY new cohort, because titles never carry over.
+   */
+  getTitleSet(schoolId: string, cohortId: string): Promise<TokTitleSet | null>
+  /** One of the 35, by number. Never free text — the prompt must be used as given. */
+  setPrompt(schoolId: string, studentId: string, promptNumber: number): Promise<{ ok: boolean; message?: string }>
+  /**
+   * A posted title by number, or the student's own typed one when the teacher
+   * has not posted yet. `number` is null for a typed title until it is adopted.
+   */
+  setTitle(
+    schoolId: string,
+    studentId: string,
+    input: { number: number | null; text: string; source: 'teacher' | 'student' },
+  ): Promise<{ ok: boolean; message?: string }>
+  /** The one draft the IB permits a teacher to comment on. Not a checkpoint. */
+  setDraft(schoolId: string, studentId: string, href: string): Promise<void>
+  /** Filing is what locks it. There is no separate lock button. */
+  submitFile(
+    schoolId: string,
+    studentId: string,
+    kind: 'exh' | 'essay',
+    file: { fileName: string; declaredWords: number; storageKey?: string; bytes?: number },
+  ): Promise<void>
+  /** The student writes up one interaction. Submitting locks it. */
+  submitInteraction(
+    schoolId: string,
+    studentId: string,
+    n: 1 | 2 | 3,
+    body: string,
+  ): Promise<{ ok: boolean; message?: string }>
+
+  // ---- staff -------------------------------------------------------------
+
+  /**
+   * One row per candidate for a marking screen. `kind` chooses the instrument;
+   * the shape is identical for both, which is why the essay screen reuses it.
+   */
+  getMarkingRoster(
+    schoolId: string,
+    cohortId: string,
+    kind: 'exh' | 'essay',
+  ): Promise<TokMarkingRow[]>
+  /**
+   * The mark itself. Goes on the RequirementState like every other mark and
+   * appends to the SAME MarkEvent trail as the course's IA marks — the question
+   * a reader has is "what happened to this candidate in my course", not "what
+   * kind of thing happened". Authorization is `marksWriteGrant`, checked by the
+   * caller and re-checked in the action.
+   */
+  saveMark(
+    schoolId: string,
+    studentId: string,
+    kind: 'exh' | 'essay',
+    mark: number | null,
+    by: { id: string; name: string; overrideReason: string | null },
+  ): Promise<void>
+  /** The two texts and the authorship field. Saved independently of the mark. */
+  saveProse(
+    schoolId: string,
+    studentId: string,
+    kind: 'exh' | 'essay',
+    input: {
+      note: string
+      comment: string
+      authorship: AuthorshipConcern
+      authorshipNote?: string
+    },
+    by: { id: string; name: string },
+  ): Promise<void>
+  /** Release puts the mark and its comment in front of the student. */
+  releaseMark(
+    schoolId: string,
+    studentId: string,
+    kind: 'exh' | 'essay',
+    by: { id: string; name: string },
+  ): Promise<{ ok: boolean; message?: string }>
+  /** Undo a release. `scores.revoke`, as EE. */
+  revokeMark(
+    schoolId: string,
+    studentId: string,
+    kind: 'exh' | 'essay',
+    by: { id: string; name: string },
+  ): Promise<void>
+}
+
 export interface EeRepository {
   /**
    * Never resolves to nobody while the school has an EE coordinator — invariant

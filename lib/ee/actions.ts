@@ -91,7 +91,7 @@ export async function submitFinal(
    */
   file: { name: string; mime: string; bytes: number },
   declaredWords: number,
-  declarations: { code: boolean; anonymous: boolean; underLimit: boolean },
+  declarations: { anonymous: boolean; underLimit: boolean },
 ) {
   const { session } = await asOwner(studentId)
 

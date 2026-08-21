@@ -46,9 +46,12 @@ import {
 } from '../lib/tok/rubric'
 import {
   AUTHORSHIP_ORDER, INTERACTION_LINES, PRESCRIBED_TITLE_COUNT, SEED_BOUNDARIES,
-  boundaryProblems, interactionLine, letterFor, titlesArePosted,
+  boundaryProblems, interactionLine, interactionOpen, letterFor, titlesArePosted,
 } from '../lib/tok/types'
-import { TOK_BOUNDARIES, TOK_TITLE_SETS } from '../lib/data/fixtures'
+import {
+  MARK_EVENTS, TOK_BOUNDARIES, TOK_FILES, TOK_INTERACTION_LOGS, TOK_MARKS, TOK_TITLE_SETS,
+} from '../lib/data/fixtures'
+import { canRelease, promptDistribution, releaseBlockers as tokReleaseBlockers, summariseMarking } from '../lib/tok/marking'
 import { iaTotal, templateOf } from '../lib/templates'
 
 const fail: string[] = []
@@ -1766,20 +1769,45 @@ async function main() {
     'so their viva reads LOCKED — a viva cannot precede the paper it is about',
   )
 
-  const goodDecl = { code: true, anonymous: true, underLimit: true }
+  const goodDecl = { anonymous: true, underLimit: true }
   check(
     preflightPasses(anonymityPreflight({
       personalCode: 'p117', identifiersState: 'confirmed',
       declaredWords: 3900, wordLimit: 4000, declarations: goodDecl,
     })),
-    'the pre-flight passes on a confirmed code, a count under the limit and three ticks',
+    'the pre-flight passes on a confirmed code, a count under the limit and both ticks',
   )
+  // ⚑ CORRECTED 21 Aug. This used to assert the opposite, and the opposite was
+  // the defect: a student filing in November cannot have a code the IB issues
+  // in January, and blocking them produced the January reopen-and-resubmit
+  // exercise. The code is applied at EXPORT.
   check(
-    !preflightPasses(anonymityPreflight({
+    preflightPasses(anonymityPreflight({
       personalCode: 'p117', identifiersState: 'unconfirmed',
       declaredWords: 3900, wordLimit: 4000, declarations: goodDecl,
     })),
-    'an UNCONFIRMED personal code fails it — an unconfirmed code is inert and is never stamped on work',
+    'an UNCONFIRMED code does NOT block filing — finishing it is the coordinator’s job, not a reason to stop a student',
+  )
+  check(
+    preflightPasses(anonymityPreflight({
+      personalCode: null, identifiersState: 'missing',
+      declaredWords: 3900, wordLimit: 4000, declarations: goodDecl,
+    })),
+    'and NO code at all does not block either — in November nobody has one, which is exactly when the EE is due',
+  )
+  check(
+    anonymityPreflight({
+      personalCode: null, identifiersState: 'missing',
+      declaredWords: 3900, wordLimit: 4000, declarations: goodDecl,
+    }).find((c) => c.key === 'code')!.status === 'waiting',
+    'it reports WAITING and says the code is added at export — informational, never a gate',
+  )
+  check(
+    !preflightPasses(anonymityPreflight({
+      personalCode: 'p117', identifiersState: 'confirmed',
+      declaredWords: 3900, wordLimit: 4000, declarations: { anonymous: false, underLimit: true },
+    })),
+    'but the two declarations a student CAN verify on the day still block — their name, and the limit',
   )
   check(
     !preflightPasses(anonymityPreflight({
@@ -2336,6 +2364,236 @@ async function main() {
   check(
     c14Signed.length > 0 && c14Signed.every((st) => st.recordedBy === 'H. Adeyemi'),
     'and the graduated cohort HAS its sign-offs, recorded by staff — an unsigned finished year would be a lie in the other direction',
+  )
+
+  console.log('\n15h. The student cannot write up a meeting that never happened')
+
+  // THE INVARIANT THIS TABLE EXISTS FOR. The teacher's log is what opens the
+  // student's box, so a TK/PPF entry with no held log behind it would mean a
+  // student wrote up a meeting nobody recorded. Derived rather than rolled,
+  // precisely so two dice can never disagree.
+  const ppfStates = REQUIREMENT_STATES.filter((st) => {
+    const d = REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)
+    return d != null && /^tok\.ppf[123]$/.test(d.key)
+  })
+  check(ppfStates.length > 0, `${ppfStates.length} TK/PPF entries exist to check`)
+  check(
+    ppfStates.every((st) => {
+      const d = REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)!
+      const n = Number(d.key.slice(-1))
+      const log = TOK_INTERACTION_LOGS.find((l) => l.studentId === st.studentId && l.n === n)
+      return log != null && (interactionLine(n as 1 | 2 | 3, log.lineKey)?.held ?? false)
+    }),
+    'EVERY written-up interaction has a held teacher log behind it — nobody wrote up a meeting the teacher never recorded',
+  )
+  check(
+    TOK_INTERACTION_LOGS.some((l) => l.lineKey === 'no_draft'),
+    'and the honest negative is exercised, not merely permitted — one candidate turned up to the third meeting without a draft',
+  )
+
+  check(interactionOpen(1, null, true).open === false, 'no log at all: the box is shut')
+  check(
+    /tell your TOK teacher or IB coordinator/.test(interactionOpen(1, null, true).closedReason ?? ''),
+    'and it says who can fix it — the way through is to RECORD THE MEETING, never to override the gate',
+  )
+  check(
+    interactionOpen(2, { held: true }, false).open === false &&
+      interactionOpen(2, { held: true }, true).open === true,
+    'the chain holds too: interaction 2 waits for 1 to be written up',
+  )
+  check(
+    interactionOpen(3, { held: false }, true).open === false,
+    'and a meeting recorded as NOT held opens nothing — there is nothing to write up',
+  )
+
+  console.log('\n15i. The student screens — files, locks and the code that is not their job')
+
+  const tokC15 = STUDENTS.find((x) => x.cohortId === 'c15' && x.schoolId === 'dhahran')!
+  const tokBefore = (await repo.tok.getStudentView('dhahran', tokC15.userId))!
+  check(
+    tokBefore.exhibition == null && tokBefore.essay == null && tokBefore.exhibitionMark == null,
+    'a Class of 2027 candidate has filed nothing and been marked on nothing — the exhibition is due in November',
+  )
+  check(
+    tokBefore.titlesPosted.length === 6,
+    'their six titles ARE posted, so the title panel offers a list rather than a text box',
+  )
+
+  const badPrompt = await repo.tok.setPrompt('dhahran', tokC15.userId, 36)
+  check(!badPrompt.ok, 'a prompt outside the fixed 35 is refused rather than stored')
+  await repo.tok.setPrompt('dhahran', tokC15.userId, 13)
+  check(
+    (await repo.tok.getStudentView('dhahran', tokC15.userId))!.promptNumber === 13,
+    'and a real one is stored as a NUMBER, so the wording always renders from the fixed list',
+  )
+
+  await repo.tok.submitFile('dhahran', tokC15.userId, 'exh', {
+    fileName: 'Ahmed_TOK Exhibition_May 27.pdf', declaredWords: 934, storageKey: 'stub://tok/1', bytes: 402_100,
+  })
+  const tokAfter = (await repo.tok.getStudentView('dhahran', tokC15.userId))!
+  check(
+    tokAfter.exhibition?.locked === true && tokAfter.exhibition?.declaredWords === 934,
+    'FILING IS WHAT LOCKS IT — there is no separate lock button, here or in EE',
+  )
+  check(
+    TOK_FILES.some((f) => f.studentId === tokC15.userId && f.storageKey === 'stub://tok/1' && f.bytes === 402_100),
+    'and the storage ref and size are recorded even while the bytes go nowhere — the record of the upload is real',
+  )
+  const tokLane = (await repo.getTrack('dhahran', tokC15.userId))!.lanes.find((l) => l.lane === 'TOK')!
+  check(
+    tokLane.checkpoints.find((cp) => cp.def.key === 'tok.exh')!.display === 'done',
+    'the track picks it up with no edit to Track.tsx — the module wrote a state, and the spine did the rest',
+  )
+  check(
+    tokAfter.exhibitionMark == null,
+    'and the mark is still absent, because filing is not marking',
+  )
+
+  // The gate is re-checked on the server. A screen that hides a button is
+  // courtesy; this is where the promise is kept.
+  const shut = await repo.tok.submitInteraction('dhahran', tokC15.userId, 3, 'trying it on')
+  check(!shut.ok, 'a student cannot submit an interaction the teacher has not recorded, even by calling the write directly')
+
+  const tokC14 = STUDENTS.find((x) => x.cohortId === 'c14' && x.schoolId === 'dhahran')!
+  const graduated = (await repo.tok.getStudentView('dhahran', tokC14.userId))!
+  check(
+    graduated.exhibitionMark != null && graduated.exhibitionMark!.comment != null,
+    'a graduated candidate sees their released mark AND the comment that came with it',
+  )
+  check(
+    graduated.exhibitionMark!.level.length > 0,
+    'with the band named — "Good" carries more than 8/10 does, which is how the marker wrote it',
+  )
+  check(
+    graduated.interactions.every((i) => i.entry != null),
+    'and all three interactions written up, because that year actually finished',
+  )
+
+  console.log('\n15j. Exhibition marking — the gate, the trail and the two texts')
+
+  const markRows = await repo.tok.getMarkingRoster('dhahran', 'c15', 'exh')
+  check(markRows.length === 24, `one row per candidate (${markRows.length})`)
+  check(
+    markRows.every((r) => r.mark == null && r.releasedAt == null),
+    'nothing in the Class of 2027 is marked yet — the exhibition was only just filed',
+  )
+
+  // AUTHORIZATION IS THE IA RULE, unchanged. The harness calls the same
+  // marksWriteGrant the server action calls, so the two cannot drift.
+  const tokMarker = 'u_adeyemi'
+  const tokNotMarker = 'u_msmith'
+  const markStudent = markRows.find((r) => r.file != null)!.studentId
+  check(
+    (await marksWriteGrant(repo.ia, () => false, 'dhahran', 'tok', 'c15', markStudent, tokMarker)).allowed,
+    'the designated TOK marker may write',
+  )
+  check(
+    !(await marksWriteGrant(repo.ia, () => false, 'dhahran', 'tok', 'c15', markStudent, tokNotMarker)).allowed,
+    'a co-teacher on the same section may NOT — the IB holds one person responsible for the marks',
+  )
+  check(
+    (await marksWriteGrant(repo.ia, (c) => c === 'marks.override', 'dhahran', 'tok', 'c15', markStudent, tokNotMarker)).allowed === false,
+    'and marks.override alone is not enough — it buys an unlock, not a write',
+  )
+
+  const eventsBefore = MARK_EVENTS.length
+  await repo.tok.saveMark('dhahran', markStudent, 'exh', 8, { id: tokMarker, name: 'H. Adeyemi', overrideReason: null })
+  const afterMark = (await repo.tok.getMarkingRoster('dhahran', 'c15', 'exh')).find((r) => r.studentId === markStudent)!
+  check(afterMark.mark === 8, 'a mark saves onto the RequirementState like every other mark')
+  check(
+    MARK_EVENTS.length === eventsBefore + 1 &&
+      MARK_EVENTS[MARK_EVENTS.length - 1].courseId === 'tok' &&
+      MARK_EVENTS[MARK_EVENTS.length - 1].criterion === 'exhibition',
+    'and appends to the SAME MarkEvent trail as the course’s other marks — one history per course, not one per kind',
+  )
+  await repo.tok.saveMark('dhahran', markStudent, 'exh', 99, { id: tokMarker, name: 'H. Adeyemi', overrideReason: null })
+  check(
+    (await repo.tok.getMarkingRoster('dhahran', 'c15', 'exh')).find((r) => r.studentId === markStudent)!.mark === 10,
+    'a mark above the maximum is clamped rather than stored — the instrument is out of 10',
+  )
+  await repo.tok.saveMark('dhahran', markStudent, 'exh', 8, { id: tokMarker, name: 'H. Adeyemi', overrideReason: null })
+
+  // RELEASE IS GATED ON THE JUSTIFICATION. The exhibition mark is the one the
+  // school sends for moderation; an unjustified mark is a number, not a
+  // judgement — and it is also what the student reads.
+  const noComment = await repo.tok.releaseMark('dhahran', markStudent, 'exh', { id: tokMarker, name: 'H. Adeyemi' })
+  check(!noComment.ok, 'a mark with no comment CANNOT be released — an unjustified mark is a number rather than a judgement')
+  check(
+    tokReleaseBlockers({ mark: 8, comment: '   ', filed: true }).length === 1,
+    'and whitespace is not a comment',
+  )
+  check(
+    tokReleaseBlockers({ mark: null, comment: 'good', filed: false }).length === 2,
+    'nothing filed and nothing marked are two separate reasons, both stated',
+  )
+  check(canRelease({ mark: 8, comment: 'Justified against the instrument.', filed: true }),
+    'and a filed, marked, justified exhibition releases')
+
+  await repo.tok.saveProse('dhahran', markStudent, 'exh', {
+    note: 'Third object repeats the first. Contexts specific.',
+    comment: 'All three objects sit in specific contexts. The third repeats the first object’s argument, which keeps this in the Good band.',
+    authorship: 'none',
+  }, { id: tokMarker, name: 'H. Adeyemi' })
+  const released = await repo.tok.releaseMark('dhahran', markStudent, 'exh', { id: tokMarker, name: 'H. Adeyemi' })
+  check(released.ok, 'with a comment it releases')
+
+  const studentSees = (await repo.tok.getStudentView('dhahran', markStudent))!
+  check(
+    studentSees.exhibitionMark?.mark === 8 && studentSees.exhibitionMark?.level === 'Good',
+    'and the STUDENT now sees the mark and its band — the same number, from the same state, not a copy',
+  )
+  check(
+    (studentSees.exhibitionMark?.comment ?? '').includes('Good band'),
+    'with the released comment, and not the private note',
+  )
+  const prose = TOK_MARKS.find((m) => m.studentId === markStudent && m.kind === 'exh')!
+  check(
+    prose.note !== prose.comment && !studentSees.exhibitionMark!.comment!.includes('Third object repeats'),
+    'THE PRIVATE NOTE NEVER LEAVES — two texts, and only one of them is released',
+  )
+
+  // A released mark is not editable in place; revoking is the way back.
+  await repo.tok.saveMark('dhahran', markStudent, 'exh', 3, { id: tokMarker, name: 'H. Adeyemi', overrideReason: null })
+  check(
+    (await repo.tok.getMarkingRoster('dhahran', 'c15', 'exh')).find((r) => r.studentId === markStudent)!.mark === 8,
+    'a RELEASED mark cannot be overwritten in place — the way back is to revoke, which is a recorded act',
+  )
+  await repo.tok.revokeMark('dhahran', markStudent, 'exh', { id: tokMarker, name: 'H. Adeyemi' })
+  const revoked = (await repo.tok.getStudentView('dhahran', markStudent))!
+  check(revoked.exhibitionMark == null, 'and after a revoke the student sees nothing again')
+
+  const exhJob = (await repo.export.getUploadBoard('dhahran', 'c15'))!
+    .sampleJobs.find((j) => j.kind === 'tok_exhibition')!
+  check(
+    exhJob.pickerHref != null && exhJob.pickerHref.includes('screen=exh'),
+    'and the export board’s exhibition sample now has somewhere to go — the picker the board has been waiting for is the marking screen',
+  )
+
+  console.log('\n15k. What the marking screen derives')
+
+  const tiles = summariseMarking(markRows)
+  check(
+    tiles.candidates === 24 && tiles.filed >= 1,
+    `tiles derive from the rows: ${tiles.filed} filed of ${tiles.candidates}`,
+  )
+  check(
+    summariseMarking([]).candidates === 0,
+    'an empty cohort summarises to zeroes rather than throwing — the first day of a new year group',
+  )
+  const c14Rows = await repo.tok.getMarkingRoster('dhahran', 'c14', 'exh')
+  check(
+    summariseMarking(c14Rows).flagged === 0 &&
+      summariseMarking(await repo.tok.getMarkingRoster('dhahran', 'c14', 'essay')).flagged > 0,
+    'the authorship count is a COUNT of what a marker recorded, not a threshold — and the graduated year has some',
+  )
+  const dist = promptDistribution(c14Rows)
+  check(
+    dist.length > 0 && dist.every((d) => d.number >= 1 && d.number <= 35),
+    'the prompt distribution falls out of the rows — no extra screen, no extra query',
+  )
+  check(
+    dist.every((d, i) => i === 0 || dist[i - 1].count >= d.count),
+    'and it is ordered by how many chose each, which is the order a teacher wants it in',
   )
 
   console.log('\n' + '='.repeat(60))

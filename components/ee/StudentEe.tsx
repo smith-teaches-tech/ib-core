@@ -451,7 +451,7 @@ function FinalPanel({ view, checkpoint }: { view: EeStudentView; checkpoint?: Ch
   // nowhere yet; which file, of what type, how big and filed when are real.
   const [file, setFile] = useState<File | null>(null)
   const [words, setWords] = useState(view.final ? String(view.final.declaredWords) : '')
-  const [decl, setDecl] = useState({ code: false, anonymous: false, underLimit: false })
+  const [decl, setDecl] = useState({ anonymous: false, underLimit: false })
   const [message, setMessage] = useState<string | null>(null)
   const [pending, start] = useTransition()
 
@@ -527,14 +527,6 @@ function FinalPanel({ view, checkpoint }: { view: EeStudentView; checkpoint?: Ch
               <label className="eecheck">
                 <input
                   type="checkbox"
-                  checked={decl.code}
-                  onChange={(e) => setDecl({ ...decl, code: e.target.checked })}
-                />
-                My candidate personal code is on the title page
-              </label>
-              <label className="eecheck">
-                <input
-                  type="checkbox"
                   checked={decl.anonymous}
                   onChange={(e) => setDecl({ ...decl, anonymous: e.target.checked })}
                 />
@@ -548,6 +540,13 @@ function FinalPanel({ view, checkpoint }: { view: EeStudentView; checkpoint?: Ch
                 />
                 The essay is under {WORD_LIMIT.toLocaleString()} words
               </label>
+            </div>
+
+            <div className="note ok" style={{ marginTop: 12 }}>
+              <b>You do not need your candidate personal code on this.</b> The IB issues codes in
+              the new year, long after this is due, and the code is added automatically when your
+              coordinator exports for the IB. You will never be asked to take this back, add a code
+              and re-upload it.
             </div>
 
             <div className="row" style={{ marginTop: 12 }}>

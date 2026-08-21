@@ -280,9 +280,10 @@ export function makeExportRepository(deps: {
             courseId: 'tok', courseName: 'TOK exhibition', kind: 'tok_exhibition',
             enrolled: roster.length, marksIn,
             sample: projectSample(sampleOf('tok'), filePresent),
-            // The paste-and-pack picker lives with the marks grid, which is
-            // subject-course only today. The TOK module brings its own.
-            pickerHref: null,
+            // Built 21 Aug with the TOK module: the exhibition marking screen
+            // is where the sample is picked, exactly as the IA marks grid is
+            // for a subject course. The board still only PROJECTS it.
+            pickerHref: `/courses/tok?cohort=${cohortId}&screen=exh`,
           })
         }
       }

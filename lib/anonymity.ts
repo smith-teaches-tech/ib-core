@@ -1,10 +1,35 @@
 // THE ANONYMITY PRE-FLIGHT — a cross-cutting primitive, not an EE feature.
 //
-// IB-EE-research.md #6: the candidate personal code on the title page, and no
-// name / candidate number / school / supervisor anywhere, applies to the EE now
-// and to final IAs and the TOK essay later. Building it inside lib/ee/ and
-// extracting it afterwards is how three subtly different versions of one rule
-// end up in a codebase, so it lives here from the start.
+// IB-EE-research.md #6: no name / candidate number / school / supervisor
+// anywhere in submitted work. Applies to the EE, the TOK essay and exhibition,
+// and final IAs. Building it inside lib/ee/ and extracting it afterwards is how
+// three subtly different versions of one rule end up in a codebase, so it lives
+// here from the start.
+//
+// ─────────────────────────────────────────────────────────────────────────────
+// ⚑ CORRECTED 21 Aug 2026 — THE CODE IS NOT THE STUDENT'S JOB.
+//
+// This pre-flight used to FAIL when a candidate had no personal code, and asked
+// the student to tick "my code is on the title page". Both were wrong, and the
+// combination was expensive.
+//
+// Personal codes do not exist until IBIS registration completes — at ISG that
+// was 14 January — and the EE is filed in November. So the check was
+// unsatisfiable at the moment it was shown, and the school's answer was to make
+// every candidate reopen a finished essay in January, paste a code in,
+// re-export and re-upload. Michael, 21 Aug, on that exercise: "this is the
+// stupid inefficient."
+//
+// What the IB actually asks (Handbook of Procedures, formatting guidance):
+// candidates "avoid using their name, session number or the name or number of
+// their school in their work", and separately "schools MAY use the candidate's
+// personal code (abc123) as a means of identifying candidates' work". The code
+// is PERMITTED, never required — and the identity-bearing documents are the
+// forms (TK/PPF, RPPF), which the export fills.
+//
+// So the code became an INFORMATIONAL check that never blocks, and it is
+// applied at export. See IB-Uploads-Stamping-and-Naming.md.
+// ─────────────────────────────────────────────────────────────────────────────
 //
 // ─────────────────────────────────────────────────────────────────────────────
 // WHAT THIS CAN AND CANNOT DO TODAY
@@ -34,29 +59,30 @@ export interface PreflightInput {
   /** What the STUDENT counted. Michael, 19 Aug: they count before submission. */
   declaredWords: number | null
   wordLimit: number
-  /** The three title-page declarations the student ticks. */
-  declarations: { code: boolean; anonymous: boolean; underLimit: boolean }
+  /**
+   * What the student declares. TWO things, both of which they can actually
+   * verify on the day they file — deliberately NOT the personal code.
+   */
+  declarations: { anonymous: boolean; underLimit: boolean }
 }
 
 export function anonymityPreflight(input: PreflightInput): PreflightCheck[] {
   const checks: PreflightCheck[] = []
 
-  // AN UNCONFIRMED CODE IS INERT — IB-Setup-and-Admin-Spec.md §7. It is never
-  // stamped onto a PDF and never written into an export manifest, so for this
-  // purpose it counts exactly as missing.
+  // NEVER 'fail'. An unconfirmed code is still inert — it is never stamped and
+  // never written into a manifest (IB-Setup-and-Admin-Spec.md §7) — but that is
+  // the COORDINATOR's problem to finish, not a reason to stop a student filing
+  // work in November for a code the IB issues in January.
   checks.push({
     key: 'code',
     label: 'Candidate personal code',
-    status:
-      input.personalCode && input.identifiersState === 'confirmed'
-        ? 'pass'
-        : 'fail',
+    status: input.personalCode && input.identifiersState === 'confirmed' ? 'pass' : 'waiting',
     detail:
       input.personalCode == null
-        ? 'The IB has not issued your personal code yet — your coordinator adds it when it arrives.'
+        ? 'The IB has not issued yours yet. You do not need it — it is added automatically when your coordinator exports for the IB.'
         : input.identifiersState !== 'confirmed'
-          ? 'Your code is entered but not yet confirmed by the coordinator. An unconfirmed code is never stamped onto work.'
-          : `Confirmed: ${input.personalCode}. It goes on your title page instead of your name.`,
+          ? 'Entered, and waiting for your coordinator to confirm it against IBIS. Nothing for you to do.'
+          : `Confirmed: ${input.personalCode}. It is added at export — you never put it on the work yourself.`,
   })
 
   const w = input.declaredWords
@@ -66,7 +92,7 @@ export function anonymityPreflight(input: PreflightInput): PreflightCheck[] {
     status: w == null ? 'fail' : w <= input.wordLimit ? 'pass' : 'fail',
     detail:
       w == null
-        ? 'Count your essay and enter the number — it has to be on your title page anyway.'
+        ? 'Count it and enter the number — the IB asks you to declare it when you upload.'
         : w <= input.wordLimit
           ? `You counted ${w.toLocaleString()}.`
           : `You counted ${w.toLocaleString()}, which is over by ${(w - input.wordLimit).toLocaleString()}. An examiner stops reading at ${input.wordLimit.toLocaleString()}, and the criterion that suffers most is D — the conclusion.`,
@@ -75,9 +101,9 @@ export function anonymityPreflight(input: PreflightInput): PreflightCheck[] {
   const d = input.declarations
   checks.push({
     key: 'declarations',
-    label: 'Title page declarations',
-    status: d.code && d.anonymous && d.underLimit ? 'pass' : 'fail',
-    detail: 'Confirm the code is on the title page, that nothing identifies you or the school, and that you are under the limit.',
+    label: 'Your declarations',
+    status: d.anonymous && d.underLimit ? 'pass' : 'fail',
+    detail: 'Confirm that nothing in the document identifies you or the school, and that you are under the word limit. Those are the two things only you can check.',
   })
 
   checks.push({

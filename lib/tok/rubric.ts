@@ -196,3 +196,23 @@ export function tokTotal(
   if (exhibition == null || essay == null) return null
   return exhibition * EXHIBITION_WEIGHT + essay * ESSAY_WEIGHT
 }
+
+// ---------------------------------------------------------------------------
+// Word limits
+// ---------------------------------------------------------------------------
+
+/**
+ * OFFICIAL, both of them, and they behave differently.
+ *
+ * The essay's 1,600 is a hard ceiling the examiner enforces by stopping:
+ * "If an essay exceeds the word limit, then examiners are instructed to stop
+ * reading after 1,600 words."
+ *
+ * The exhibition's 950 covers the commentary only — it EXCLUDES text on or
+ * within the objects themselves, and excludes acknowledgments, references and
+ * the bibliography. So the student's declared count is a different number from
+ * anything a machine could measure off the PDF, which is one more reason the
+ * measured check waits for bytes rather than pretending.
+ */
+export const ESSAY_WORD_LIMIT = 1_600
+export const EXHIBITION_WORD_LIMIT = 950

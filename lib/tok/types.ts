@@ -245,3 +245,197 @@ export const AUTHORSHIP_LABELS: Record<AuthorshipConcern, string> = {
 
 export const AUTHORSHIP_ORDER: AuthorshipConcern[] =
   ['none', 'style_shift', 'reads_as_ai', 'referred']
+
+// ---------------------------------------------------------------------------
+// What the module stores, and what the student's screen reads
+// ---------------------------------------------------------------------------
+
+/**
+ * A FILED PDF — the exhibition or the essay. Same shape as EeFinal and for the
+ * same reason: filing is what locks it, so there is no separate lock button.
+ */
+export interface TokFile {
+  schoolId: Id
+  studentId: Id
+  kind: 'exh' | 'essay'
+  fileName: string
+  /** The student counts, before they file. The measured count needs the bytes. */
+  declaredWords: number
+  submittedAt: string
+  storageKey?: string
+  bytes?: number
+  unlockedBy?: Id
+  unlockedByName?: string
+  unlockReason?: string
+  unlockedAt?: string
+}
+
+/**
+ * THE ESSAY DRAFT — a link, and deliberately NOT a requirement def.
+ *
+ * Michael, 21 Aug: "Draft not necessary here because only TOK teacher needs it,
+ * unlike the complexity of EE." The rule is the one EE established: a def exists
+ * when the school tracks something for EVERY candidate AGAINST A DATE. Nobody
+ * chases the TOK draft on a deadline — the teacher just needs to read it before
+ * the third interaction. So it is module-owned data, not a checkpoint, and it
+ * never appears on the board.
+ */
+export interface TokDraft {
+  schoolId: Id
+  studentId: Id
+  href: string
+  addedAt: string
+}
+
+/**
+ * THE TEACHER'S ONE LINE PER INTERACTION — the school's record of the meeting.
+ *
+ * It is NOT part of the official form (the form's three boxes are the
+ * candidate's; the teacher gets one comment at the end). It exists because the
+ * meeting is a real event that the student's write-up depends on, and because
+ * three picked lines compose a draft of that one comment in March.
+ */
+export interface TokInteractionLog {
+  schoolId: Id
+  studentId: Id
+  n: InteractionNumber
+  lineKey: string
+  /** The day the meeting actually happened. */
+  heldOn: string
+  loggedBy: Id
+  loggedByName: string
+  loggedAt: string
+}
+
+/**
+ * THE PROSE BESIDE A MARK — two texts, not one.
+ *
+ * Taken from Michael's own May 2026 marking sheet, which kept two columns and
+ * maintained the distinction across all 34 candidates:
+ *
+ *   `Comments`               his chronological walkthrough, first person, with
+ *                            his reactions in brackets — "(which ones?)",
+ *                            "Which one is it?". Private. Median 325 words.
+ *   `Student-facing Comments` the same judgement rewritten, band-anchored,
+ *                            closing on "to reach the Excellent band...".
+ *                            Median 300 words.
+ *
+ * A single free-text box would have collapsed a distinction a real marker
+ * already maintains by hand, so the model keeps both. The NUMBER lives on the
+ * RequirementState like every other mark; only the prose is module-owned.
+ */
+export interface TokMark {
+  schoolId: Id
+  studentId: Id
+  kind: 'exh' | 'essay'
+  /** Private to staff. Never leaves with the mark. */
+  note: string
+  /** Goes to the student when the mark is released. */
+  comment: string
+  /** A FIELD, not a sentence buried mid-paragraph where April cannot find it. */
+  authorship: AuthorshipConcern
+  authorshipNote?: string
+  markedBy: Id
+  markedByName: string
+  markedAt: string
+  releasedAt?: string
+}
+
+// ---- the student's screen -------------------------------------------------
+
+export interface TokFileView {
+  fileName: string
+  declaredWords: number
+  submittedAt: string
+  locked: boolean
+  unlockReason?: string
+  unlockedByName?: string
+  unlockedAt?: string
+}
+
+export interface TokInteractionView {
+  n: InteractionNumber
+  /**
+   * What the teacher logged, if they have. RENDERS ABOVE THE STUDENT'S BOX —
+   * it is the prompt a student actually needs to write the entry, and it means
+   * they are never staring at an empty field wondering which meeting this was.
+   */
+  logged: { lineKey: string; label: string; held: boolean; heldOn: string; byName: string } | null
+  /** The student's own write-up. Locks on submit. */
+  entry: { body: string; words: number; submittedAt: string } | null
+  open: boolean
+  /** Why it is shut, in the student's own terms. Never a bare disabled field. */
+  closedReason?: string
+}
+
+/** One candidate on a staff marking screen. Same shape for both instruments. */
+export interface TokMarkingRow {
+  studentId: Id
+  studentName: string
+  sessionNumber: string | null
+  /** Exhibition only — the chosen IA prompt. */
+  promptNumber: number | null
+  /** Essay only — the chosen prescribed title. */
+  title: { number: number | null; text: string } | null
+  file: TokFileView | null
+  mark: number | null
+  prose: {
+    note: string
+    comment: string
+    authorship: AuthorshipConcern
+    authorshipNote?: string
+  } | null
+  releasedAt: string | null
+  markedByName: string | null
+}
+
+export interface TokStudentView {
+  studentId: Id
+  studentName: Id
+  teacherName: string | null
+  /** 1–35, or null. Chosen from the fixed list; never typed. */
+  promptNumber: number | null
+  exhibition: TokFileView | null
+  /** Only once the teacher has RELEASED it. Before that the student sees nothing. */
+  exhibitionMark: { mark: number; level: string; comment: string | null; releasedAt: string } | null
+  title: { number: number | null; text: string; source: 'teacher' | 'student' } | null
+  /** Empty when the teacher has not posted the six yet — then the student may type. */
+  titlesPosted: TokTitle[]
+  draftHref: string | null
+  essay: TokFileView | null
+  interactions: TokInteractionView[]
+  signedOffAt: string | null
+}
+
+/**
+ * WHEN A STUDENT MAY WRITE UP INTERACTION n.
+ *
+ * Two gates, and they answer different questions. The teacher's log answers
+ * "did this meeting happen"; the chain answers "are you writing these in
+ * order". A meeting the teacher recorded as NOT held opens nothing, because
+ * there is nothing to write up.
+ *
+ * If a teacher forgets to log one, the fix is TO LOG THE MEETING — not to
+ * override the gate. Same rule the EE viva established on 20 Aug.
+ */
+export function interactionOpen(
+  n: InteractionNumber,
+  logged: { held: boolean } | null,
+  previousSubmitted: boolean,
+): { open: boolean; closedReason?: string } {
+  if (n > 1 && !previousSubmitted) {
+    return { open: false, closedReason: `Write up interaction ${n - 1} first.` }
+  }
+  if (!logged) {
+    return {
+      open: false,
+      closedReason:
+        'Opens as soon as your teacher records this meeting. If it has happened and this is ' +
+        'still shut, tell your TOK teacher or IB coordinator — they can record it.',
+    }
+  }
+  if (!logged.held) {
+    return { open: false, closedReason: 'Your teacher recorded that this interaction did not take place.' }
+  }
+  return { open: true }
+}

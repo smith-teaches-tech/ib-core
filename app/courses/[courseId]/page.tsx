@@ -11,10 +11,13 @@ import PgGrid from '@/components/pg/PgGrid'
 import SamplePanel from '@/components/ia/SamplePanel'
 import UnlockMarks from '@/components/ia/UnlockMarks'
 import StudentCas from '@/components/cas/StudentCas'
+import StudentTok from '@/components/tok/StudentTok'
+import TokMarking from '@/components/tok/TokMarking'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
 import { cohortTitle, isArchived, sortCohorts } from '@/lib/cohorts'
 import { isCoordinatorTier, restrictStudentView } from '@/lib/pg/authorize'
+import { ESSAY_INSTRUMENT, EXHIBITION_INSTRUMENT } from '@/lib/tok/rubric'
 
 // A course page, dispatched by course TYPE.
 //
@@ -402,19 +405,69 @@ export default async function CoursePage({
     }
   } else if (course.type === 'tok') {
     /**
-     * TOK's predicted grade is a LETTER, and that is the only way this screen
-     * differs from Biology's — the scale rides on the requirement def, so the
-     * same component renders both. TOK's own module (the essay and exhibition
-     * marks, the three TK/PPF interactions) is still to come; predicted grades
-     * do not wait for it, because they never depended on it.
+     * THREE SCREENS, ONE ROUTE — the same segmented control a subject course
+     * uses. The student sees two of them (Exhibition | Essay); staff see the
+     * marking screens and predicted grades. TOK's predicted grade is a LETTER,
+     * and the scale rides on the requirement def, so PgGrid renders it
+     * unchanged.
      */
     const cohortId = cohort?.id ?? 'c15'
+
+    if (isStudent) {
+      // Checkpoints come from getTrack, NOT from the TOK repository — the
+      // student's screen and the coordinator's board read one derivation.
+      const [tokView, track] = await Promise.all([
+        repo.tok.getStudentView(school.id, user.id),
+        repo.getTrack(school.id, user.id),
+      ])
+      const lane = track?.lanes.find((l) => l.lane === 'TOK')
+      return (
+        <Shell session={session} spaces={spaces} current={current}>
+          {readOnly && (
+            <div className="note gold" style={{ marginBottom: 14 }}>
+              <b>{cohort?.label} is archived.</b> This is a read-only record of a finished year.
+            </div>
+          )}
+          {tokView ? (
+            <StudentTok
+              view={tokView}
+              checkpoints={lane?.checkpoints ?? []}
+              screen={wantedScreen === 'essay' ? 'essay' : 'exh'}
+              baseHref={`/courses/${course.id}?cohort=${cohortId}`}
+            />
+          ) : (
+            <p className="mut">No TOK record.</p>
+          )}
+        </Shell>
+      )
+    }
+
     const baseHref = `/courses/${course.id}?cohort=${cohortId}`
+
+    /**
+     * THREE STAFF SCREENS, one route — the pattern a subject course already
+     * uses. Exhibition and Essay are marking screens; predicted grades is the
+     * screen that was built before the module and never depended on it.
+     */
+    const tokScreen: 'exh' | 'essay' | 'pg' =
+      wantedScreen === 'essay' ? 'essay' : wantedScreen === 'pg' ? 'pg' : 'exh'
+
     const pgView =
       !isStudent && session.can('pg.manage')
         ? await repo.pg.getView(school.id, course.id, cohortId)
         : null
     const isMarker = await repo.ia.isMarkerFor(school.id, course.id, cohortId, user.id)
+    const markingRows =
+      tokScreen !== 'pg' && (isMarker || coordinatorReader)
+        ? await repo.tok.getMarkingRoster(school.id, cohortId, tokScreen)
+        : null
+    const tokScreens = (
+      <nav className="pgseg">
+        <a className={tokScreen === 'exh' ? 'on' : ''} href={`${baseHref}&screen=exh`}>Exhibition</a>
+        <a className={tokScreen === 'essay' ? 'on' : ''} href={`${baseHref}&screen=essay`}>Essay</a>
+        <a className={tokScreen === 'pg' ? 'on' : ''} href={`${baseHref}&screen=pg`}>Predicted grades</a>
+      </nav>
+    )
     const pgEditable =
       !readOnly && session.can('pg.manage') && (isMarker || isCoordinatorTier(session.can))
     const { panel, refused } = await renderCandidatePanel(baseHref)
@@ -433,7 +486,29 @@ export default async function CoursePage({
             href={(id) => `/courses/${course.id}?cohort=${id}`}
           />
         )}
-        {pgView ? (
+        {tokScreens}
+        {tokScreen !== 'pg' && (markingRows == null ? (
+          <div className="note">
+            TOK marking opens to the designated TOK marker and the coordinator tier.
+          </div>
+        ) : (
+          <TokMarking
+            rows={markingRows}
+            kind={tokScreen}
+            instrument={tokScreen === 'exh' ? EXHIBITION_INSTRUMENT : ESSAY_INSTRUMENT}
+            canMark={!readOnly && isMarker}
+            canRelease={!readOnly && (isMarker || session.can('tok.manage'))}
+            canRevoke={!readOnly && session.can('scores.revoke')}
+            readOnlyReason={
+              readOnly
+                ? `${cohort?.label} is archived — a record, not a workspace.`
+                : !isMarker
+                  ? 'Read-only — you are not the designated TOK marker. Releasing a finished mark is still open to you if you hold the TOK capability.'
+                  : undefined
+            }
+          />
+        ))}
+        {tokScreen === 'pg' && (pgView ? (
           <PgGrid
             view={pgView}
             editable={pgEditable}
@@ -452,11 +527,13 @@ export default async function CoursePage({
           <div className="note">
             Predicted grades for TOK open to the TOK teacher and the coordinator tier.
           </div>
+        ))}
+        {tokScreen === 'essay' && (
+          <div className="note">
+            The prescribed titles, the TK/PPF interaction lines and the sign-off arrive with the
+            rest of the essay screen. The mark and its two comments work now.
+          </div>
         )}
-        <div className="note">
-          The rest of the TOK module — the essay and exhibition marks, the three TK/PPF
-          interactions, the title — is still to come. See <b>IB-Build-Status.md</b> for the order.
-        </div>
         {refused && (
           <div className="note warn" style={{ marginTop: 14 }}>
             Not your student — the panel opens only for students in your own courses.

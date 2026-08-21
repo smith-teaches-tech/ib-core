@@ -32,8 +32,14 @@ import type { EeSupervision } from '../ee/types'
 import { eeCoordinatorId, supervisorFor } from '../ee/supervision'
 import { EE_CRITERIA, EE_MARK_MAX, indicativeGrade } from '../ee/rubric'
 import { TOK_MARK_MAX } from '../tok/rubric'
-import { SEED_BOUNDARIES } from '../tok/types'
-import type { TokBoundaryTable, TokTitleSet } from '../tok/types'
+import { SEED_BOUNDARIES, interactionLine, interactionOpen } from '../tok/types'
+import type { AuthorshipConcern, TokFileView, TokMark } from '../tok/types'
+import { EXHIBITION_INSTRUMENT, bandFor } from '../tok/rubric'
+import { releaseBlockers } from '../tok/marking'
+import { promptText } from '../tok/prompts'
+import type {
+  InteractionNumber, TokBoundaryTable, TokDraft, TokFile, TokInteractionLog, TokTitleSet,
+} from '../tok/types'
 import { countWords } from '../ee/scoring'
 import { registrationComplete, validateRegistration } from '../ee/registration'
 import { subjectForCourse } from '../ee/subjects'
@@ -648,12 +654,96 @@ const RQ_POOL: Record<string, { rq: string; title: string }[]> = {
 }
 
 /**
- * THE SIX PRESCRIBED       'Is the quality of knowledge best measured by how much of it we have?',
-      'How can we distinguish between a model and the reality it represents?',
-      'Does it matter that our knowledge is provisional?',
-      'To what extent is the knowledge we produce shaped by the tools we use to produce it?',
-      'How far should we trust intuition as a source of knowledge?',
-      'Is subjectivity a limitation or a resource in the pursuit of knowledge?',, PER SESSION — and the one rule that matters.
+ * WHAT THE TOK MODULE OWNS, beyond its RequirementStates.
+ *
+ * Three small tables. Each exists because the spine genuinely cannot hold the
+ * thing: a filed PDF's declared word count and unlock trail, a draft link that
+ * is deliberately not a checkpoint, and the teacher's record of a meeting.
+ */
+export const TOK_FILES: TokFile[] = pinned('ibTokFiles', () =>
+  // Only the graduated year has filed anything. The Class of 2027's exhibition
+  // is due in November and the essay in March — seeding either would be the
+  // fabricated-state problem EE lost on 19 Aug.
+  STUDENTS.filter((s) => s.cohortId === 'c14').flatMap((s) => {
+    const surname = (USERS.find((u) => u.id === s.userId)?.name ?? s.userId).split(' ').pop()
+    const jitter = s.userId.charCodeAt(s.userId.length - 1)
+    return [
+      {
+        schoolId: s.schoolId, studentId: s.userId, kind: 'exh' as const,
+        fileName: `${surname}_TOK Exhibition_May 26.pdf`,
+        declaredWords: 880 + ((jitter * 13) % 70),
+        submittedAt: '2026-01-30',
+      },
+      {
+        schoolId: s.schoolId, studentId: s.userId, kind: 'essay' as const,
+        fileName: `${surname}_TOK Essay_May 26.pdf`,
+        declaredWords: 1420 + ((jitter * 29) % 175),
+        submittedAt: '2026-01-30',
+      },
+    ]
+  }),
+)
+
+export const TOK_DRAFTS: TokDraft[] = pinned('ibTokDrafts', () => [])
+
+/**
+ * The prose beside each mark. Only the graduated year has any — nothing in the
+ * Class of 2027 has been marked, and inventing a comment for an unmarked
+ * exhibition is the same lie as inventing the mark.
+ */
+export const TOK_MARKS: TokMark[] = pinned('ibTokMarks', () =>
+  STUDENTS.filter((s) => s.cohortId === 'c14').flatMap((s, i) => ([
+    {
+      schoolId: s.schoolId, studentId: s.userId, kind: 'exh' as const,
+      note: 'Three objects, contexts specific in all three. Strongest justification is the second '
+        + 'object -- context is exact and the link is argued rather than asserted. Third is thinner '
+        + 'and repeats the first object\u2019s argument.',
+      comment: 'All three objects sit in specific real-world contexts and each link to the prompt is '
+        + 'explained. The second object is the strongest: its context is exact and the link is argued '
+        + 'rather than asserted. The third object\u2019s justification is thinner and largely repeats '
+        + 'the argument made for the first, which is what keeps this out of the top band. To move up, '
+        + 'make each object earn its own place.',
+      authorship: 'none' as const,
+      markedBy: 'u_adeyemi', markedByName: 'H. Adeyemi',
+      markedAt: '2025-12-02', releasedAt: '2025-12-04',
+    },
+    {
+      schoolId: s.schoolId, studentId: s.userId, kind: 'essay' as const,
+      note: 'Thesis holds through the first AOK and slips in the second. Examples are specific. '
+        + 'Counter is present but illustrates rather than challenges.',
+      comment: 'The thesis is workable and holds through the first area of knowledge, though it slips '
+        + 'in the second. Examples are specific and well chosen. The counter-argument is present but '
+        + 'illustrates the same claim rather than challenging it, so the section has the shape of a '
+        + 'counter without the substance. Overall a focused discussion supported by examples, with '
+        + 'some evaluation of different points of view.',
+      // Exercised rather than merely permitted -- IB-TOK-research.md section 5.
+      authorship: (i % 7 === 3 ? 'style_shift' : 'none') as AuthorshipConcern,
+      authorshipNote: i % 7 === 3 ? 'The implications paragraph reads differently from the rest.' : undefined,
+      markedBy: 'u_adeyemi', markedByName: 'H. Adeyemi',
+      markedAt: '2026-02-18', releasedAt: '2026-02-20',
+    },
+  ])),
+)
+
+
+/**
+ * What a finished TK/PPF actually contains. Short, first-person, and about what
+ * CHANGED — which is what the form asks for and what the IB's exemplars show.
+ */
+const PPF_BODIES = [
+  'We went through all six titles in class and I shortlisted two. I kept coming back to the one I '
+  + 'chose because the key term meant something different in each of my two subjects, and I wanted '
+  + 'to find out whether that was a real difference or just how I was reading it.',
+  'I brought a plan with my two areas of knowledge and one example for each. My teacher pushed me '
+  + 'on whether my second example was actually about the title or about something adjacent to it — '
+  + 'it was adjacent, and I have rebuilt that half of the essay around the difference.',
+  'He read the whole draft and said the argument gets strong in the second half but the '
+  + 'introduction was still explaining the title rather than taking a position on it. We also '
+  + 'agreed my counter-example was doing less work than its length suggested, so I cut it back.',
+]
+
+/**
+ * THE SIX PRESCRIBED TITLES, PER SESSION — and the one rule that matters.
  *
  * ⚠⚠ NOTHING CARRIES OVER. The Class of 2028 (c16) has NO ENTRY AT ALL, and its
  * absence IS the fixture. The IB issues six new titles every session, and an
@@ -1015,6 +1105,13 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
        */
       if (d.lane === 'TOK') {
         const stage = d.key.slice(4)
+        // Deterministic per student, so nothing here perturbs the shared RNG
+        // stream that every other lane draws from.
+        const spread = s.userId.charCodeAt(s.userId.length - 1) * 7 + s.userId.length
+        const textArtifact = (label: string, body: string, at: string) => ([{
+          id: `art_${d.key.replace('.', '_')}_${s.userId}`, kind: 'text' as const,
+          label, body, addedAt: at,
+        }])
         const put = (
           recordStatus: RequirementState['recordStatus'],
           recordedAt: string,
@@ -1036,8 +1133,40 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
             put('marked', '2026-02-18', { mark: 3 + Math.floor(r() * 6), recordedBy: 'H. Adeyemi' })
           } else if (stage === 'ppfsign') {
             put('submitted', '2026-02-20', { recordedBy: 'H. Adeyemi' })
+          } else if (stage === 'ppf1' || stage === 'ppf2' || stage === 'ppf3') {
+            // A finished year has REAL WRITE-UPS, not empty states. The
+            // form-fill pipeline puts these three boxes on the official PDF, so
+            // a state with nothing in it would export a blank form.
+            const n = Number(stage.slice(-1))
+            const at = ['2025-09-20', '2025-11-29', '2026-01-17'][n - 1]
+            put('submitted', at, {
+              recordedBy: 'student',
+              lockedAt: new Date(`${at}T00:00:00.000Z`).toISOString(),
+              artifacts: [{
+                id: `art_tok_ppf${n}_${s.userId}`, kind: 'text',
+                label: `TK/PPF ${n}`, body: PPF_BODIES[n - 1], addedAt: at,
+              }],
+            })
           } else if (stage === 'exh' || stage === 'essay') {
             put('submitted', '2026-01-30', { exportStatus: 'submitted', recordedBy: 'student' })
+          } else if (stage === 'prompt') {
+            // A CHOSEN PROMPT IS A NUMBER, and a state with no body is a
+            // choice nobody made. The marking screen reads this, and so does
+            // the prompt distribution.
+            put('submitted', '2025-10-20', {
+              recordedBy: 'student',
+              artifacts: textArtifact('Exhibition prompt chosen', String(1 + (spread % 35)), '2025-10-20'),
+            })
+          } else if (stage === 'title') {
+            const set14 = TOK_TITLE_SETS.find((t) => t.cohortId === 'c14')
+            put('submitted', '2025-10-20', {
+              recordedBy: 'student',
+              artifacts: textArtifact(
+                'Title chosen',
+                set14?.titles[spread % 6]?.text ?? '',
+                '2025-10-20',
+              ),
+            })
           } else {
             put('submitted', '2025-10-20', { recordedBy: 'student' })
           }
@@ -1048,13 +1177,24 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
         if (stage === 'title') {
           // Due 5 June 2026 and passed; a few are still outstanding, which is
           // what a late cell on the board is for.
-          if (r() < 0.88) put('submitted', '2026-06-02', { recordedBy: 'student' })
+          const set15 = TOK_TITLE_SETS.find((t) => t.cohortId === 'c15')
+          if (r() < 0.88) {
+            put('submitted', '2026-06-02', {
+              recordedBy: 'student',
+              artifacts: textArtifact('Title chosen', set15?.titles[spread % 6]?.text ?? '', '2026-06-02'),
+            })
+          }
           continue
         }
         if (stage === 'prompt') {
           // Due 16 October, so in September this is genuinely early — a handful
           // have chosen, most have not, and the exhibition is two months out.
-          if (r() < 0.3) put('submitted', '2026-09-08', { recordedBy: 'student' })
+          if (r() < 0.3) {
+            put('submitted', '2026-09-08', {
+              recordedBy: 'student',
+              artifacts: textArtifact('Exhibition prompt chosen', String(1 + (spread % 35)), '2026-09-08'),
+            })
+          }
           continue
         }
         if (stage === 'ppf1') {
@@ -1202,6 +1342,49 @@ export const SAMPLE_REQUESTS: SampleRequest[] = pinned('ibSampleRequests', () =>
  *
  * Nobody is ever "unassigned" on screen. They are assigned to the coordinator.
  */
+/**
+ * THE TEACHER'S LOG — and the invariant that makes it worth having.
+ *
+ * A student can only write up a meeting the teacher has recorded, so EVERY
+ * TK/PPF state must have a held log behind it. That is asserted (15h), and it
+ * is why this table is DERIVED FROM the states rather than rolled independently:
+ * two dice would eventually disagree, and the disagreement would look like a
+ * student who wrote up a meeting that never happened.
+ */
+export const TOK_INTERACTION_LOGS: TokInteractionLog[] = pinned('ibTokLogs', () => {
+  const out: TokInteractionLog[] = []
+  const wrote = (studentId: string, cohortId: string, n: number) => {
+    const def = REQUIREMENT_DEFS.find((d) => d.cohortId === cohortId && d.key === `tok.ppf${n}`)
+    return def != null && REQUIREMENT_STATES.some(
+      (x) => x.studentId === studentId && x.requirementDefId === def.id,
+    )
+  }
+  const log = (
+    s: (typeof STUDENTS)[number], n: InteractionNumber, lineKey: string, heldOn: string,
+  ) => out.push({
+    schoolId: s.schoolId, studentId: s.userId, n, lineKey, heldOn,
+    loggedBy: 'u_adeyemi', loggedByName: 'H. Adeyemi', loggedAt: heldOn,
+  })
+
+  STUDENTS.forEach((s, i) => {
+    if (s.cohortId === 'c14') {
+      log(s, 1, 'reviewed_titles', '2025-09-18')
+      log(s, 2, 'plan_and_aoks', '2025-11-27')
+      // The honest negatives, exercised rather than merely permitted: one
+      // student in nine turned up to the third meeting without a draft.
+      log(s, 3, i % 9 === 4 ? 'no_draft' : 'full_draft', '2026-01-15')
+      return
+    }
+    if (s.cohortId !== 'c15') return
+    // September of DP2: the first round of meetings is under way. Everybody who
+    // has written one up necessarily had it logged; a third of the rest have
+    // been seen and simply have not written it up yet — which is the state the
+    // screen exists to make obvious.
+    if (wrote(s.userId, 'c15', 1) || i % 3 === 0) log(s, 1, 'reviewed_titles', '2026-09-09')
+  })
+  return out
+})
+
 export const EE_SUPERVISION: EeSupervision[] = pinned('ibEeSupervision', () => {
   const rows: EeSupervision[] = []
   const c15 = STUDENTS.filter((s) => s.cohortId === 'c15')
@@ -1340,6 +1523,58 @@ function eeState(schoolId: string, studentId: string, key: string) {
   return REQUIREMENT_STATES.find(
     (x) => x.studentId === studentId && x.requirementDefId === def.id,
   ) ?? null
+}
+
+/** The TOK sibling of eeState. One join, one place. */
+function tokState(schoolId: string, studentId: string, key: string) {
+  const st = STUDENTS.find((s) => s.userId === studentId && s.schoolId === schoolId)
+  if (!st) return null
+  const def = REQUIREMENT_DEFS.find(
+    (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === key,
+  )
+  if (!def) return null
+  return REQUIREMENT_STATES.find(
+    (x) => x.studentId === studentId && x.requirementDefId === def.id,
+  ) ?? null
+}
+
+/**
+ * The prompt, the title and each TK/PPF entry are all TEXT ON A STATE — no
+ * module table, because the spine already holds exactly this shape. `lock` is
+ * what separates a TK/PPF entry (locks on submit) from a title (changeable).
+ */
+function writeTokText(
+  schoolId: string, studentId: string, key: string, body: string,
+  recordedBy: string, lock = false,
+) {
+  const st = STUDENTS.find((s) => s.userId === studentId && s.schoolId === schoolId)
+  if (!st) return
+  const def = REQUIREMENT_DEFS.find(
+    (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === key,
+  )
+  if (!def) return
+  const at = todayRiyadh()
+  const artifacts = [{
+    id: `art_${key.replace('.', '_')}_${studentId}`, kind: 'text' as const,
+    label: def.label, body, addedAt: at,
+  }]
+  const existing = REQUIREMENT_STATES.find(
+    (x) => x.studentId === studentId && x.requirementDefId === def.id,
+  )
+  if (existing) {
+    if (existing.lockedAt) return // locked is locked; unlocking is a separate act
+    existing.recordStatus = 'submitted'
+    existing.recordedAt = at
+    existing.recordedBy = recordedBy
+    existing.artifacts = artifacts
+    if (lock) existing.lockedAt = new Date(`${at}T00:00:00.000Z`).toISOString()
+  } else {
+    REQUIREMENT_STATES.push({
+      studentId, requirementDefId: def.id, schoolId,
+      recordStatus: 'submitted', recordedAt: at, recordedBy, artifacts,
+      ...(lock ? { lockedAt: new Date(`${at}T00:00:00.000Z`).toISOString() } : {}),
+    })
+  }
 }
 
 /** The RPF text lives as a text ARTIFACT on ee.rpf — no module table needed. */
@@ -1522,6 +1757,350 @@ export const fixtureRepository: Repository = {
       allStates(),
       options,
     )
+  },
+
+  tok: {
+    async getTitleSet(schoolId, cohortId) {
+      return TOK_TITLE_SETS.find((t) => t.schoolId === schoolId && t.cohortId === cohortId) ?? null
+    },
+
+    async getStudentView(schoolId, studentId) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return null
+      const set = TOK_TITLE_SETS.find((t) => t.schoolId === schoolId && t.cohortId === st.cohortId)
+      const marker = TEACHING_ASSIGNMENTS.find(
+        (t) => t.isDesignatedMarker && t.sectionId.startsWith('tok_' + st.cohortId),
+      )
+
+      const textOf = (key: string) => tokState(schoolId, studentId, key)?.artifacts
+        .find((a) => a.kind === 'text')?.body ?? null
+
+      const fileView = (kind: 'exh' | 'essay'): TokFileView | null => {
+        const row = TOK_FILES.find(
+          (f) => f.schoolId === schoolId && f.studentId === studentId && f.kind === kind,
+        )
+        if (!row) return null
+        const state = tokState(schoolId, studentId, kind === 'exh' ? 'tok.exh' : 'tok.essay')
+        return {
+          fileName: row.fileName,
+          declaredWords: row.declaredWords,
+          submittedAt: row.submittedAt,
+          // FILING IS WHAT LOCKS IT — the same rule as the EE final.
+          locked: state?.lockedAt != null,
+          unlockReason: row.unlockReason,
+          unlockedByName: row.unlockedByName,
+          unlockedAt: row.unlockedAt,
+        }
+      }
+
+      // The mark reaches the student ONLY once it is released. Before that they
+      // see nothing at all — not a greyed-out number, not "pending".
+      const exhState = tokState(schoolId, studentId, 'tok.exhmark')
+      const exhProse = TOK_MARKS.find(
+        (m) => m.schoolId === schoolId && m.studentId === studentId && m.kind === 'exh',
+      )
+      const released = exhState?.mark != null && exhProse?.releasedAt != null
+      const band = released ? bandFor(EXHIBITION_INSTRUMENT, exhState!.mark!) : null
+
+      const titleText = textOf('tok.title')
+      const promptText = textOf('tok.prompt')
+
+      const interactions = ([1, 2, 3] as InteractionNumber[]).map((n) => {
+        const log = TOK_INTERACTION_LOGS.find(
+          (l) => l.schoolId === schoolId && l.studentId === studentId && l.n === n,
+        )
+        const line = log ? interactionLine(n, log.lineKey) : null
+        const body = textOf(`tok.ppf${n}`)
+        const prev = n === 1 ? true : textOf(`tok.ppf${n - 1}`) != null
+        const gate = interactionOpen(n, line ? { held: line.held } : null, prev)
+        return {
+          n,
+          logged: log && line
+            ? { lineKey: log.lineKey, label: line.label, held: line.held, heldOn: log.heldOn, byName: log.loggedByName }
+            : null,
+          entry: body
+            ? {
+              body,
+              words: countWords(body),
+              submittedAt: tokState(schoolId, studentId, `tok.ppf${n}`)?.recordedAt ?? log?.heldOn ?? '',
+            }
+            : null,
+          ...gate,
+        }
+      })
+
+      return {
+        studentId,
+        studentName: USERS.find((u) => u.id === studentId)?.name ?? studentId,
+        teacherName: marker ? USERS.find((u) => u.id === marker.teacherId)?.name ?? null : null,
+        promptNumber: promptText ? Number(promptText) || null : null,
+        exhibition: fileView('exh'),
+        exhibitionMark: released
+          ? {
+            mark: exhState!.mark!,
+            level: band?.level ?? '',
+            comment: exhProse!.comment || null,
+            releasedAt: exhProse!.releasedAt!,
+          }
+          : null,
+        title: titleText
+          ? {
+            number: set?.titles.find((t) => t.text === titleText)?.number ?? null,
+            text: titleText,
+            source: set?.titles.some((t) => t.text === titleText) ? 'teacher' : 'student',
+          }
+          : null,
+        titlesPosted: set?.titles.filter((t) => t.source === 'teacher') ?? [],
+        draftHref: TOK_DRAFTS.find(
+          (d) => d.schoolId === schoolId && d.studentId === studentId,
+        )?.href ?? null,
+        essay: fileView('essay'),
+        interactions,
+        signedOffAt: tokState(schoolId, studentId, 'tok.ppfsign')?.recordedAt ?? null,
+      }
+    },
+
+    async setPrompt(schoolId, studentId, promptNumber) {
+      if (!promptText(promptNumber)) {
+        return { ok: false, message: 'That is not one of the 35 IA prompts.' }
+      }
+      // The prompt is CHOSEN, never typed — the guide says it must be used
+      // exactly as given, so we store the number and render from the list.
+      writeTokText(schoolId, studentId, 'tok.prompt', String(promptNumber), 'student')
+      return { ok: true }
+    },
+
+    async setTitle(schoolId, studentId, input) {
+      const text = input.text.trim()
+      if (!text) return { ok: false, message: 'Give your title.' }
+      writeTokText(schoolId, studentId, 'tok.title', text, 'student')
+      return { ok: true }
+    },
+
+    async setDraft(schoolId, studentId, href) {
+      const existing = TOK_DRAFTS.find(
+        (d) => d.schoolId === schoolId && d.studentId === studentId,
+      )
+      if (existing) Object.assign(existing, { href, addedAt: todayRiyadh() })
+      else TOK_DRAFTS.push({ schoolId, studentId, href, addedAt: todayRiyadh() })
+    },
+
+    async submitFile(schoolId, studentId, kind, file) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return
+      const key = kind === 'exh' ? 'tok.exh' : 'tok.essay'
+      const def = REQUIREMENT_DEFS.find(
+        (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === key,
+      )
+      if (!def) return
+      const at = todayRiyadh()
+
+      const existing = TOK_FILES.find(
+        (f) => f.schoolId === schoolId && f.studentId === studentId && f.kind === kind,
+      )
+      const row: TokFile = { schoolId, studentId, kind, submittedAt: at, ...file }
+      if (existing) {
+        // A replacement after an unlock keeps the unlock on the record.
+        Object.assign(existing, row, {
+          unlockedBy: existing.unlockedBy, unlockedByName: existing.unlockedByName,
+          unlockReason: existing.unlockReason, unlockedAt: existing.unlockedAt,
+        })
+      } else TOK_FILES.push(row)
+
+      const lockedAt = new Date(`${at}T00:00:00.000Z`).toISOString()
+      const state = REQUIREMENT_STATES.find(
+        (x) => x.studentId === studentId && x.requirementDefId === def.id,
+      )
+      const artifacts = [{
+        id: `art_tok_${kind}_${studentId}`, kind: 'file' as const, label: file.fileName, addedAt: at,
+      }]
+      if (state) {
+        state.recordStatus = 'submitted'
+        state.recordedAt = at
+        state.lockedAt = lockedAt
+        state.artifacts = artifacts
+      } else {
+        REQUIREMENT_STATES.push({
+          studentId, requirementDefId: def.id, schoolId,
+          recordStatus: 'submitted', recordedAt: at, recordedBy: 'student',
+          lockedAt, artifacts,
+        })
+      }
+    },
+
+    // ---- staff -----------------------------------------------------------
+
+    async getMarkingRoster(schoolId, cohortId, kind) {
+      const key = kind === 'exh' ? 'tok.exhmark' : 'tok.essaymark'
+      const set = TOK_TITLE_SETS.find((t) => t.schoolId === schoolId && t.cohortId === cohortId)
+      return STUDENTS
+        .filter((s) => s.schoolId === schoolId && s.cohortId === cohortId)
+        .map((s) => {
+          const view = tokState(schoolId, s.userId, key)
+          const prose = TOK_MARKS.find(
+            (m) => m.schoolId === schoolId && m.studentId === s.userId && m.kind === kind,
+          )
+          const file = TOK_FILES.find(
+            (f) => f.schoolId === schoolId && f.studentId === s.userId && f.kind === kind,
+          )
+          const fileState = tokState(schoolId, s.userId, kind === 'exh' ? 'tok.exh' : 'tok.essay')
+          const promptBody = tokState(schoolId, s.userId, 'tok.prompt')?.artifacts
+            .find((a) => a.kind === 'text')?.body
+          const titleBody = tokState(schoolId, s.userId, 'tok.title')?.artifacts
+            .find((a) => a.kind === 'text')?.body
+          return {
+            studentId: s.userId,
+            studentName: USERS.find((u) => u.id === s.userId)?.name ?? s.userId,
+            sessionNumber: s.sessionNumber,
+            promptNumber: kind === 'exh' && promptBody ? Number(promptBody) || null : null,
+            title: kind === 'essay' && titleBody
+              ? { number: set?.titles.find((t) => t.text === titleBody)?.number ?? null, text: titleBody }
+              : null,
+            file: file
+              ? {
+                fileName: file.fileName,
+                declaredWords: file.declaredWords,
+                submittedAt: file.submittedAt,
+                locked: fileState?.lockedAt != null,
+                unlockReason: file.unlockReason,
+                unlockedByName: file.unlockedByName,
+                unlockedAt: file.unlockedAt,
+              }
+              : null,
+            mark: view?.mark ?? null,
+            prose: prose
+              ? {
+                note: prose.note,
+                comment: prose.comment,
+                authorship: prose.authorship,
+                authorshipNote: prose.authorshipNote,
+              }
+              : null,
+            releasedAt: prose?.releasedAt ?? null,
+            markedByName: prose?.markedByName ?? null,
+          }
+        })
+    },
+
+    async saveMark(schoolId, studentId, kind, mark, by) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return
+      const key = kind === 'exh' ? 'tok.exhmark' : 'tok.essaymark'
+      const def = REQUIREMENT_DEFS.find(
+        (d) => d.cohortId === st.cohortId && d.schoolId === schoolId && d.key === key,
+      )
+      if (!def) return
+      const max = def.markMax ?? TOK_MARK_MAX
+      const next = mark == null ? null : Math.max(0, Math.min(max, Math.round(mark)))
+
+      let state = REQUIREMENT_STATES.find(
+        (x) => x.studentId === studentId && x.requirementDefId === def.id,
+      )
+      if (!state) {
+        state = {
+          studentId, requirementDefId: def.id, schoolId,
+          recordStatus: 'not_started', artifacts: [],
+        }
+        REQUIREMENT_STATES.push(state)
+      }
+      // A RELEASED mark is not editable in place. Revoking is the way back,
+      // and it is a recorded act — same rule as EE.
+      if (state.recordStatus === 'released') return
+      const prev = state.mark ?? null
+      state.mark = next == null ? undefined : next
+      // recordStatus is DERIVED from what is entered, never set independently.
+      state.recordStatus = next == null ? 'not_started' : 'marked'
+      state.recordedBy = by.name
+      state.recordedAt = todayRiyadh()
+
+      // ONE TRAIL PER COURSE. A TOK exhibition mark and a predicted grade land
+      // on the same history, because the question a reader has is "what
+      // happened to this candidate in my course".
+      MARK_EVENTS.push({
+        id: `mev_tok_${kind}_${studentId}_${MARK_EVENTS.length}`,
+        schoolId, cohortId: st.cohortId, courseId: 'tok', studentId,
+        kind: 'mark', criterion: kind === 'exh' ? 'exhibition' : 'essay',
+        prev, next, byUserId: by.id, at: new Date(0).toISOString(),
+        ...(by.overrideReason ? { overrideReason: by.overrideReason } : {}),
+      })
+    },
+
+    async saveProse(schoolId, studentId, kind, input, by) {
+      const existing = TOK_MARKS.find(
+        (m) => m.schoolId === schoolId && m.studentId === studentId && m.kind === kind,
+      )
+      const row: TokMark = {
+        schoolId, studentId, kind,
+        note: input.note, comment: input.comment,
+        authorship: input.authorship, authorshipNote: input.authorshipNote,
+        markedBy: by.id, markedByName: by.name, markedAt: todayRiyadh(),
+        releasedAt: existing?.releasedAt,
+      }
+      if (existing) Object.assign(existing, row)
+      else TOK_MARKS.push(row)
+    },
+
+    async releaseMark(schoolId, studentId, kind, by) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return { ok: false, message: 'No such candidate.' }
+      const key = kind === 'exh' ? 'tok.exhmark' : 'tok.essaymark'
+      const state = tokState(schoolId, studentId, key)
+      const prose = TOK_MARKS.find(
+        (m) => m.schoolId === schoolId && m.studentId === studentId && m.kind === kind,
+      )
+      const filed = TOK_FILES.some(
+        (f) => f.schoolId === schoolId && f.studentId === studentId && f.kind === kind,
+      )
+      const blockers = releaseBlockers({
+        mark: state?.mark ?? null, comment: prose?.comment ?? null, filed,
+      })
+      if (blockers.length) return { ok: false, message: blockers[0] }
+
+      state!.recordStatus = 'released'
+      prose!.releasedAt = todayRiyadh()
+      MARK_EVENTS.push({
+        id: `mev_tokrel_${kind}_${studentId}_${MARK_EVENTS.length}`,
+        schoolId, cohortId: st.cohortId, courseId: 'tok', studentId,
+        kind: 'mark', criterion: kind === 'exh' ? 'exhibition released' : 'essay released',
+        prev: null, next: state!.mark ?? null, byUserId: by.id, at: new Date(0).toISOString(),
+      })
+      return { ok: true }
+    },
+
+    async revokeMark(schoolId, studentId, kind, by) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return
+      const key = kind === 'exh' ? 'tok.exhmark' : 'tok.essaymark'
+      const state = tokState(schoolId, studentId, key)
+      const prose = TOK_MARKS.find(
+        (m) => m.schoolId === schoolId && m.studentId === studentId && m.kind === kind,
+      )
+      if (!state || state.recordStatus !== 'released') return
+      state.recordStatus = 'marked'
+      if (prose) prose.releasedAt = undefined
+      MARK_EVENTS.push({
+        id: `mev_tokrev_${kind}_${studentId}_${MARK_EVENTS.length}`,
+        schoolId, cohortId: st.cohortId, courseId: 'tok', studentId,
+        kind: 'mark', criterion: kind === 'exh' ? 'exhibition revoked' : 'essay revoked',
+        prev: state.mark ?? null, next: state.mark ?? null,
+        byUserId: by.id, at: new Date(0).toISOString(),
+      })
+    },
+
+    async submitInteraction(schoolId, studentId, n, body) {
+      const text = body.trim()
+      if (!text) return { ok: false, message: 'Write something before you submit.' }
+      // THE GATE IS RE-CHECKED HERE, not trusted from the screen. A teacher who
+      // has not recorded the meeting is the reason this is shut, and the way
+      // through it is to record the meeting.
+      const view = await fixtureRepository.tok.getStudentView(schoolId, studentId)
+      const slot = view?.interactions.find((x) => x.n === n)
+      if (!slot) return { ok: false, message: 'No such interaction.' }
+      if (slot.entry) return { ok: false, message: 'That one is already submitted and locked.' }
+      if (!slot.open) return { ok: false, message: slot.closedReason ?? 'Not open yet.' }
+      writeTokText(schoolId, studentId, `tok.ppf${n}`, text, 'student', true)
+      return { ok: true }
+    },
   },
 
   ee: {
