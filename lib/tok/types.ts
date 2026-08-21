@@ -165,31 +165,52 @@ export interface InteractionLine {
   label: string
   /** False for the negatives — the interaction did not really happen. */
   held: boolean
+  /**
+   * The same fact as a clause, for composing the teacher's one comment on the
+   * official form. A separate field rather than string-munging the label,
+   * because the label is a thing you PICK and the clause is a thing you READ,
+   * and the day someone rewords one they should not silently reword the other.
+   */
+  clause: string
 }
 
 const NOT_HELD: InteractionLine[] = [
-  { key: 'not_held', label: 'Interaction did not take place', held: false },
+  {
+    key: 'not_held', label: 'Interaction did not take place', held: false,
+    clause: 'this interaction did not take place',
+  },
 ]
 
 export const INTERACTION_LINES: Record<InteractionNumber, InteractionLine[]> = {
   1: [
-    { key: 'reviewed_titles', label: 'Reviewed all six titles, unpacked the shortlist', held: true },
-    { key: 'key_terms', label: 'Discussed key terms and possible areas of knowledge', held: true },
-    { key: 'confirmed_title', label: 'Confirmed the final choice of title', held: true },
-    { key: 'no_title_yet', label: 'Titles discussed — student had not chosen one', held: true },
+    { key: 'reviewed_titles', label: 'Reviewed all six titles, unpacked the shortlist', held: true,
+      clause: 'we reviewed all six prescribed titles and unpacked the shortlist' },
+    { key: 'key_terms', label: 'Discussed key terms and possible areas of knowledge', held: true,
+      clause: 'we discussed the key terms of the titles and the areas of knowledge they opened up' },
+    { key: 'confirmed_title', label: 'Confirmed the final choice of title', held: true,
+      clause: 'the final choice of title was confirmed' },
+    { key: 'no_title_yet', label: 'Titles discussed — student had not chosen one', held: true,
+      clause: 'we discussed the titles, though no choice had been made at that point' },
     ...NOT_HELD,
   ],
   2: [
-    { key: 'plan_and_aoks', label: 'Discussed the essay plan and choice of AOKs', held: true },
-    { key: 'knowledge_questions', label: 'Discussed the knowledge questions arising from the title', held: true },
-    { key: 'examples_argument', label: 'Discussed real-life examples and the central argument', held: true },
-    { key: 'no_plan', label: 'Student was behind — no plan to discuss', held: true },
+    { key: 'plan_and_aoks', label: 'Discussed the essay plan and choice of AOKs', held: true,
+      clause: 'we discussed the essay plan and the choice of areas of knowledge' },
+    { key: 'knowledge_questions', label: 'Discussed the knowledge questions arising from the title', held: true,
+      clause: 'we discussed the knowledge questions arising from the title' },
+    { key: 'examples_argument', label: 'Discussed real-life examples and the central argument', held: true,
+      clause: 'we discussed the real-life examples and the central argument' },
+    { key: 'no_plan', label: 'Student was behind — no plan to discuss', held: true,
+      clause: 'we met, but no plan had been prepared to discuss' },
     ...NOT_HELD,
   ],
   3: [
-    { key: 'full_draft', label: 'Full draft read — global comments given', held: true },
-    { key: 'partial_draft', label: 'Partial draft read — global comments given', held: true },
-    { key: 'no_draft', label: 'Student had no draft — no feedback was given', held: true },
+    { key: 'full_draft', label: 'Full draft read — global comments given', held: true,
+      clause: 'a full draft was presented and I gave comments of a global nature on it' },
+    { key: 'partial_draft', label: 'Partial draft read — global comments given', held: true,
+      clause: 'a partial draft was presented and I gave comments of a global nature on it' },
+    { key: 'no_draft', label: 'Student had no draft — no feedback was given', held: true,
+      clause: 'we met, but no draft was available and so no feedback was given on one' },
     ...NOT_HELD,
   ],
 }
@@ -369,6 +390,34 @@ export interface TokInteractionView {
 }
 
 /** One candidate on a staff marking screen. Same shape for both instruments. */
+/**
+ * THE TEACHER'S HALF OF THE OFFICIAL FORM — one comment box and two signatures.
+ *
+ * A module table rather than an artifact on `tok.ppfsign`, for one reason: a
+ * teacher drafts, saves, edits and only then signs. If the comment lived on the
+ * sign-off state there would be nowhere to keep it before the sign-off exists.
+ */
+export interface TokPpf {
+  schoolId: Id
+  studentId: Id
+  /** Composed from the three interaction lines, then edited. */
+  comment: string
+  updatedAt: string
+  signedAt?: string
+  signedBy?: Id
+  signedByName?: string
+}
+
+/** The TK/PPF as the essay screen needs it — the form, both halves. */
+export interface TokPpfView {
+  interactions: TokInteractionView[]
+  comment: string
+  signedAt: string | null
+  signedByName: string | null
+  /** Written up by the student, out of three. What the board counts. */
+  written: number
+}
+
 export interface TokMarkingRow {
   studentId: Id
   studentName: string
@@ -387,6 +436,10 @@ export interface TokMarkingRow {
   } | null
   releasedAt: string | null
   markedByName: string | null
+  /** Essay screen only. The exhibition has no form behind it. */
+  ppf?: TokPpfView
+  /** Essay screen only — the one draft the IB permits a teacher to comment on. */
+  draftHref?: string | null
 }
 
 export interface TokStudentView {

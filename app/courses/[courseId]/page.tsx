@@ -13,6 +13,7 @@ import UnlockMarks from '@/components/ia/UnlockMarks'
 import StudentCas from '@/components/cas/StudentCas'
 import StudentTok from '@/components/tok/StudentTok'
 import TokMarking from '@/components/tok/TokMarking'
+import TokTitles from '@/components/tok/TokTitles'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
 import { cohortTitle, isArchived, sortCohorts } from '@/lib/cohorts'
@@ -461,6 +462,20 @@ export default async function CoursePage({
       tokScreen !== 'pg' && (isMarker || coordinatorReader)
         ? await repo.tok.getMarkingRoster(school.id, cohortId, tokScreen)
         : null
+    // The six titles, their tally and anything a student typed instead — all
+    // read from what the candidates chose, so the distribution costs nothing.
+    const [titleSet, typedTitles] = tokScreen === 'essay' && markingRows
+      ? await Promise.all([
+        repo.tok.getTitleSet(school.id, cohortId),
+        repo.tok.listTypedTitles(school.id, cohortId),
+      ])
+      : [null, []]
+    const titleCounts: Record<number, number> = {}
+    for (const r of markingRows ?? []) {
+      if (r.title?.number != null) {
+        titleCounts[r.title.number] = (titleCounts[r.title.number] ?? 0) + 1
+      }
+    }
     const tokScreens = (
       <nav className="pgseg">
         <a className={tokScreen === 'exh' ? 'on' : ''} href={`${baseHref}&screen=exh`}>Exhibition</a>
@@ -487,6 +502,18 @@ export default async function CoursePage({
           />
         )}
         {tokScreens}
+        {tokScreen === 'essay' && markingRows != null && (
+          <TokTitles
+            cohortId={cohortId}
+            cohortLabel={cohort?.label ?? ''}
+            sessionLabel={cohort ? `May ${cohort.gradYear}` : ''}
+            titles={titleSet?.titles.filter((t) => t.source === 'teacher') ?? []}
+            typed={typedTitles}
+            counts={titleCounts}
+            notChosen={(markingRows ?? []).filter((r) => r.title == null).length}
+            canEdit={!readOnly && session.can('tok.manage')}
+          />
+        )}
         {tokScreen !== 'pg' && (markingRows == null ? (
           <div className="note">
             TOK marking opens to the designated TOK marker and the coordinator tier.
@@ -499,6 +526,7 @@ export default async function CoursePage({
             canMark={!readOnly && isMarker}
             canRelease={!readOnly && (isMarker || session.can('tok.manage'))}
             canRevoke={!readOnly && session.can('scores.revoke')}
+            canUnlock={!readOnly && session.can('items.unlock')}
             readOnlyReason={
               readOnly
                 ? `${cohort?.label} is archived — a record, not a workspace.`
@@ -528,12 +556,7 @@ export default async function CoursePage({
             Predicted grades for TOK open to the TOK teacher and the coordinator tier.
           </div>
         ))}
-        {tokScreen === 'essay' && (
-          <div className="note">
-            The prescribed titles, the TK/PPF interaction lines and the sign-off arrive with the
-            rest of the essay screen. The mark and its two comments work now.
-          </div>
-        )}
+
         {refused && (
           <div className="note warn" style={{ marginTop: 14 }}>
             Not your student — the panel opens only for students in your own courses.

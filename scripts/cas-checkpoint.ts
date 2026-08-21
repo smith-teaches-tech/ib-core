@@ -53,6 +53,8 @@ import {
   MARK_EVENTS, TOK_BOUNDARIES, TOK_FILES, TOK_INTERACTION_LOGS, TOK_MARKS, TOK_TITLE_SETS,
 } from '../lib/data/fixtures'
 import { canRelease, promptDistribution, releaseBlockers as tokReleaseBlockers, summariseMarking } from '../lib/tok/marking'
+import { canSign, composeTeacherComment, signBlockers, signWarnings } from '../lib/tok/ppf'
+import { TOK_PPF } from '../lib/data/fixtures'
 import { iaTotal, templateOf } from '../lib/templates'
 
 const fail: string[] = []
@@ -2599,6 +2601,158 @@ async function main() {
   check(
     dist.every((d, i) => i === 0 || dist[i - 1].count >= d.count),
     'and it is ordered by how many chose each, which is the order a teacher wants it in',
+  )
+
+  console.log('\n15l. The six titles — posted, tallied, and never carried over')
+
+  const c16Titles = await repo.tok.getTitleSet('dhahran', 'c16')
+  check(c16Titles == null, 'the new year group has NO title set — nothing was carried, cloned or copied')
+  const typedBefore = await repo.tok.listTypedTitles('dhahran', 'c16')
+  check(typedBefore.length === 0, 'and nobody has typed one yet either')
+
+  // The fallback for the year the teacher has not got to it.
+  await repo.tok.setTitle('dhahran', STUDENTS.find((x) => x.cohortId === 'c16')!.userId, {
+    number: null, source: 'student',
+    text: 'Does it matter that our knowledge is provisional?',
+  })
+  const typedAfter = await repo.tok.listTypedTitles('dhahran', 'c16')
+  check(
+    typedAfter.length === 1,
+    'a student may type their own when nothing is posted — and it surfaces in the teacher’s list as theirs',
+  )
+  const adopted = await repo.tok.adoptTitle('dhahran', 'c16', typedAfter[0].text, { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  check(adopted.ok, 'the teacher adopts it in one click')
+  const c16After = (await repo.tok.getTitleSet('dhahran', 'c16'))!
+  check(
+    c16After.titles.length === 1 && c16After.titles[0].number === 1 && c16After.titles[0].source === 'teacher',
+    'so the list fills itself, starting at title 1',
+  )
+  check(
+    (await repo.tok.listTypedTitles('dhahran', 'c16')).length === 0,
+    'and it stops being an orphan the moment it is adopted',
+  )
+  check(
+    !(await repo.tok.adoptTitle('dhahran', 'c16', typedAfter[0].text, { id: 'u_adeyemi', name: 'H. Adeyemi' })).ok,
+    'adopting the same title twice is refused rather than duplicating it',
+  )
+  const dup = await repo.tok.setTitles('dhahran', 'c16', [
+    { number: 1, text: 'One' }, { number: 1, text: 'Two' },
+  ], { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  check(!dup.ok, 'two titles sharing a number is refused')
+  check(
+    !(await repo.tok.setTitles('dhahran', 'c16', [{ number: 7, text: 'Seven' }], { id: 'u_adeyemi', name: 'H. Adeyemi' })).ok,
+    'and so is a seventh — the IB issues six',
+  )
+
+  console.log('\n15m. The TK/PPF — the teacher’s half, and the sentence it composes')
+
+  const ppfStudent = STUDENTS.find((x) => x.cohortId === 'c15')!.userId
+  const badLine = await repo.tok.logInteraction('dhahran', ppfStudent, 1, 'full_draft', '2026-09-20', { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  check(!badLine.ok, 'a draft cannot be read at the title-choosing meeting — the lines are scoped per interaction')
+  const badDate = await repo.tok.logInteraction('dhahran', ppfStudent, 1, 'reviewed_titles', 'yesterday', { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  check(!badDate.ok, 'and the meeting needs the day it actually happened, not a word')
+
+  const composed = composeTeacherComment({
+    studentName: 'Chen, Marcus',
+    logged: [
+      { n: 3, lineKey: 'full_draft', heldOn: '2027-02-19' },
+      { n: 1, lineKey: 'reviewed_titles', heldOn: '2026-10-14' },
+      { n: 2, lineKey: 'plan_and_aoks', heldOn: '2027-01-20' },
+    ],
+  })
+  check(
+    composed.startsWith('Marcus engaged with the essay process across three recorded interactions.'),
+    'the comment composes from the year’s logged lines — three small acts become the form',
+  )
+  check(
+    composed.indexOf('2026-10-14') < composed.indexOf('2027-01-20') &&
+      composed.indexOf('2027-01-20') < composed.indexOf('2027-02-19'),
+    'in interaction order, whatever order they were logged in',
+  )
+  check(
+    composed.includes('global nature'),
+    'and it uses each line’s CLAUSE rather than its label — a label is picked, a clause is read',
+  )
+  check(
+    composeTeacherComment({ studentName: 'Chen, Marcus', logged: [] }) === '',
+    'with nothing logged it composes nothing rather than a hollow sentence',
+  )
+  check(
+    composeTeacherComment({
+      studentName: 'Chen, Marcus',
+      logged: [{ n: 1, lineKey: 'not_held', heldOn: '2026-10-14' }],
+    }).startsWith('No interactions with Marcus were recorded.'),
+    'and a meeting that did not happen is said plainly, not dressed up',
+  )
+
+  console.log('\n15n. Signing — what blocks it, what only warns, and what it cannot hide')
+
+  const signMe = STUDENTS.find((x) => x.cohortId === 'c15' && x.userId !== ppfStudent)!.userId
+  const unsignedYet = await repo.tok.signPpf('dhahran', signMe, { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  check(!unsignedYet.ok, 'a form with no teacher comment cannot be signed — the declaration is about the comment')
+  check(
+    signBlockers({ comment: '   ', signedAt: null }).length === 1,
+    'and whitespace is not a comment',
+  )
+
+  await repo.tok.saveTeacherComment('dhahran', signMe, 'Engaged throughout; presented a full draft.', { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  const signRow = (await repo.tok.getMarkingRoster('dhahran', 'c15', 'essay')).find((r) => r.studentId === signMe)!
+  const warns = signWarnings(signRow.ppf!)
+  check(
+    warns.length > 0 && warns[0].includes('not been written up'),
+    'a form the student has not finished WARNS rather than refusing — the IB gives no guidance on a missed interaction',
+  )
+  check(canSign({ ...signRow.ppf!, comment: 'Engaged throughout.' }), 'so it can still be signed')
+
+  const signed = await repo.tok.signPpf('dhahran', signMe, { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  check(signed.ok, 'and it signs')
+
+  // THE THING THAT MAKES THE WARNING SAFE. Signing early must never let a pack
+  // claim readiness it does not have.
+  const boardAfterSign = (await repo.export.getUploadBoard('dhahran', 'c15'))!
+  const tkppfJob = boardAfterSign.cohortJobs.find((j) => j.key === 'tok.tkppf')!
+  check(
+    tkppfJob.rows.find((r) => r.studentId === signMe)!.present === false,
+    'A SIGNED BUT SHORT FORM STILL READS NOT-READY on the export — signing early cannot make a pack lie',
+  )
+  check(
+    (tkppfJob.rows.find((r) => r.studentId === signMe)!.detail ?? '').includes('of 4'),
+    'and the row says how short it is, counting the three interactions AND the signature',
+  )
+
+  await repo.tok.saveTeacherComment('dhahran', signMe, 'REWRITTEN AFTER SIGNING', { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  check(
+    TOK_PPF.find((x) => x.studentId === signMe)!.comment !== 'REWRITTEN AFTER SIGNING',
+    'a SIGNED comment cannot be edited in place — "I confirm that my comments above are accurate" stops being true if it changes underneath',
+  )
+  await repo.tok.unsignPpf('dhahran', signMe, { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  const unsigned = (await repo.tok.getMarkingRoster('dhahran', 'c15', 'essay')).find((r) => r.studentId === signMe)!
+  check(unsigned.ppf!.signedAt == null, 'reopening it clears the signature')
+  check(
+    !REQUIREMENT_STATES.some((st) => {
+      const d = REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)
+      return d?.key === 'tok.ppfsign' && st.studentId === signMe
+    }),
+    'and REMOVES the state rather than blanking it — a sign-off that did not happen leaves no record',
+  )
+
+  console.log('\n15o. One derivation of the form, read from both ends')
+
+  const c14Ppf = STUDENTS.find((x) => x.cohortId === 'c14')!.userId
+  const staffSees = (await repo.tok.getMarkingRoster('dhahran', 'c14', 'essay')).find((r) => r.studentId === c14Ppf)!
+  const pupilSees = (await repo.tok.getStudentView('dhahran', c14Ppf))!
+  check(
+    staffSees.ppf!.interactions.map((i) => `${i.n}:${i.open}:${i.entry != null}`).join('|') ===
+      pupilSees.interactions.map((i) => `${i.n}:${i.open}:${i.entry != null}`).join('|'),
+    'the teacher’s screen and the student’s read ONE derivation of the form — two would disagree about whether a box is open, and the disagreement would land on the student',
+  )
+  check(
+    staffSees.ppf!.signedAt != null && pupilSees.signedOffAt === staffSees.ppf!.signedAt,
+    'and one answer about whether it is signed',
+  )
+  check(
+    staffSees.ppf!.written === 3,
+    'the graduated year’s forms are complete, because that year actually finished',
   )
 
   console.log('\n17. Generated filenames — the twenty-two-file argument')

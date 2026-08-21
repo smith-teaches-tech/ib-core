@@ -216,3 +216,98 @@ export async function revokeTokMark(studentId: string, kind: 'exh' | 'essay') {
   })
   refresh()
 }
+
+// ---------------------------------------------------------------------------
+// The essay screen — titles, the interaction lines, and the form
+// ---------------------------------------------------------------------------
+
+/**
+ * Posting the six titles and signing a form are the TOK teacher's acts, not a
+ * marker-per-candidate act — so they are checked against `tok.manage` OR
+ * markership rather than through `marksWriteGrant`, which is per student.
+ */
+async function asTokTeacher(cohortId?: string) {
+  const session = await getSession()
+  const cohort = cohortId
+    ? (await repo.setup.listCohorts(session.school.id)).find((c) => c.id === cohortId)
+    : null
+  if (cohort) assertLiveCohort(cohort)
+  if (!session.can('tok.manage')) {
+    throw new Error('Only the TOK teacher or a coordinator can do that.')
+  }
+  return session
+}
+
+export async function postTitles(
+  cohortId: string,
+  titles: { number: number; text: string }[],
+) {
+  const session = await asTokTeacher(cohortId)
+  const r = await repo.tok.setTitles(session.school.id, cohortId, titles, {
+    id: session.user.id, name: session.user.name,
+  })
+  if (r.ok) refresh()
+  return r
+}
+
+export async function adoptStudentTitle(cohortId: string, text: string) {
+  const session = await asTokTeacher(cohortId)
+  const r = await repo.tok.adoptTitle(session.school.id, cohortId, text, {
+    id: session.user.id, name: session.user.name,
+  })
+  if (r.ok) refresh()
+  return r
+}
+
+/**
+ * LOGGING A MEETING IS WHAT OPENS THE STUDENT'S BOX — so this is also the fix
+ * for a student stuck behind a meeting nobody recorded, and the reason there is
+ * no override on that gate. Record the meeting.
+ */
+export async function logInteraction(
+  studentId: string,
+  n: 1 | 2 | 3,
+  lineKey: string,
+  heldOn: string,
+) {
+  const { session } = await asMarker(studentId)
+  const r = await repo.tok.logInteraction(session.school.id, studentId, n, lineKey, heldOn, {
+    id: session.user.id, name: session.user.name,
+  })
+  if (r.ok) refresh()
+  return r
+}
+
+export async function draftTeacherComment(studentId: string) {
+  const { session } = await asMarker(studentId)
+  return repo.tok.draftTeacherComment(session.school.id, studentId)
+}
+
+export async function saveTeacherComment(studentId: string, comment: string) {
+  const { session } = await asMarker(studentId)
+  await repo.tok.saveTeacherComment(session.school.id, studentId, comment, {
+    id: session.user.id, name: session.user.name,
+  })
+  refresh()
+}
+
+/** "I confirm that my comments above are accurate." */
+export async function signPpf(studentId: string) {
+  const { session } = await asMarker(studentId)
+  const r = await repo.tok.signPpf(session.school.id, studentId, {
+    id: session.user.id, name: session.user.name,
+  })
+  if (r.ok) refresh()
+  return r
+}
+
+export async function unsignPpf(studentId: string) {
+  const session = await getSession()
+  if (!session.can('items.unlock')) throw new Error('You cannot reopen a signed form.')
+  const cohort = await repo.setup.cohortOf(session.school.id, { studentId })
+  assertLiveCohort(cohort)
+  await repo.tok.unsignPpf(session.school.id, studentId, {
+    id: session.user.id, name: session.user.name,
+  })
+  refresh()
+}

@@ -14,14 +14,20 @@
 import { useState, useTransition } from 'react'
 import type { Instrument } from '@/lib/tok/rubric'
 import { BAND_PROVENANCE, TOK_MARK_MAX, bandFor } from '@/lib/tok/rubric'
-import type { AuthorshipConcern, TokMarkingRow } from '@/lib/tok/types'
+import type {
+  AuthorshipConcern, InteractionNumber, TokMarkingRow, TokPpfView,
+} from '@/lib/tok/types'
 import { AUTHORSHIP_LABELS, AUTHORSHIP_ORDER } from '@/lib/tok/types'
 import { promptLabel } from '@/lib/tok/prompts'
 import { isFlagged, promptDistribution, releaseBlockers, summariseMarking } from '@/lib/tok/marking'
-import { releaseTokMark, revokeTokMark, saveTokMark, saveTokProse } from '@/lib/tok/actions'
+import {
+  draftTeacherComment, logInteraction, releaseTokMark, revokeTokMark, saveTeacherComment,
+  saveTokMark, saveTokProse, signPpf, unsignPpf,
+} from '@/lib/tok/actions'
+import { INTERACTION_LINES, canSign, signWarnings } from '@/lib/tok/ppf'
 
 export default function TokMarking({
-  rows, instrument, kind, canMark, canRelease, canRevoke, readOnlyReason,
+  rows, instrument, kind, canMark, canRelease, canRevoke, canUnlock, readOnlyReason,
 }: {
   rows: TokMarkingRow[]
   instrument: Instrument
@@ -29,6 +35,8 @@ export default function TokMarking({
   canMark: boolean
   canRelease: boolean
   canRevoke: boolean
+  /** `items.unlock` — reopening a signed TK/PPF. */
+  canUnlock?: boolean
   readOnlyReason?: string
 }) {
   const [open, setOpen] = useState<string | null>(null)
@@ -100,6 +108,7 @@ export default function TokMarking({
                   canMark={canMark}
                   canRelease={canRelease}
                   canRevoke={canRevoke}
+                  canUnlock={canUnlock ?? false}
                 />
               ))}
             </tbody>
@@ -111,7 +120,7 @@ export default function TokMarking({
 }
 
 function Row({
-  row, kind, instrument, open, onToggle, canMark, canRelease, canRevoke,
+  row, kind, instrument, open, onToggle, canMark, canRelease, canRevoke, canUnlock,
 }: {
   row: TokMarkingRow
   kind: 'exh' | 'essay'
@@ -121,6 +130,7 @@ function Row({
   canMark: boolean
   canRelease: boolean
   canRevoke: boolean
+  canUnlock: boolean
 }) {
   return (
     <>
@@ -154,6 +164,11 @@ function Row({
             : <span className="mut">—</span>}
         </td>
         <td style={{ textAlign: 'right' }}>
+          {kind === 'essay' && row.ppf && (
+            <span className={row.ppf.signedAt ? 'pill ok' : 'pill grey'} style={{ marginRight: 6 }}>
+              {row.ppf.signedAt ? '🔒 form signed' : `form ${row.ppf.written}/3`}
+            </span>
+          )}
           {row.releasedAt
             ? <span className="pill ok">released</span>
             : row.mark != null
@@ -173,6 +188,7 @@ function Row({
               canMark={canMark}
               canRelease={canRelease}
               canRevoke={canRevoke}
+              canUnlock={canUnlock}
             />
           </td>
         </tr>
@@ -182,7 +198,7 @@ function Row({
 }
 
 function Drawer({
-  row, kind, instrument, canMark, canRelease, canRevoke,
+  row, kind, instrument, canMark, canRelease, canRevoke, canUnlock,
 }: {
   row: TokMarkingRow
   kind: 'exh' | 'essay'
@@ -190,6 +206,7 @@ function Drawer({
   canMark: boolean
   canRelease: boolean
   canRevoke: boolean
+  canUnlock: boolean
 }) {
   const [note, setNote] = useState(row.prose?.note ?? '')
   const [comment, setComment] = useState(row.prose?.comment ?? '')
@@ -234,6 +251,10 @@ function Drawer({
           <p className="mut" style={{ margin: '4px 0 0' }}>Nothing filed. There is nothing to mark yet.</p>
         )}
       </div>
+
+      {kind === 'essay' && row.ppf && (
+        <PpfBlock row={row} ppf={row.ppf} canWrite={canMark} canUnlock={canUnlock} />
+      )}
 
       <div className="eecrit">
         <div className="row">
@@ -381,6 +402,214 @@ function Drawer({
         </p>
       )}
       {message && <div className="note warn" style={{ marginTop: 8 }}>{message}</div>}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------- the TK/PPF
+
+/**
+ * THE FORM, BOTH HALVES.
+ *
+ * The student writes the three interaction boxes; the teacher picks one line
+ * per meeting and writes ONE comment at the end — which is exactly what the
+ * official PDF carries. The three picked lines COMPOSE a draft of that comment,
+ * so the year's small acts become the form rather than twenty-four blank boxes
+ * in March.
+ */
+function PpfBlock({
+  row, ppf, canWrite, canUnlock,
+}: {
+  row: TokMarkingRow
+  ppf: TokPpfView
+  canWrite: boolean
+  canUnlock: boolean
+}) {
+  const [comment, setComment] = useState(ppf.comment)
+  const [message, setMessage] = useState<string | null>(null)
+  const [saved, setSaved] = useState(false)
+  const [pending, start] = useTransition()
+
+  const signed = ppf.signedAt != null
+  const warnings = signWarnings(ppf)
+  const blocked = !canSign({ ...ppf, comment })
+
+  return (
+    <>
+      <div className="eework">
+        <span className="caps">The one draft</span>
+        {row.draftHref ? (
+          <div className="eelinkrow">
+            <a href={row.draftHref} target="_blank" rel="noreferrer">Working draft ↗</a>
+          </div>
+        ) : (
+          <p className="mut" style={{ margin: '4px 0 0', fontSize: 12.5 }}>No draft link yet.</p>
+        )}
+        <p className="mut" style={{ fontSize: 11.5, margin: '6px 0 0' }}>
+          &ldquo;The teacher is permitted to provide oral or written comments on your draft, but will
+          not mark or edit your draft.&rdquo; — TK/PPF, 2022
+        </p>
+      </div>
+
+      <div className="eework">
+        <span className="caps">Planning form — three interactions</span>
+        {ppf.interactions.map((i) => (
+          <InteractionRow key={i.n} studentId={row.studentId} slot={i} canWrite={canWrite && !signed} />
+        ))}
+      </div>
+
+      <div className="eework">
+        <span className="caps">Your comment on the form</span>
+        {signed ? (
+          <>
+            <div className="eerpf">{ppf.comment}</div>
+            <div className="row" style={{ marginTop: 8 }}>
+              <span className="pill ok">🔒 signed {ppf.signedAt} by {ppf.signedByName}</span>
+              {canUnlock && (
+                <button
+                  className="btn sm ghost"
+                  disabled={pending}
+                  onClick={() => start(async () => { await unsignPpf(row.studentId) })}
+                >
+                  Reopen
+                </button>
+              )}
+              <span className="spacer" />
+              <span className="mut" style={{ fontSize: 11.5 }}>
+                &ldquo;I confirm that my comments above are accurate&rdquo; — so it locks with the signature.
+              </span>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="note" style={{ margin: '6px 0 8px' }}>
+              This is the <b>only</b> thing you write on the official form, and it goes to the IB.
+              Draft it from your three interaction lines, then edit it into your own words.
+            </div>
+            <textarea
+              rows={4}
+              value={comment}
+              disabled={!canWrite}
+              placeholder="Draft from the interactions above, or write your own…"
+              onChange={(e) => { setComment(e.target.value); setSaved(false) }}
+            />
+            {canWrite && (
+              <div className="row" style={{ marginTop: 10 }}>
+                <button
+                  className="btn sm"
+                  disabled={pending}
+                  onClick={() => start(async () => {
+                    setComment(await draftTeacherComment(row.studentId))
+                    setSaved(false)
+                  })}
+                >
+                  Draft from the interactions
+                </button>
+                <button
+                  className="btn"
+                  disabled={pending || !comment.trim()}
+                  onClick={() => start(async () => {
+                    await saveTeacherComment(row.studentId, comment)
+                    setSaved(true)
+                  })}
+                >
+                  Save
+                </button>
+                {saved && <span className="mut">Saved.</span>}
+                <button
+                  className="btn pri"
+                  disabled={pending || blocked}
+                  onClick={() => start(async () => {
+                    await saveTeacherComment(row.studentId, comment)
+                    const r = await signPpf(row.studentId)
+                    setMessage(r.message ?? null)
+                  })}
+                >
+                  Sign the form
+                </button>
+              </div>
+            )}
+            {/* WARNINGS, NEVER REFUSALS. The IB publishes no guidance on a
+                missed interaction, and a coordinator in May must be able to
+                send a short form rather than no form. The export still counts
+                all three interactions AND the sign-off, so signing early never
+                makes a pack claim readiness it does not have. */}
+            {warnings.map((w) => (
+              <p key={w} className="mut" style={{ fontSize: 11.5, margin: '8px 0 0' }}>{w}</p>
+            ))}
+            {message && <div className="note warn" style={{ marginTop: 8 }}>{message}</div>}
+          </>
+        )}
+      </div>
+    </>
+  )
+}
+
+const PPF_ORDINAL: Record<InteractionNumber, string> = { 1: 'First', 2: 'Second', 3: 'Third' }
+
+function InteractionRow({
+  studentId, slot, canWrite,
+}: {
+  studentId: string
+  slot: TokPpfView['interactions'][number]
+  canWrite: boolean
+}) {
+  const [lineKey, setLineKey] = useState(slot.logged?.lineKey ?? '')
+  const [heldOn, setHeldOn] = useState(slot.logged?.heldOn ?? '')
+  const [message, setMessage] = useState<string | null>(null)
+  const [pending, start] = useTransition()
+
+  const save = (key: string, date: string) => {
+    if (!key || !date) return
+    start(async () => {
+      setMessage((await logInteraction(studentId, slot.n, key, date)).message ?? null)
+    })
+  }
+
+  return (
+    <div className="eesession">
+      <div className="row">
+        <i className={`eedot ${slot.entry ? 'done' : slot.logged ? 'partial' : ''}`} />
+        <b>{PPF_ORDINAL[slot.n]}</b>
+        {canWrite ? (
+          <>
+            <input
+              type="date"
+              value={heldOn}
+              style={{ maxWidth: 150 }}
+              title="The day the meeting actually happened"
+              onChange={(e) => { setHeldOn(e.target.value); save(lineKey, e.target.value) }}
+            />
+            <select
+              value={lineKey}
+              style={{ minWidth: 300, flex: 1 }}
+              onChange={(e) => { setLineKey(e.target.value); save(e.target.value, heldOn) }}
+            >
+              <option value="">What did this cover?</option>
+              {INTERACTION_LINES[slot.n].map((l) => (
+                <option key={l.key} value={l.key}>{l.label}</option>
+              ))}
+            </select>
+          </>
+        ) : (
+          <span className="mut" style={{ fontSize: 12.5 }}>
+            {slot.logged ? `${slot.logged.heldOn} · ${slot.logged.label}` : 'not recorded'}
+          </span>
+        )}
+      </div>
+
+      {slot.entry ? (
+        <div className="eerpf">{slot.entry.body}</div>
+      ) : slot.logged ? (
+        <p className="mut" style={{ fontSize: 11.5, margin: '6px 0 0 18px' }}>
+          Logged. Their box opened when you recorded this; they have not written it up yet.
+        </p>
+      ) : (
+        <p className="mut" style={{ fontSize: 11.5, margin: '6px 0 0 18px' }}>
+          Recording this is what opens the student&rsquo;s box.
+        </p>
+      )}
+      {message && <div className="note warn" style={{ marginTop: 6 }}>{message}</div>}
     </div>
   )
 }

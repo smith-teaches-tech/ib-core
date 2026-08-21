@@ -32,14 +32,18 @@ import type { EeSupervision } from '../ee/types'
 import { eeCoordinatorId, supervisorFor } from '../ee/supervision'
 import { EE_CRITERIA, EE_MARK_MAX, indicativeGrade } from '../ee/rubric'
 import { TOK_MARK_MAX } from '../tok/rubric'
-import { SEED_BOUNDARIES, interactionLine, interactionOpen } from '../tok/types'
+import {
+  PRESCRIBED_TITLE_COUNT, SEED_BOUNDARIES, interactionLine, interactionOpen,
+} from '../tok/types'
 import type { AuthorshipConcern, TokFileView, TokMark } from '../tok/types'
 import { EXHIBITION_INSTRUMENT, bandFor } from '../tok/rubric'
 import { releaseBlockers } from '../tok/marking'
+import { composeTeacherComment, signBlockers } from '../tok/ppf'
 import { promptText } from '../tok/prompts'
 import { subjectName } from '../ee/subjects'
 import type {
-  InteractionNumber, TokBoundaryTable, TokDraft, TokFile, TokInteractionLog, TokTitleSet,
+  InteractionNumber, TokBoundaryTable, TokDraft, TokFile, TokInteractionLog, TokPpf,
+  TokPpfView, TokTitleSet,
 } from '../tok/types'
 import { countWords } from '../ee/scoring'
 import { registrationComplete, validateRegistration } from '../ee/registration'
@@ -1386,6 +1390,28 @@ export const TOK_INTERACTION_LOGS: TokInteractionLog[] = pinned('ibTokLogs', () 
   return out
 })
 
+/**
+ * THE TEACHER'S HALF OF THE TK/PPF. Only the graduated year has one — nothing
+ * in the Class of 2027 has three interactions yet, and a signed form for a
+ * student who has written up one meeting would be a fabricated state.
+ */
+export const TOK_PPF: TokPpf[] = pinned('ibTokPpf', () =>
+  STUDENTS.filter((s) => s.cohortId === 'c14').map((s) => {
+    const name = USERS.find((u) => u.id === s.userId)?.name ?? s.userId
+    const logged = TOK_INTERACTION_LOGS
+      .filter((l) => l.studentId === s.userId)
+      .map((l) => ({ n: l.n, lineKey: l.lineKey, heldOn: l.heldOn }))
+    return {
+      schoolId: s.schoolId, studentId: s.userId,
+      // Composed from the year's logs, exactly as the screen composes it — the
+      // fixture and the feature cannot drift apart if they share the function.
+      comment: composeTeacherComment({ studentName: name, logged }),
+      updatedAt: '2026-02-19',
+      signedAt: '2026-02-20', signedBy: 'u_adeyemi', signedByName: 'H. Adeyemi',
+    }
+  }),
+)
+
 export const EE_SUPERVISION: EeSupervision[] = pinned('ibEeSupervision', () => {
   const rows: EeSupervision[] = []
   const c15 = STUDENTS.filter((s) => s.cohortId === 'c15')
@@ -1532,6 +1558,46 @@ function eeState(schoolId: string, studentId: string, key: string) {
   return REQUIREMENT_STATES.find(
     (x) => x.studentId === studentId && x.requirementDefId === def.id,
   ) ?? null
+}
+
+/**
+ * ONE derivation of the TK/PPF, read by the student screen and the teacher's
+ * screen alike. Two derivations would disagree about whether a box is open, and
+ * the disagreement would land on a student.
+ */
+function tokPpfView(schoolId: string, studentId: string): TokPpfView {
+  const row = TOK_PPF.find((x) => x.schoolId === schoolId && x.studentId === studentId)
+  const interactions = ([1, 2, 3] as InteractionNumber[]).map((n) => {
+    const log = TOK_INTERACTION_LOGS.find(
+      (l) => l.schoolId === schoolId && l.studentId === studentId && l.n === n,
+    )
+    const line = log ? interactionLine(n, log.lineKey) : null
+    const bodyOf = (k: number) => tokState(schoolId, studentId, `tok.ppf${k}`)?.artifacts
+      .find((a) => a.kind === 'text')?.body ?? null
+    const body = bodyOf(n)
+    const gate = interactionOpen(n, line ? { held: line.held } : null, n === 1 || bodyOf(n - 1) != null)
+    return {
+      n,
+      logged: log && line
+        ? { lineKey: log.lineKey, label: line.label, held: line.held, heldOn: log.heldOn, byName: log.loggedByName }
+        : null,
+      entry: body
+        ? {
+          body,
+          words: countWords(body),
+          submittedAt: tokState(schoolId, studentId, `tok.ppf${n}`)?.recordedAt ?? log?.heldOn ?? '',
+        }
+        : null,
+      ...gate,
+    }
+  })
+  return {
+    interactions,
+    comment: row?.comment ?? '',
+    signedAt: row?.signedAt ?? null,
+    signedByName: row?.signedByName ?? null,
+    written: interactions.filter((i) => i.entry != null).length,
+  }
 }
 
 /** The TOK sibling of eeState. One join, one place. */
@@ -1814,29 +1880,7 @@ export const fixtureRepository: Repository = {
       const titleText = textOf('tok.title')
       const promptText = textOf('tok.prompt')
 
-      const interactions = ([1, 2, 3] as InteractionNumber[]).map((n) => {
-        const log = TOK_INTERACTION_LOGS.find(
-          (l) => l.schoolId === schoolId && l.studentId === studentId && l.n === n,
-        )
-        const line = log ? interactionLine(n, log.lineKey) : null
-        const body = textOf(`tok.ppf${n}`)
-        const prev = n === 1 ? true : textOf(`tok.ppf${n - 1}`) != null
-        const gate = interactionOpen(n, line ? { held: line.held } : null, prev)
-        return {
-          n,
-          logged: log && line
-            ? { lineKey: log.lineKey, label: line.label, held: line.held, heldOn: log.heldOn, byName: log.loggedByName }
-            : null,
-          entry: body
-            ? {
-              body,
-              words: countWords(body),
-              submittedAt: tokState(schoolId, studentId, `tok.ppf${n}`)?.recordedAt ?? log?.heldOn ?? '',
-            }
-            : null,
-          ...gate,
-        }
-      })
+      const ppf = tokPpfView(schoolId, studentId)
 
       return {
         studentId,
@@ -1864,8 +1908,8 @@ export const fixtureRepository: Repository = {
           (d) => d.schoolId === schoolId && d.studentId === studentId,
         )?.href ?? null,
         essay: fileView('essay'),
-        interactions,
-        signedOffAt: tokState(schoolId, studentId, 'tok.ppfsign')?.recordedAt ?? null,
+        interactions: ppf.interactions,
+        signedOffAt: ppf.signedAt,
       }
     },
 
@@ -1987,6 +2031,14 @@ export const fixtureRepository: Repository = {
               : null,
             releasedAt: prose?.releasedAt ?? null,
             markedByName: prose?.markedByName ?? null,
+            ...(kind === 'essay'
+              ? {
+                ppf: tokPpfView(schoolId, s.userId),
+                draftHref: TOK_DRAFTS.find(
+                  (dr) => dr.schoolId === schoolId && dr.studentId === s.userId,
+                )?.href ?? null,
+              }
+              : {}),
           }
         })
     },
@@ -2074,6 +2126,153 @@ export const fixtureRepository: Repository = {
         prev: null, next: state!.mark ?? null, byUserId: by.id, at: new Date(0).toISOString(),
       })
       return { ok: true }
+    },
+
+    async setTitles(schoolId, cohortId, titles, by) {
+      const cleaned = titles
+        .map((t) => ({ number: t.number, text: t.text.trim() }))
+        .filter((t) => t.text.length > 0)
+      if (cleaned.some((t) => t.number < 1 || t.number > PRESCRIBED_TITLE_COUNT)) {
+        return { ok: false, message: `Titles are numbered 1 to ${PRESCRIBED_TITLE_COUNT}.` }
+      }
+      if (new Set(cleaned.map((t) => t.number)).size !== cleaned.length) {
+        return { ok: false, message: 'Two titles share a number.' }
+      }
+      const at = todayRiyadh()
+      const rows = cleaned.map((t) => ({
+        number: t.number, text: t.text, source: 'teacher' as const,
+        addedBy: by.id, addedAt: at,
+      })).sort((a, b) => a.number - b.number)
+
+      const existing = TOK_TITLE_SETS.find(
+        (x) => x.schoolId === schoolId && x.cohortId === cohortId,
+      )
+      if (existing) {
+        existing.titles = rows
+        existing.postedBy = by.id
+        existing.postedAt = at
+      } else {
+        TOK_TITLE_SETS.push({
+          schoolId, cohortId, titles: rows, postedBy: by.id, postedAt: at,
+        })
+      }
+      return { ok: true }
+    },
+
+    async adoptTitle(schoolId, cohortId, text, by) {
+      const body = text.trim()
+      if (!body) return { ok: false, message: 'Nothing to adopt.' }
+      const set = TOK_TITLE_SETS.find(
+        (x) => x.schoolId === schoolId && x.cohortId === cohortId,
+      )
+      const current = set?.titles ?? []
+      if (current.some((t) => t.text === body)) {
+        return { ok: false, message: 'That title is already posted.' }
+      }
+      const used = new Set(current.map((t) => t.number))
+      const next = [1, 2, 3, 4, 5, 6].find((n) => !used.has(n))
+      if (next == null) {
+        return { ok: false, message: `All ${PRESCRIBED_TITLE_COUNT} titles are already posted.` }
+      }
+      const row = {
+        number: next, text: body, source: 'teacher' as const,
+        addedBy: by.id, addedAt: todayRiyadh(),
+      }
+      if (set) set.titles = [...current, row].sort((a, b) => a.number - b.number)
+      else TOK_TITLE_SETS.push({ schoolId, cohortId, titles: [row] })
+      return { ok: true }
+    },
+
+    async listTypedTitles(schoolId, cohortId) {
+      const set = TOK_TITLE_SETS.find(
+        (x) => x.schoolId === schoolId && x.cohortId === cohortId,
+      )
+      const posted = new Set((set?.titles ?? []).map((t) => t.text))
+      const out: { studentId: string; studentName: string; text: string }[] = []
+      for (const st of STUDENTS.filter((x) => x.schoolId === schoolId && x.cohortId === cohortId)) {
+        const body = tokState(schoolId, st.userId, 'tok.title')?.artifacts
+          .find((a) => a.kind === 'text')?.body
+        if (body && !posted.has(body)) {
+          out.push({
+            studentId: st.userId,
+            studentName: USERS.find((u) => u.id === st.userId)?.name ?? st.userId,
+            text: body,
+          })
+        }
+      }
+      return out
+    },
+
+    async logInteraction(schoolId, studentId, n, lineKey, heldOn, by) {
+      if (!interactionLine(n, lineKey)) {
+        return { ok: false, message: 'That is not a line for this interaction.' }
+      }
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(heldOn)) {
+        return { ok: false, message: 'Give the day the meeting actually happened.' }
+      }
+      const existing = TOK_INTERACTION_LOGS.find(
+        (l) => l.schoolId === schoolId && l.studentId === studentId && l.n === n,
+      )
+      const row: TokInteractionLog = {
+        schoolId, studentId, n, lineKey, heldOn,
+        loggedBy: by.id, loggedByName: by.name, loggedAt: todayRiyadh(),
+      }
+      if (existing) Object.assign(existing, row)
+      else TOK_INTERACTION_LOGS.push(row)
+      return { ok: true }
+    },
+
+    async draftTeacherComment(schoolId, studentId) {
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      if (!st) return ''
+      return composeTeacherComment({
+        studentName: USERS.find((u) => u.id === studentId)?.name ?? studentId,
+        logged: TOK_INTERACTION_LOGS
+          .filter((l) => l.schoolId === schoolId && l.studentId === studentId)
+          .map((l) => ({ n: l.n, lineKey: l.lineKey, heldOn: l.heldOn })),
+      })
+    },
+
+    async saveTeacherComment(schoolId, studentId, comment, by) {
+      const existing = TOK_PPF.find(
+        (x) => x.schoolId === schoolId && x.studentId === studentId,
+      )
+      // A SIGNED comment is not editable in place — the declaration is "I
+      // confirm that my comments above are accurate", and it stops being true
+      // the moment the comment changes underneath it.
+      if (existing?.signedAt) return
+      if (existing) Object.assign(existing, { comment, updatedAt: todayRiyadh() })
+      else TOK_PPF.push({ schoolId, studentId, comment, updatedAt: todayRiyadh() })
+    },
+
+    async signPpf(schoolId, studentId, by) {
+      const row = TOK_PPF.find((x) => x.schoolId === schoolId && x.studentId === studentId)
+      const blockers = signBlockers({ comment: row?.comment, signedAt: row?.signedAt })
+      if (blockers.length) return { ok: false, message: blockers[0] }
+      const at = todayRiyadh()
+      row!.signedAt = at
+      row!.signedBy = by.id
+      row!.signedByName = by.name
+      writeTokText(schoolId, studentId, 'tok.ppfsign', row!.comment, by.name, true)
+      return { ok: true }
+    },
+
+    async unsignPpf(schoolId, studentId) {
+      const row = TOK_PPF.find((x) => x.schoolId === schoolId && x.studentId === studentId)
+      if (!row?.signedAt) return
+      row.signedAt = undefined
+      row.signedBy = undefined
+      row.signedByName = undefined
+      const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+      const def = REQUIREMENT_DEFS.find(
+        (d) => d.cohortId === st?.cohortId && d.schoolId === schoolId && d.key === 'tok.ppfsign',
+      )
+      const i = REQUIREMENT_STATES.findIndex(
+        (x) => x.studentId === studentId && x.requirementDefId === def?.id,
+      )
+      // Unsigning REMOVES the state rather than blanking it — a sign-off that
+      // did not happen has no record, exactly as it had none before signing.
+      if (i >= 0) REQUIREMENT_STATES.splice(i, 1)
     },
 
     async revokeMark(schoolId, studentId, kind, by) {

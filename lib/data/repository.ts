@@ -215,6 +215,66 @@ export interface TokRepository {
     kind: 'exh' | 'essay',
     by: { id: string; name: string },
   ): Promise<{ ok: boolean; message?: string }>
+  // ---- the essay screen's other half -------------------------------------
+
+  /**
+   * Post or replace the six prescribed titles for one session. Replacing is
+   * how a typo gets fixed; a student who chose the old wording keeps it until
+   * they re-choose, because rewriting their record from here would be a silent
+   * change to what they said.
+   */
+  setTitles(
+    schoolId: string,
+    cohortId: string,
+    titles: { number: number; text: string }[],
+    by: { id: string; name: string },
+  ): Promise<{ ok: boolean; message?: string }>
+  /**
+   * Promote a title a STUDENT typed into the posted six — the fallback for the
+   * year the teacher has not got to it. One click, and the list fills itself.
+   */
+  adoptTitle(
+    schoolId: string,
+    cohortId: string,
+    text: string,
+    by: { id: string; name: string },
+  ): Promise<{ ok: boolean; message?: string }>
+  /** Titles a student typed that are not in the posted six. */
+  listTypedTitles(
+    schoolId: string,
+    cohortId: string,
+  ): Promise<{ studentId: string; studentName: string; text: string }[]>
+  /**
+   * The teacher's one line for one interaction, and the day it happened. This
+   * is what OPENS the student's write-up box, so it is also the fix for a
+   * student stuck behind a meeting nobody recorded.
+   */
+  logInteraction(
+    schoolId: string,
+    studentId: string,
+    n: 1 | 2 | 3,
+    lineKey: string,
+    heldOn: string,
+    by: { id: string; name: string },
+  ): Promise<{ ok: boolean; message?: string }>
+  /** The single teacher comment the official form carries. Draft, then sign. */
+  saveTeacherComment(
+    schoolId: string,
+    studentId: string,
+    comment: string,
+    by: { id: string; name: string },
+  ): Promise<void>
+  /** The composed starting point, from the year's logged lines. */
+  draftTeacherComment(schoolId: string, studentId: string): Promise<string>
+  /** "I confirm that my comments above are accurate." Locks the comment. */
+  signPpf(
+    schoolId: string,
+    studentId: string,
+    by: { id: string; name: string },
+  ): Promise<{ ok: boolean; message?: string }>
+  /** Unsign, so a comment can be corrected. `items.unlock`. */
+  unsignPpf(schoolId: string, studentId: string, by: { id: string; name: string }): Promise<void>
+
   /** Undo a release. `scores.revoke`, as EE. */
   revokeMark(
     schoolId: string,
