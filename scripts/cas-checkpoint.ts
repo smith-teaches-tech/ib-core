@@ -2755,6 +2755,138 @@ async function main() {
     'the graduated year’s forms are complete, because that year actually finished',
   )
 
+  console.log('\n15p. The boundary table — carried, unconfirmed, and never an answer')
+
+  const c16Table = (await repo.tok.getBoundaries('dhahran', 'c16'))!
+  check(
+    c16Table.carriedFrom === 'c15' && c16Table.confirmed === false,
+    'a new year group CARRIES the previous table forward — and it arrives unconfirmed, so nothing derived from it looks settled',
+  )
+  check(
+    JSON.stringify(c16Table.lower) === JSON.stringify(SEED_BOUNDARIES),
+    'with last year’s numbers, so a teacher changes only what changed rather than retyping four numbers',
+  )
+  // ⚠ THE OPPOSITE RULE TO THE TITLES, on the same screen, deliberately.
+  check(
+    (await repo.tok.getTitleSet('dhahran', 'c16'))!.titles.length < PRESCRIBED_TITLE_COUNT,
+    'while the TITLES carried nothing at all — two adjacent pieces of session data with opposite rules, both asserted',
+  )
+
+  const badTable = await repo.tok.setBoundaries('dhahran', 'c16', { A: 16, B: 22, C: 10, D: 4 }, { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  check(!badTable.ok, 'an out-of-order table is refused rather than silently applied')
+  const goodTable = await repo.tok.setBoundaries('dhahran', 'c16', { A: 23, B: 17, C: 11, D: 5 }, { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  check(goodTable.ok, 'a sound one saves')
+  check(
+    (await repo.tok.getBoundaries('dhahran', 'c16'))!.confirmed === true,
+    'and saving IS confirming — a teacher who typed the numbers has looked at them',
+  )
+
+  console.log('\n15q. The evidence beside the letter')
+
+  const evidence = await repo.tok.getEvidence('dhahran', 'c15')
+  check(evidence.length === 24, 'one row per candidate')
+  const withBoth = evidence.find((e) => e.exhibition != null && e.essay != null)
+  const withOne = evidence.find((e) => e.exhibition != null && e.essay == null)
+  check(
+    withOne != null && withOne.total == null && withOne.indicative == null,
+    'ONE mark in gives no total and no letter — a half-built total is not two thirds of an answer',
+  )
+  if (withBoth) {
+    check(
+      withBoth.total === withBoth.exhibition! + withBoth.essay! * 2,
+      'and both in gives exhibition + 2 x essay, which is the IB’s published 2/3 and 1/3 as arithmetic',
+    )
+  }
+  const c15Table = (await repo.tok.getBoundaries('dhahran', 'c15'))!
+  check(
+    evidence.every((e) => e.tableConfirmed === c15Table.confirmed),
+    'every row carries whether the table behind it is confirmed — the letter is never shown without that',
+  )
+
+  // THE SAFETY PROPERTY OF THE WHOLE /30 PATH.
+  const evStudent = evidence[0].studentId
+  await repo.tok.saveMark('dhahran', evStudent, 'exh', 8, { id: 'u_adeyemi', name: 'H. Adeyemi', overrideReason: null })
+  await repo.tok.saveMark('dhahran', evStudent, 'essay', 8, { id: 'u_adeyemi', name: 'H. Adeyemi', overrideReason: null })
+  const ev2 = (await repo.tok.getEvidence('dhahran', 'c15')).find((e) => e.studentId === evStudent)!
+  check(ev2.total === 24 && ev2.indicative === 'A', 'the letter derives from the marks as they are entered')
+  // DERIVED AND NEVER SAVED. Deriving a letter must not write one — the letter
+  // that goes to IBIS is the one a teacher typed, and nothing else.
+  const statesBefore = REQUIREMENT_STATES.length
+  const pgBefore = JSON.stringify(
+    REQUIREMENT_STATES.filter((st) => {
+      const d = REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)
+      return d?.key?.startsWith('tok.pg.')
+    }).map((st) => [st.studentId, st.grade]),
+  )
+  await repo.tok.getEvidence('dhahran', 'c15')
+  const pgAfterJson = JSON.stringify(
+    REQUIREMENT_STATES.filter((st) => {
+      const d = REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)
+      return d?.key?.startsWith('tok.pg.')
+    }).map((st) => [st.studentId, st.grade]),
+  )
+  check(
+    REQUIREMENT_STATES.length === statesBefore && pgBefore === pgAfterJson,
+    'reading the evidence WRITES NOTHING — the indicative letter informs, it never sets, and the letter that goes to IBIS is still the one a teacher typed',
+  )
+
+  console.log('\n15r. Due dates on TOK — whose they are, and where there are none')
+
+  const tokDeadlines = DEADLINES.filter((d) => d.cohortId === 'c15' && d.courseId === 'tok')
+  check(
+    !tokDeadlines.some((d) => d.requirementKey === 'exhmark'),
+    'THE EXHIBITION MARK HAS NO DUE DATE — marking is staff work, and a date on it is pressure with nothing behind it (Michael, 21 Aug)',
+  )
+  check(
+    !tokDeadlines.some((d) => d.requirementKey === 'prompt'),
+    'and the prompt has none either — the teacher has not set one, and an unset date is BLANK rather than invented',
+  )
+  check(
+    tokDeadlines.filter((d) => ['title', 'exh'].includes(d.requirementKey))
+      .every((d) => d.decidedBy.includes('Adeyemi')),
+    'the module milestones that DO have dates are the teacher’s, not the planning meeting’s — decidedBy is what says which',
+  )
+  check(
+    tokDeadlines.some((d) => d.requirementKey === 'essay' && d.decidedBy.includes('planning')),
+    'while the essay deadline stays the school’s, because it is the one the IB upload depends on',
+  )
+  const promptCp = (await repo.getTrack('dhahran', evStudent))!
+    .lanes.find((l) => l.lane === 'TOK')!
+    .checkpoints.find((c) => c.def.key === 'tok.prompt')!
+  check(
+    promptCp.due == null,
+    'so a student with no prompt date sees no date — not a default, not a guess, nothing',
+  )
+
+  // ⚑ THE SAME PROBLEM, THIRTY TIMES OVER. Michael spotted it on the TOK
+  // exhibition mark; a probe found six staff-recorded checkpoints carrying a
+  // due date on ONE student's track — "English HL IA mark, due 28 Jan" is a
+  // date for the teacher, about work the candidate cannot do, and it could go
+  // late on them for somebody else's lateness.
+  const asStaff = (await repo.getTrack('dhahran', evStudent))!
+  const asCandidate = (await repo.getTrack('dhahran', evStudent, { asCandidate: true }))!
+  const staffDated = (t: typeof asStaff) => t.lanes.flatMap((l) => l.checkpoints)
+    .filter((c) => c.def.recordedBy === 'staff' && c.due != null)
+  check(
+    staffDated(asStaff).length > 0,
+    `staff keep every date — ${staffDated(asStaff).length} staff-recorded checkpoints carry one`,
+  )
+  check(
+    staffDated(asCandidate).length === 0,
+    'but a CANDIDATE reading their own track sees none of them — a date on somebody else’s work is not theirs to be late for',
+  )
+  check(
+    asCandidate.lanes.flatMap((l) => l.checkpoints).length ===
+      asStaff.lanes.flatMap((l) => l.checkpoints).length,
+    'and the checkpoints themselves still show — they should know a mark is coming, they just do not get a deadline for it',
+  )
+  check(
+    staffDated(asCandidate).length === 0 &&
+      asCandidate.lanes.flatMap((l) => l.checkpoints)
+        .filter((c) => c.def.recordedBy === 'student' && c.due != null).length > 0,
+    'their OWN dates are untouched — this drops one kind of date, not dates',
+  )
+
   console.log('\n17. Generated filenames — the twenty-two-file argument')
 
   // Last session's archive is the case for this file existing: ten TOK essays

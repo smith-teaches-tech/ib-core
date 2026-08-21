@@ -33,10 +33,11 @@ import { eeCoordinatorId, supervisorFor } from '../ee/supervision'
 import { EE_CRITERIA, EE_MARK_MAX, indicativeGrade } from '../ee/rubric'
 import { TOK_MARK_MAX } from '../tok/rubric'
 import {
-  PRESCRIBED_TITLE_COUNT, SEED_BOUNDARIES, interactionLine, interactionOpen,
+  PRESCRIBED_TITLE_COUNT, SEED_BOUNDARIES, boundaryProblems, interactionLine,
+  interactionOpen, letterFor,
 } from '../tok/types'
 import type { AuthorshipConcern, TokFileView, TokMark } from '../tok/types'
-import { EXHIBITION_INSTRUMENT, bandFor } from '../tok/rubric'
+import { EXHIBITION_INSTRUMENT, bandFor, tokTotal } from '../tok/rubric'
 import { releaseBlockers } from '../tok/marking'
 import { composeTeacherComment, signBlockers } from '../tok/ppf'
 import { promptText } from '../tok/prompts'
@@ -597,12 +598,12 @@ export const DEADLINES: Deadline[] = pinned('ibDeadlines', () => {
     mk('c15', 'rq', 'ee', '2026-05-15', false),
     mk('c15', 'outline', 'ee', '2026-09-25', false),
     mk('c15', 'draft', 'ee', '2026-10-23', true),
-    mk('c15', 'prompt', 'tok', '2026-10-16', false),
-    mk('c15', 'title', 'tok', '2026-06-05', false),
+    // A MODULE MILESTONE IS THE TEACHER'S DATE, not the planning meeting's,
+    // and `decidedBy` is what tells a reader in March which it was.
+    mk('c15', 'title', 'tok', '2026-06-05', false, 'H. Adeyemi · TOK'),
     mk('c15', 'pg.p1', null, '2026-06-20', true),
     mk('c15', 'final', 'ee', '2026-11-13', true),
-    mk('c15', 'exh', 'tok', '2026-11-20', false),
-    mk('c15', 'exhmark', 'tok', '2026-12-04', false),
+    mk('c15', 'exh', 'tok', '2026-11-20', false, 'H. Adeyemi · TOK'),
     // Upcoming.
     ...subjects.map((id) => mk('c15', 'file', id, wave(id), true)),
     ...subjects.map((id) => mk('c15', 'mark', id, wave(id), true)),
@@ -1192,8 +1193,9 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
           continue
         }
         if (stage === 'prompt') {
-          // Due 16 October, so in September this is genuinely early — a handful
-          // have chosen, most have not, and the exhibition is two months out.
+          // NO DUE DATE ON THIS ONE, deliberately: the TOK teacher has not set
+          // one, and an unset date is blank rather than invented. A handful
+          // have chosen anyway; the exhibition itself is two months out.
           if (r() < 0.3) {
             put('submitted', '2026-09-08', {
               recordedBy: 'student',
@@ -1814,7 +1816,18 @@ export const fixtureRepository: Repository = {
       ...track,
       lanes: track.lanes.map((lane) => ({
         ...lane,
-        checkpoints: lane.checkpoints.map((cp) => withDue(cp, mine, today, notBefore)),
+        checkpoints: lane.checkpoints.map((cp) => {
+          const withDate = withDue(cp, mine, today, notBefore)
+          // A DATE ON SOMEBODY ELSE'S WORK IS NOT THE CANDIDATE'S BUSINESS.
+          // Staff-recorded requirements keep their checkpoint on a candidate's
+          // track — they should see a mark is coming — but not the deadline,
+          // which is the teacher's and the coordinator's. See the option's
+          // note in lib/data/repository.ts.
+          if (opts?.asCandidate && cp.def.recordedBy === 'staff') {
+            return { ...withDate, due: undefined }
+          }
+          return withDate
+        }),
       })),
     }
   },
@@ -2273,6 +2286,71 @@ export const fixtureRepository: Repository = {
       // Unsigning REMOVES the state rather than blanking it — a sign-off that
       // did not happen has no record, exactly as it had none before signing.
       if (i >= 0) REQUIREMENT_STATES.splice(i, 1)
+    },
+
+    async getBoundaries(schoolId, cohortId) {
+      const own = TOK_BOUNDARIES.find(
+        (b) => b.schoolId === schoolId && b.cohortId === cohortId,
+      )
+      if (own) return own
+      // CARRIED FORWARD, UNCONFIRMED. A teacher who retypes four numbers every
+      // August will eventually type one wrong; a table nobody has looked at is
+      // a starting point and must say so. The opposite rule to the prescribed
+      // titles, deliberately, and both are asserted.
+      const cohort = COHORTS.find((c) => c.id === cohortId && c.schoolId === schoolId)
+      const previous = cohort
+        ? TOK_BOUNDARIES
+          .filter((b) => b.schoolId === schoolId)
+          .map((b) => ({ b, c: COHORTS.find((x) => x.id === b.cohortId) }))
+          .filter((x) => x.c != null && x.c.gradYear < cohort.gradYear)
+          .sort((a, b2) => b2.c!.gradYear - a.c!.gradYear)[0]?.b
+        : undefined
+      const row: TokBoundaryTable = {
+        schoolId, cohortId,
+        lower: previous?.lower ?? SEED_BOUNDARIES,
+        confirmed: false,
+        carriedFrom: previous?.cohortId,
+      }
+      TOK_BOUNDARIES.push(row)
+      return row
+    },
+
+    async setBoundaries(schoolId, cohortId, lower, by) {
+      const problems = boundaryProblems(lower)
+      if (problems.length) return { ok: false, message: problems[0] }
+      const row = await fixtureRepository.tok.getBoundaries(schoolId, cohortId)
+      Object.assign(row!, {
+        lower, confirmed: true, confirmedBy: by.id, confirmedAt: todayRiyadh(),
+      })
+      return { ok: true }
+    },
+
+    async confirmBoundaries(schoolId, cohortId, by) {
+      const row = await fixtureRepository.tok.getBoundaries(schoolId, cohortId)
+      if (!row) return
+      row.confirmed = true
+      row.confirmedBy = by.id
+      row.confirmedAt = todayRiyadh()
+    },
+
+    async getEvidence(schoolId, cohortId) {
+      const table = await fixtureRepository.tok.getBoundaries(schoolId, cohortId)
+      return STUDENTS
+        .filter((s) => s.schoolId === schoolId && s.cohortId === cohortId)
+        .map((s) => {
+          // READ from the marks, never typed here — so this screen can never
+          // disagree with the screen the marks were entered on.
+          const exhibition = tokState(schoolId, s.userId, 'tok.exhmark')?.mark ?? null
+          const essay = tokState(schoolId, s.userId, 'tok.essaymark')?.mark ?? null
+          const total = tokTotal(exhibition, essay)
+          return {
+            studentId: s.userId,
+            studentName: USERS.find((u) => u.id === s.userId)?.name ?? s.userId,
+            exhibition, essay, total,
+            indicative: letterFor(total, table),
+            tableConfirmed: table?.confirmed ?? false,
+          }
+        })
     },
 
     async revokeMark(schoolId, studentId, kind, by) {

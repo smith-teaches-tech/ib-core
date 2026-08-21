@@ -418,6 +418,26 @@ export interface TokPpfView {
   written: number
 }
 
+/**
+ * WHAT STANDS BESIDE A PREDICTED LETTER — evidence, never an answer.
+ *
+ * The exhibition mark and the essay mark are read from the marking screens; the
+ * total and the indicative letter are derived here and stored nowhere. A
+ * teacher can accept the indicative letter or type another, and the one they
+ * type is the one that goes to IBIS. IB-TOK-research.md §2.
+ */
+export interface TokEvidenceRow {
+  studentId: Id
+  studentName: string
+  exhibition: number | null
+  essay: number | null
+  /** null unless BOTH marks are in — a half-built total is not two thirds of an answer. */
+  total: number | null
+  indicative: TokLetter | null
+  /** False while the boundary table is carried-forward and unconfirmed. */
+  tableConfirmed: boolean
+}
+
 export interface TokMarkingRow {
   studentId: Id
   studentName: string

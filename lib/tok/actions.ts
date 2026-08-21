@@ -311,3 +311,37 @@ export async function unsignPpf(studentId: string) {
   })
   refresh()
 }
+
+// ---------------------------------------------------------------------------
+// The boundary table
+// ---------------------------------------------------------------------------
+
+/**
+ * THE SCHOOL'S OWN A–E TABLE — Michael, 21 Aug: "Let the teacher set the
+ * boundaries. They DO change."
+ *
+ * That decision is what makes the whole /30 path safe. No official table could
+ * be found for any session and the sources that publish one disagree about
+ * whether it moves, so the app asserts nothing about the IB's: it applies the
+ * one the teacher entered, and says so on every letter it derives.
+ */
+export async function setBoundaries(
+  cohortId: string,
+  lower: { A: number; B: number; C: number; D: number },
+) {
+  const session = await asTokTeacher(cohortId)
+  const r = await repo.tok.setBoundaries(session.school.id, cohortId, lower, {
+    id: session.user.id, name: session.user.name,
+  })
+  if (r.ok) refresh()
+  return r
+}
+
+/** Confirming an unchanged carried-forward table. One click — but a click. */
+export async function confirmBoundaries(cohortId: string) {
+  const session = await asTokTeacher(cohortId)
+  await repo.tok.confirmBoundaries(session.school.id, cohortId, {
+    id: session.user.id, name: session.user.name,
+  })
+  refresh()
+}

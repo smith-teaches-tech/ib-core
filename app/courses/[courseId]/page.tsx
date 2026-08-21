@@ -14,6 +14,7 @@ import StudentCas from '@/components/cas/StudentCas'
 import StudentTok from '@/components/tok/StudentTok'
 import TokMarking from '@/components/tok/TokMarking'
 import TokTitles from '@/components/tok/TokTitles'
+import TokBoundaries from '@/components/tok/TokBoundaries'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
 import { cohortTitle, isArchived, sortCohorts } from '@/lib/cohorts'
@@ -360,7 +361,7 @@ export default async function CoursePage({
       // student's screen and the coordinator's board read one derivation.
       const [view, track] = await Promise.all([
         repo.ee.getStudentView(school.id, user.id),
-        repo.getTrack(school.id, user.id),
+        repo.getTrack(school.id, user.id, { asCandidate: true }),
       ])
       const lane = track?.lanes.find((l) => l.lane === 'Extended Essay')
       body = view ? (
@@ -419,7 +420,7 @@ export default async function CoursePage({
       // student's screen and the coordinator's board read one derivation.
       const [tokView, track] = await Promise.all([
         repo.tok.getStudentView(school.id, user.id),
-        repo.getTrack(school.id, user.id),
+        repo.getTrack(school.id, user.id, { asCandidate: true }),
       ])
       const lane = track?.lanes.find((l) => l.lane === 'TOK')
       return (
@@ -452,6 +453,16 @@ export default async function CoursePage({
      */
     const tokScreen: 'exh' | 'essay' | 'pg' =
       wantedScreen === 'essay' ? 'essay' : wantedScreen === 'pg' ? 'pg' : 'exh'
+
+    // The evidence beside each letter, and the table it maps through. Both
+    // READ-ONLY on this screen: the marks were entered elsewhere, and typing
+    // them again here is how two screens come to disagree.
+    const [tokTable, tokEvidence] = tokScreen === 'pg' && !isStudent && session.can('pg.manage')
+      ? await Promise.all([
+        repo.tok.getBoundaries(school.id, cohortId),
+        repo.tok.getEvidence(school.id, cohortId),
+      ])
+      : [null, []]
 
     const pgView =
       !isStudent && session.can('pg.manage')
@@ -536,6 +547,64 @@ export default async function CoursePage({
             }
           />
         ))}
+        {tokScreen === 'pg' && tokTable && (
+          <TokBoundaries
+            cohortId={cohortId}
+            sessionLabel={cohort ? `May ${cohort.gradYear}` : ''}
+            table={tokTable}
+            canEdit={!readOnly && session.can('tok.manage')}
+          />
+        )}
+        {tokScreen === 'pg' && tokEvidence.length > 0 && (
+          <div className="panel">
+            <div className="panel-h">
+              <h2>The /30 behind each letter</h2>
+              <span className="spacer" />
+              <span className="mut" style={{ fontSize: 12 }}>
+                read from the marking screens · never typed here
+              </span>
+            </div>
+            <div className="panel-b" style={{ padding: 0, overflowX: 'auto' }}>
+              <table className="board" style={{ width: '100%' }}>
+                <thead>
+                  <tr className="bcols">
+                    <th style={{ textAlign: 'left' }}>Candidate</th>
+                    <th>Exhibition<br />/10</th>
+                    <th>Essay ×2<br />/20</th>
+                    <th>Total<br />/30</th>
+                    <th>Indicative</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {tokEvidence.map((e) => (
+                    <tr key={e.studentId}>
+                      <td className="nm">{e.studentName}</td>
+                      <td>{e.exhibition ?? <span className="mut">—</span>}</td>
+                      <td>{e.essay == null ? <span className="mut">—</span> : e.essay * 2}</td>
+                      <td>{e.total == null ? <span className="mut">—</span> : <b>{e.total}</b>}</td>
+                      <td>
+                        {e.indicative
+                          ? <span className="pill gold" title={
+                            e.tableConfirmed
+                              ? 'On your confirmed table for this session'
+                              : 'On a carried-forward table you have not confirmed yet'
+                          }>{e.indicative}{e.tableConfirmed ? '' : ' ?'}</span>
+                          : <span className="mut">—</span>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div className="panel-b" style={{ paddingTop: 0 }}>
+              <p className="mut" style={{ fontSize: 11.5, margin: 0 }}>
+                The indicative letter is derived and <b>never saved</b>. Type the letter you are
+                submitting into the grid below — that one is the school&rsquo;s answer.
+                {!tokTable?.confirmed && ' A “?” means the table it came from is not confirmed yet.'}
+              </p>
+            </div>
+          </div>
+        )}
         {tokScreen === 'pg' && (pgView ? (
           <PgGrid
             view={pgView}

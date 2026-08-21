@@ -14,7 +14,8 @@
 // new method here, a module underneath is missing something real.
 
 import type {
-  AuthorshipConcern, TokMarkingRow, TokStudentView, TokTitleSet,
+  AuthorshipConcern, TokBoundaryTable, TokEvidenceRow, TokMarkingRow, TokStudentView,
+  TokTitleSet,
 } from '../tok/types'
 import type {
   Board, Course, LibraryDocument, Membership, School, Student, StudentTrack, User,
@@ -82,7 +83,25 @@ export interface Repository {
   getTrack(
     schoolId: string,
     studentUserId: string,
-    opts?: { includeIdentifiers?: boolean },
+    opts?: {
+      includeIdentifiers?: boolean
+      /**
+       * THE CANDIDATE IS READING THEIR OWN TRACK.
+       *
+       * A due date on a STAFF-recorded requirement is staff-facing — "English
+       * HL IA mark, due 28 Jan" is a date for the teacher and the coordinator,
+       * about work the student cannot do. Showing it to the candidate is
+       * pressure with nothing behind it, and it can go `late` on them for
+       * somebody else's lateness.
+       *
+       * So on a candidate's own track those dates are dropped. The requirement
+       * still shows — they should see that a mark is coming — it simply carries
+       * no deadline. Staff keep every date, on /deadlines and in the panel.
+       * (Michael, 21 Aug, on the TOK exhibition mark; the same was true of
+       * thirty subject IA marks.)
+       */
+      asCandidate?: boolean
+    },
   ): Promise<StudentTrack | null>
   /**
    * The coordinator board. `options` is PRESENTATION ONLY — which lanes are
@@ -274,6 +293,33 @@ export interface TokRepository {
   ): Promise<{ ok: boolean; message?: string }>
   /** Unsign, so a comment can be corrected. `items.unlock`. */
   unsignPpf(schoolId: string, studentId: string, by: { id: string; name: string }): Promise<void>
+
+  // ---- the /30 beside the predicted letter -------------------------------
+
+  /**
+   * The school's own A–E table for one session. Carried forward from the
+   * previous cohort as UNCONFIRMED — the IB moves these, so a carried table is
+   * a starting point and never an answer.
+   */
+  getBoundaries(schoolId: string, cohortId: string): Promise<TokBoundaryTable | null>
+  setBoundaries(
+    schoolId: string,
+    cohortId: string,
+    lower: TokBoundaryTable['lower'],
+    by: { id: string; name: string },
+  ): Promise<{ ok: boolean; message?: string }>
+  /** One click, but it has to be a click. Until then the letter says so. */
+  confirmBoundaries(
+    schoolId: string,
+    cohortId: string,
+    by: { id: string; name: string },
+  ): Promise<void>
+  /**
+   * The four READ-ONLY evidence columns beside each predicted letter. Read from
+   * the marks on the other two screens, never typed here — so this screen can
+   * never disagree with that one.
+   */
+  getEvidence(schoolId: string, cohortId: string): Promise<TokEvidenceRow[]>
 
   /** Undo a release. `scores.revoke`, as EE. */
   revokeMark(

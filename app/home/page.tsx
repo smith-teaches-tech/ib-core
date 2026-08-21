@@ -37,7 +37,7 @@ export default async function HomeScreen() {
 
   if (isStudent) {
     // Their OWN record — the one case identifiers show without a capability.
-    const track = await repo.getTrack(school.id, user.id, { includeIdentifiers: true })
+    const track = await repo.getTrack(school.id, user.id, { includeIdentifiers: true, asCandidate: isStudent })
     const myCohort = track
       ? (await repo.setup.listCohorts(school.id)).find((c) => c.id === track.student.cohortId)
       : undefined
