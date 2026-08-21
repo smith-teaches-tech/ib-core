@@ -37,6 +37,7 @@ import type { AuthorshipConcern, TokFileView, TokMark } from '../tok/types'
 import { EXHIBITION_INSTRUMENT, bandFor } from '../tok/rubric'
 import { releaseBlockers } from '../tok/marking'
 import { promptText } from '../tok/prompts'
+import { subjectName } from '../ee/subjects'
 import type {
   InteractionNumber, TokBoundaryTable, TokDraft, TokFile, TokInteractionLog, TokTitleSet,
 } from '../tok/types'
@@ -1467,6 +1468,14 @@ const exportRepository = makeExportRepository({
   defs: REQUIREMENT_DEFS,
   states: REQUIREMENT_STATES,
   samples: SAMPLE_REQUESTS,
+  eeSubjectOf: (schoolId, studentId) => {
+    const reg = EE_REGISTRATIONS.find(
+      (r) => r.schoolId === schoolId && r.studentId === studentId,
+    )
+    if (!reg || reg.subjects.length === 0) return null
+    // An interdisciplinary essay names both, in registration order.
+    return reg.subjects.map((k) => subjectName(k)).join(' and ')
+  },
 })
 
 const casRepository = makeCasRepository({

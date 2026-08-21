@@ -39,6 +39,7 @@ import {
 } from '../lib/ee/scoring'
 import { DEADLINES } from '../lib/data/fixtures'
 import { matchSessionNumbers } from '../lib/ia/sample'
+import { NAMING_PATTERN, packFileName, packFolderPath, slug, splitName } from '../lib/export/naming'
 import { IA_PROMPTS, PROMPT_COUNT, PROMPT_PROVENANCE, promptLabel, promptText } from '../lib/tok/prompts'
 import {
   BAND_PROVENANCE as TOK_BAND_PROVENANCE, ESSAY_INSTRUMENT, ESSAY_WEIGHT, EXHIBITION_INSTRUMENT,
@@ -792,11 +793,15 @@ async function main() {
   const sns11 = essayJob.rows
     .map((r) => r.sessionNumber)
     .filter((x): x is string => x != null)
+  // ⚑ UPDATED 21 Aug — the naming scheme is now generated (lib/export/naming.ts,
+  // §16 below). Session number still leads, because it is what IBIS puts on
+  // screen while the coordinator uploads; the name and subject follow it.
   check(
     essayJob.rows.every(
-      (r) => r.fileName === `${r.sessionNumber ?? 'no-session-number'}_EE_essay.pdf`,
+      (r) => /^(\d{4}_)?[A-Za-z-]+_[A-Za-z-]+_ee_[a-z-]+\.pdf$/.test(r.fileName) &&
+        (r.sessionNumber == null) === !/^\d{4}_/.test(r.fileName),
     ) && sns11.every((v, i) => i === 0 || sns11[i - 1] <= v),
-    'pack rows carry sessionNo_Component names, in IBIS candidate order',
+    'pack rows carry generated {sessionNo}_{Last}_{First}_{component} names, in IBIS candidate order',
   )
 
   const eeFinalDef = REQUIREMENT_DEFS.find((d) => d.cohortId === 'c15' && d.key === 'ee.final')!
@@ -2594,6 +2599,82 @@ async function main() {
   check(
     dist.every((d, i) => i === 0 || dist[i - 1].count >= d.count),
     'and it is ordered by how many chose each, which is the order a teacher wants it in',
+  )
+
+  console.log('\n17. Generated filenames — the twenty-two-file argument')
+
+  // Last session's archive is the case for this file existing: ten TOK essays
+  // in eight formats, twelve EEs in five. Every assertion below is one of those
+  // defects made structurally impossible.
+  check(
+    packFileName({ sessionNumber: '0004', name: 'Chen, Marcus', parts: ['tok', 'essay'] })
+      === '0004_Chen_Marcus_tok_essay.pdf',
+    'the pattern: session number, surname, first name, component',
+  )
+  check(
+    packFileName({ sessionNumber: '0004', name: 'Chen, Marcus', parts: ['ee', 'Biology'] })
+      === '0004_Chen_Marcus_ee_biology.pdf',
+    'the EE carries its SUBJECT — an EE folder full of "_ee.pdf" says nothing about what you are holding',
+  )
+  check(
+    packFileName({ sessionNumber: '0004', name: 'Chen, Marcus', parts: ['Biology HL', 'ia'] })
+      === '0004_Chen_Marcus_biology-hl_ia.pdf',
+    'and an IA carries its course, so two IAs side by side on a desktop are never indistinguishable',
+  )
+
+  // The names in last year's folder, which are the real test.
+  check(splitName('Ahmed, Layla').last === 'Ahmed' && splitName('Ahmed, Layla').first === 'Layla',
+    '"Last, First" splits as written')
+  check(splitName('Layla Ahmed').last === 'Ahmed', 'and a name with no comma falls back to the last token as the surname')
+  check(slug('Al-Rashid') === 'Al-Rashid', 'a hyphenated surname survives intact')
+  check(slug('Wei Ling') === 'Wei-Ling', 'a two-word given name becomes one readable token rather than two segments')
+  check(slug("O'Brien") === 'OBrien', 'an apostrophe is dropped, not turned into a hyphen')
+  check(slug('Gonzalez Gil') === 'Gonzalez-Gil', 'and so does a two-word surname')
+  check(slug('Muñoz') === 'Munoz', 'diacritics fold rather than surviving into a filename')
+  check(
+    packFileName({ sessionNumber: '0009', name: "O'Brien, Cian", parts: ['tok', 'exhibition'] })
+      === '0009_OBrien_Cian_tok_exhibition.pdf',
+    'end to end on the awkward one',
+  )
+  check(
+    !packFileName({ sessionNumber: '0004', name: 'Chen, Marcus', parts: ['tok', 'essay'] }).includes('..'),
+    'and nothing ever produces a double extension — last session managed ".pdf.pdf" by hand',
+  )
+
+  // A candidate with no session number cannot be uploaded at all, so the
+  // missing prefix is a fact for the manifest — never a string in a filename.
+  const unregistered = packFileName({ sessionNumber: null, name: 'Chen, Marcus', parts: ['tok', 'essay'] })
+  check(
+    unregistered === 'Chen_Marcus_tok_essay.pdf' && !unregistered.includes('no-session'),
+    'an unregistered candidate gets a usable name rather than "no-session-number" buried in the middle of one',
+  )
+
+  check(
+    packFolderPath({ subjectGroup: null, courseName: null, component: 'TOK' }) === 'Core/TOK',
+    'the group is navigation and lives in the FOLDER; core work sits under Core/',
+  )
+  check(
+    packFolderPath({ subjectGroup: 'Group 4 — Sciences', courseName: 'Biology HL', component: 'IA' })
+      === 'Group 4 — Sciences/Biology HL/IA',
+    'and a subject sits three levels down, exactly as the school’s Drive is already organised',
+  )
+  check(NAMING_PATTERN.startsWith('{sessionNo}'), 'the pattern is published so the export board can show it beside a live example')
+
+  // And the board actually uses it.
+  const namedBoard = (await repo.export.getUploadBoard('dhahran', 'c14'))!
+  const tokEssayJob = namedBoard.cohortJobs.find((j) => j.key === 'tok.essay')!
+  check(
+    tokEssayJob.rows.every((r) => /^\d{4}_[A-Za-z-]+_[A-Za-z-]+_tok_essay\.pdf$/.test(r.fileName)),
+    'EVERY row on the export board is named by the generator — not one is typed, so not one can be "Tittle 4"',
+  )
+  check(
+    new Set(tokEssayJob.rows.map((r) => r.fileName)).size === tokEssayJob.rows.length,
+    'and every name in a pack is unique, which a surname-only scheme could not promise',
+  )
+  const eeEssayJob = namedBoard.cohortJobs.find((j) => j.key === 'ee.essay')!
+  check(
+    eeEssayJob.rows.some((r) => /_ee_[a-z-]+\.pdf$/.test(r.fileName) && !r.fileName.endsWith('_ee_essay.pdf')),
+    'and a registered EE names its subject rather than falling back to the word "essay"',
   )
 
   console.log('\n' + '='.repeat(60))

@@ -27,6 +27,10 @@ const COMPLETE = new Set(['submitted', 'marked', 'released'])
 /** The course name as a filename fragment: "Art HL" → "ArtHL". */
 const compact = (name: string) => name.replace(/[^A-Za-z0-9]+/g, '')
 
+// Filenames are GENERATED, never typed. See lib/export/naming.ts for the
+// decision and the evidence behind it.
+import { packFileName } from '../export/naming'
+
 export function makeExportRepository(deps: {
   cohorts: Cohort[]
   courses: Course[]
@@ -37,9 +41,17 @@ export function makeExportRepository(deps: {
   defs: RequirementDef[]
   states: RequirementState[]
   samples: SampleRequest[]
+  /**
+   * The subject an extended essay is REGISTERED in, which belongs in its
+   * filename (Michael, 21 Aug: "for EEs… think we should add group/subject").
+   * A lookup rather than the table itself, so the export repository does not
+   * grow a dependency on EE's module shape.
+   */
+  eeSubjectOf: (schoolId: string, studentId: string) => string | null
 }): ExportRepository {
   const {
     cohorts, courses, sections, enrollments, students, users, defs, states, samples,
+    eeSubjectOf,
   } = deps
 
   const defFor = (schoolId: string, cohortId: string, key: string) => {
@@ -155,6 +167,11 @@ export function makeExportRepository(deps: {
     formNote: string | null,
     component: string,
     ext: string,
+    /**
+     * Component parts for the generated filename — see lib/export/naming.ts.
+     * A function when the parts differ per candidate, as an EE's subject does.
+     */
+    nameParts: string[] | ((st: Student) => string[]),
   ): CohortJob | null => {
     const keys = jobDefKeys(jobKey)!
     const jobDefs = keys
@@ -165,7 +182,10 @@ export function makeExportRepository(deps: {
     const rows = roster.map((st) =>
       rowFor(
         schoolId, st, jobDefs,
-        `${st.sessionNumber ?? 'no-session-number'}_${component}.${ext}`,
+        packFileName({
+          sessionNumber: st.sessionNumber, name: nameOf(st.userId), ext,
+          parts: typeof nameParts === 'function' ? nameParts(st) : nameParts,
+        }),
         kind === 'forms' ? 'generated' : 'uploaded',
         'typed',
       ),
@@ -193,21 +213,24 @@ export function makeExportRepository(deps: {
       const cohortJobs: CohortJob[] = []
       const push = (j: CohortJob | null) => { if (j) cohortJobs.push(j) }
       push(buildCohortJob(schoolId, cohortId, sessionLabel, 'ee.essay',
-        'EE — final essay', 'files', null, 'EE_essay', 'pdf'))
+        'EE — final essay', 'files', null, 'EE_essay', 'pdf',
+        // The subject is the essay's identity; an EE folder full of
+        // "_ee.pdf" tells the coordinator nothing about what they are holding.
+        (st) => ['ee', eeSubjectOf(schoolId, st.userId) ?? 'essay']))
       push(buildCohortJob(schoolId, cohortId, sessionLabel, 'ee.rpf',
         'EE — RPF', 'forms',
         'Official EE/RPF form, filled from the typed reflection — nobody re-types it',
-        'EE_RPF', 'pdf'))
+        'EE_RPF', 'pdf', ['ee', 'rppf']))
       push(buildCohortJob(schoolId, cohortId, sessionLabel, 'tok.essay',
-        'TOK — essay', 'files', null, 'TOK_essay', 'pdf'))
+        'TOK — essay', 'files', null, 'TOK_essay', 'pdf', ['tok', 'essay']))
       push(buildCohortJob(schoolId, cohortId, sessionLabel, 'tok.tkppf',
         'TOK — TK/PPF', 'forms',
         'Official TK/PPF form, filled from the three typed interactions',
-        'TOK_TKPPF', 'pdf'))
+        'TOK_TKPPF', 'pdf', ['tok', 'tkppf']))
       for (const c of groupSixCourses(schoolId, cohortId)) {
         push(buildCohortJob(schoolId, cohortId, sessionLabel, 'g6:' + c.id,
           `${c.name} — portfolio (Group 6)`, 'files', null,
-          `${compact(c.name)}_portfolio`, 'zip'))
+          `${compact(c.name)}_portfolio`, 'zip', [c.name, 'portfolio']))
       }
 
       // ------------------------------------------------ moderation samples
@@ -359,7 +382,10 @@ export function makeExportRepository(deps: {
             rows: roster.map((st) =>
               rowFor(
                 schoolId, st, [fileDef],
-                `${st.sessionNumber ?? 'no-session-number'}_${compact(course.name)}_IA.pdf`,
+                packFileName({
+                  sessionNumber: st.sessionNumber, name: nameOf(st.userId),
+                  parts: [course.name, 'ia'],
+                }),
                 'uploaded', 'typed',
               ),
             ),
