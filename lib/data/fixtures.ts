@@ -31,6 +31,9 @@ import { lateFrom, withDue } from '../deadlines'
 import type { EeSupervision } from '../ee/types'
 import { eeCoordinatorId, supervisorFor } from '../ee/supervision'
 import { EE_CRITERIA, EE_MARK_MAX, indicativeGrade } from '../ee/rubric'
+import { TOK_MARK_MAX } from '../tok/rubric'
+import { SEED_BOUNDARIES } from '../tok/types'
+import type { TokBoundaryTable, TokTitleSet } from '../tok/types'
 import { countWords } from '../ee/scoring'
 import { registrationComplete, validateRegistration } from '../ee/registration'
 import { subjectForCourse } from '../ee/subjects'
@@ -244,7 +247,7 @@ export const MEMBERSHIPS: Membership[] = pinned('ibMemberships', () => [
   { userId: 'u_haddad', schoolId: 'jubail', roles: ['school_coordinator'], presetKey: 'school_standard', addedCapabilities: [], removedCapabilities: ['students.add', 'teachers.invite'] },
   { userId: 'u_okonjo', schoolId: 'dhahran', roles: ['school_coordinator'], presetKey: 'school_standard', addedCapabilities: [], removedCapabilities: ['students.add', 'teachers.invite'] },
   // Four distinct roles held by one person — never merged into a "Core teacher" role.
-  { userId: 'u_adeyemi', schoolId: 'dhahran', roles: ['cas_coordinator', 'ee_coordinator', 'tok_teacher', 'tok_coordinator'], presetKey: 'teacher', addedCapabilities: ['items.unlock'], removedCapabilities: [] },
+  { userId: 'u_adeyemi', schoolId: 'dhahran', roles: ['cas_coordinator', 'ee_coordinator', 'tok_teacher'], presetKey: 'teacher', addedCapabilities: ['items.unlock'], removedCapabilities: [] },
   { userId: 'u_farouk', schoolId: 'dhahran', roles: ['teacher'], presetKey: 'teacher', addedCapabilities: [], removedCapabilities: [] },
   { userId: 'u_silva', schoolId: 'dhahran', roles: ['teacher'], presetKey: 'teacher', addedCapabilities: [], removedCapabilities: [] },
   ...STUDENTS.map<Membership>((s) => ({
@@ -435,13 +438,16 @@ function buildDefs(cohortId: string): RequirementDef[] {
   ]
 
   const tokDefs: RequirementDef[] = [
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.prompt', label: 'Exhibition prompt chosen', lane: 'TOK', recordedBy: 'student', artifact: 'text' }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.exh', label: 'Exhibition', lane: 'TOK', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
-    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.exhmark', label: 'Exhibition mark', lane: 'TOK', recordedBy: 'staff', artifact: 'mark', markMax: 10 }),
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.exhmark', label: 'Exhibition mark', lane: 'TOK', recordedBy: 'staff', artifact: 'mark', markMax: TOK_MARK_MAX }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.title', label: 'Title chosen', lane: 'TOK', recordedBy: 'student', artifact: 'text' }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf1', label: 'TK/PPF 1', lane: 'TOK', recordedBy: 'student', artifact: 'text' }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf2', label: 'TK/PPF 2', lane: 'TOK', recordedBy: 'student', artifact: 'text', opensAfter: 'tok.ppf1' }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf3', label: 'TK/PPF 3', lane: 'TOK', recordedBy: 'student', artifact: 'text', opensAfter: 'tok.ppf2' }),
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppfsign', label: 'TK/PPF signed off', lane: 'TOK', recordedBy: 'staff', artifact: 'none', opensAfter: 'tok.ppf3' }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.essay', label: 'Final essay', lane: 'TOK', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.essaymark', label: 'Predicted essay mark', lane: 'TOK', recordedBy: 'staff', artifact: 'mark', markMax: TOK_MARK_MAX }),
   ]
 
   /**
@@ -580,6 +586,7 @@ export const DEADLINES: Deadline[] = pinned('ibDeadlines', () => {
     mk('c15', 'rq', 'ee', '2026-05-15', false),
     mk('c15', 'outline', 'ee', '2026-09-25', false),
     mk('c15', 'draft', 'ee', '2026-10-23', true),
+    mk('c15', 'prompt', 'tok', '2026-10-16', false),
     mk('c15', 'title', 'tok', '2026-06-05', false),
     mk('c15', 'pg.p1', null, '2026-06-20', true),
     mk('c15', 'final', 'ee', '2026-11-13', true),
@@ -639,6 +646,80 @@ const RQ_POOL: Record<string, { rq: string; title: string }[]> = {
     { rq: 'How do contemporary Saudi artists use calligraphic abstraction to negotiate tradition and modernity?', title: 'The letter as form: calligraphic abstraction in Saudi art' },
   ],
 }
+
+/**
+ * THE SIX PRESCRIBED       'Is the quality of knowledge best measured by how much of it we have?',
+      'How can we distinguish between a model and the reality it represents?',
+      'Does it matter that our knowledge is provisional?',
+      'To what extent is the knowledge we produce shaped by the tools we use to produce it?',
+      'How far should we trust intuition as a source of knowledge?',
+      'Is subjectivity a limitation or a resource in the pursuit of knowledge?',, PER SESSION — and the one rule that matters.
+ *
+ * ⚠⚠ NOTHING CARRIES OVER. The Class of 2028 (c16) has NO ENTRY AT ALL, and its
+ * absence IS the fixture. The IB issues six new titles every session, and an
+ * essay on last May's title is "not a response to one of the prescribed titles
+ * for the correct examination session" — the zero band. Cohort cloning reuses
+ * the same instantiation path, so a title set has to be EXCLUDED from the clone
+ * by hand. Asserted in the checkpoint (15e).
+ *
+ * These are what the TOK teacher typed in for each session — the school's data,
+ * not ours. Nothing here is hard-coded from an IB list, which is exactly why it
+ * can be right.
+ */
+export const TOK_TITLE_SETS: TokTitleSet[] = [
+  {
+    schoolId: 'dhahran', cohortId: 'c14', postedBy: 'u_adeyemi', postedAt: '2025-05-14',
+    titles: [
+      'Is the quality of knowledge best measured by how much of it we have?',
+      'How can we distinguish between a model and the reality it represents?',
+      'Does it matter that our knowledge is provisional?',
+      'To what extent is the knowledge we produce shaped by the tools we use to produce it?',
+      'How far should we trust intuition as a source of knowledge?',
+      'Is subjectivity a limitation or a resource in the pursuit of knowledge?',
+    ].map((text, i) => ({
+      number: i + 1, text, source: 'teacher' as const,
+      addedBy: 'u_adeyemi', addedAt: '2025-05-14',
+    })),
+  },
+  {
+    schoolId: 'dhahran', cohortId: 'c15', postedBy: 'u_adeyemi', postedAt: '2026-05-11',
+    titles: [
+      'Is the quality of knowledge best measured by how much of it we have?',
+      'How can we distinguish between a model and the reality it represents?',
+      'Does it matter that our knowledge is provisional?',
+      'To what extent is the knowledge we produce shaped by the tools we use to produce it?',
+      'How far should we trust intuition as a source of knowledge?',
+      'Is subjectivity a limitation or a resource in the pursuit of knowledge?',
+    ].map((text, i) => ({
+      number: i + 1, text, source: 'teacher' as const,
+      addedBy: 'u_adeyemi', addedAt: '2026-05-11',
+    })),
+  },
+  // c16 — DELIBERATELY ABSENT. Do not add one. See the note above.
+]
+
+/**
+ * THE SCHOOL'S OWN BOUNDARY TABLE — and deliberately the OPPOSITE rule.
+ *
+ * This one DOES carry forward, because a teacher who retypes four numbers every
+ * August will eventually type one wrong. It carries as `confirmed: false`, so
+ * nothing computed from it can pass itself off as settled: until the teacher
+ * confirms, every indicative letter says it is on an unconfirmed table.
+ *
+ * Two adjacent pieces of session data, on one screen, with opposite rules. Both
+ * are asserted (15e) — because the day somebody "tidies" them into consistency
+ * is the day one of them breaks.
+ */
+export const TOK_BOUNDARIES: TokBoundaryTable[] = [
+  {
+    schoolId: 'dhahran', cohortId: 'c14', lower: SEED_BOUNDARIES,
+    confirmed: true, confirmedBy: 'u_adeyemi', confirmedAt: '2026-01-15',
+  },
+  {
+    schoolId: 'dhahran', cohortId: 'c15', lower: SEED_BOUNDARIES,
+    confirmed: false, carriedFrom: 'c14',
+  },
+]
 
 export const EE_REGISTRATIONS: EeRegistration[] = pinned('ibEeRegistrations', () => {
   const out: EeRegistration[] = []
@@ -946,8 +1027,15 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
         if (s.cohortId === 'c16') continue // two weeks into DP1
 
         if (s.cohortId === 'c14') {
+          // A finished year, so everything has a state — INCLUDING the two staff
+          // records the module added. A graduated cohort with an unsigned form
+          // would be a lie in the other direction from the one EE fixed.
           if (stage === 'exhmark') {
             put('marked', '2025-12-02', { mark: 6 + Math.floor(r() * 4), recordedBy: 'H. Adeyemi' })
+          } else if (stage === 'essaymark') {
+            put('marked', '2026-02-18', { mark: 3 + Math.floor(r() * 6), recordedBy: 'H. Adeyemi' })
+          } else if (stage === 'ppfsign') {
+            put('submitted', '2026-02-20', { recordedBy: 'H. Adeyemi' })
           } else if (stage === 'exh' || stage === 'essay') {
             put('submitted', '2026-01-30', { exportStatus: 'submitted', recordedBy: 'student' })
           } else {
@@ -963,11 +1051,19 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
           if (r() < 0.88) put('submitted', '2026-06-02', { recordedBy: 'student' })
           continue
         }
+        if (stage === 'prompt') {
+          // Due 16 October, so in September this is genuinely early — a handful
+          // have chosen, most have not, and the exhibition is two months out.
+          if (r() < 0.3) put('submitted', '2026-09-08', { recordedBy: 'student' })
+          continue
+        }
         if (stage === 'ppf1') {
           if (r() < 0.42) put('submitted', '2026-09-11', { recordedBy: 'student' })
           continue
         }
-        // exhibition, exhibition mark, TK/PPF 2 and 3, essay: still ahead.
+        // Exhibition, exhibition mark, TK/PPF 2 and 3, the sign-off, the essay
+        // and the essay mark are all genuinely still ahead. NOTHING is seeded
+        // for them — the rule EE established on 19 Aug and TOK kept on 20 Aug.
         continue
       }
 

@@ -266,7 +266,7 @@ export interface RequirementState {
 
 export type RoleKey =
   | 'student' | 'teacher' | 'cas_coordinator' | 'ee_coordinator'
-  | 'tok_teacher' | 'tok_coordinator' | 'school_coordinator' | 'district_coordinator'
+  | 'tok_teacher' | 'school_coordinator' | 'district_coordinator'
   // Not an IB job. Whoever keeps the system running — see PRESETS.tech_admin.
   | 'tech_admin'
 

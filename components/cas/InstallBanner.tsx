@@ -18,7 +18,7 @@ interface InstallPrompt extends Event {
   userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }>
 }
 
-const DISMISSED = 'ibcore.install.dismissed'
+const DISMISSED = 'ibcentral.install.dismissed'
 
 export default function InstallBanner() {
   const [event, setEvent] = useState<InstallPrompt | null>(null)
@@ -62,7 +62,7 @@ export default function InstallBanner() {
     <div className="pwabar">
       <span style={{ fontSize: 20, lineHeight: 1 }}>📱</span>
       <div className="pwabar-b">
-        <div className="pwabar-t">Add IB Core to your Home Screen</div>
+        <div className="pwabar-t">Add IB Central to your Home Screen</div>
         <div className="pwabar-d">
           Add CAS evidence and reflections wherever you are — no App Store needed. It works on a
           laptop too.

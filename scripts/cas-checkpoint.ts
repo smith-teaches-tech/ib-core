@@ -25,6 +25,7 @@ import {
 } from '../lib/deadlines'
 import { cohortStart, EE_SUPERVISION } from '../lib/data/fixtures'
 import { detachedStatesOf, stateOf } from '../lib/spine'
+import { LANE_SUMMARY } from '../lib/board'
 import { attestationLabel, eeCoordinatorId, supervisorFor } from '../lib/ee/supervision'
 import { casWindow } from '../lib/cas/window'
 import { EE_REGISTRATIONS } from '../lib/data/fixtures'
@@ -38,6 +39,16 @@ import {
 } from '../lib/ee/scoring'
 import { DEADLINES } from '../lib/data/fixtures'
 import { matchSessionNumbers } from '../lib/ia/sample'
+import { IA_PROMPTS, PROMPT_COUNT, PROMPT_PROVENANCE, promptLabel, promptText } from '../lib/tok/prompts'
+import {
+  BAND_PROVENANCE as TOK_BAND_PROVENANCE, ESSAY_INSTRUMENT, ESSAY_WEIGHT, EXHIBITION_INSTRUMENT,
+  EXHIBITION_WEIGHT, INSTRUMENTS, TOK_MARK_MAX, TOK_TOTAL_MAX, bandFor, tokTotal,
+} from '../lib/tok/rubric'
+import {
+  AUTHORSHIP_ORDER, INTERACTION_LINES, PRESCRIBED_TITLE_COUNT, SEED_BOUNDARIES,
+  boundaryProblems, interactionLine, letterFor, titlesArePosted,
+} from '../lib/tok/types'
+import { TOK_BOUNDARIES, TOK_TITLE_SETS } from '../lib/data/fixtures'
 import { iaTotal, templateOf } from '../lib/templates'
 
 const fail: string[] = []
@@ -1986,7 +1997,8 @@ async function main() {
 
   const tokDefs15 = REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15' && d.lane === 'TOK')
   const tokAhead = new Set(
-    tokDefs15.filter((d) => ['tok.exh', 'tok.exhmark', 'tok.ppf2', 'tok.ppf3', 'tok.essay']
+    tokDefs15.filter((d) => ['tok.exh', 'tok.exhmark', 'tok.ppf2', 'tok.ppf3', 'tok.ppfsign',
+      'tok.essay', 'tok.essaymark']
       .includes(d.key)).map((d) => d.id),
   )
   check(
@@ -2120,6 +2132,210 @@ async function main() {
   check(
     empty.experiences.length === 0 && !empty.summary.complete,
     'Pieter: nothing at all — the true empty state, which no other student in the fixture shows',
+  )
+
+  console.log('\n15a. TOK — the requirement set')
+
+  const tokTenDefs = REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15' && d.lane === 'TOK')
+  check(tokTenDefs.length === 10, `ten TOK definitions per cohort (found ${tokTenDefs.length})`)
+  const tokKeys = new Set(tokTenDefs.map((d) => d.key))
+  check(
+    ['tok.prompt', 'tok.ppfsign', 'tok.essaymark'].every((k) => tokKeys.has(k)),
+    'prompt, sign-off and predicted essay mark exist as defs — each is chased for every candidate',
+  )
+  check(
+    !tokKeys.has('tok.draft'),
+    'and the essay draft is NOT a def — only the TOK teacher needs it, so it is a field, not a board column',
+  )
+  const essayMarkDef = tokTenDefs.find((d) => d.key === 'tok.essaymark')!
+  check(
+    essayMarkDef.markMax === TOK_MARK_MAX && essayMarkDef.exportTarget == null,
+    'tok.essaymark is a mark out of 10 with NO exportTarget — the IB marks the real essay; this is the school reading it',
+  )
+  check(
+    [essayMarkDef, tokTenDefs.find((d) => d.key === 'tok.exhmark')!]
+      .every((d) => d.criteria == null),
+    'and neither TOK mark carries criteria, because neither instrument has any — no invented criterion split',
+  )
+  check(
+    tokTenDefs.find((d) => d.key === 'tok.ppfsign')!.opensAfter === 'tok.ppf3',
+    'the sign-off opens only after the third interaction — a teacher cannot sign a form the student has not finished',
+  )
+  check(
+    tokTenDefs.filter((d) => d.exportTarget != null).map((d) => d.key).sort().join(',') === 'tok.essay,tok.exh',
+    'exactly two TOK defs are sent to the IB as files: the exhibition and the essay',
+  )
+
+  check(
+    (LANE_SUMMARY.TOK.find((c) => c.kind === 'fraction') as { keys: string[] }).keys.length === 4,
+    'and the TK/PPF column counts FOUR parts, not three — the form is one document and is not finished until the teacher has signed it',
+  )
+
+  console.log('\n15b. The 35 IA prompts — fixed, and chosen rather than typed')
+
+  check(PROMPT_COUNT === 35 && IA_PROMPTS.length === 35, `all 35 IA prompts are present (found ${PROMPT_COUNT})`)
+  check(
+    IA_PROMPTS.every((t) => t.trim() === t && t.endsWith('?')),
+    'every prompt is a question with no stray whitespace — they are rendered verbatim, so they are stored verbatim',
+  )
+  check(
+    new Set(IA_PROMPTS).size === 35,
+    'and no two are identical',
+  )
+  check(
+    promptText(34) === 'In what ways do our values affect our acquisition of knowledge?' &&
+      promptText(35) === 'In what ways do values affect the production of knowledge?',
+    '34 and 35 are distinct — they differ by two words and are the pair a copy-paste corrupts',
+  )
+  check(
+    promptText(6)!.includes('organize'),
+    'prompt 6 keeps the IB’s -ize spelling',
+  )
+  check(promptLabel(3)!.startsWith('3. '), 'prompts label 1-based, as every IB document numbers them')
+  check(promptText(0) === null && promptText(36) === null, 'and asking for one that does not exist returns nothing rather than guessing')
+  check(/MyIB/.test(PROMPT_PROVENANCE), 'the prompt list carries its provenance in the DATA, like every other reproduction')
+
+  console.log('\n15c. The two instruments — one holistic judgement each')
+
+  for (const inst of INSTRUMENTS) {
+    check(inst.max === TOK_MARK_MAX && inst.bands.length === 6, `${inst.key}: marked out of 10 across six bands`)
+    check(
+      inst.bands[0].to === inst.max && inst.bands[inst.bands.length - 1].to === 0,
+      `${inst.key}: the ladder runs from the maximum down to zero`,
+    )
+    // No gaps and no overlaps: every mark 0..10 lands in exactly one band.
+    const hits = Array.from({ length: inst.max + 1 }, (_, m) => inst.bands.filter((b) => m >= b.from && m <= b.to).length)
+    check(hits.every((n) => n === 1), `${inst.key}: every mark from 0 to 10 falls in exactly one band`)
+    check(inst.question.endsWith('?'), `${inst.key}: the marker answers ONE question, and it is stored as one`)
+  }
+  check(
+    bandFor(EXHIBITION_INSTRUMENT, 8)!.level === 'Good' && bandFor(ESSAY_INSTRUMENT, 3)!.level === 'Basic',
+    'a mark resolves to its band',
+  )
+  check(
+    bandFor(ESSAY_INSTRUMENT, 11) === null && bandFor(ESSAY_INSTRUMENT, null) === null,
+    'and a mark outside the scale resolves to nothing rather than to the nearest band',
+  )
+  check(
+    /MyIB/.test(TOK_BAND_PROVENANCE),
+    'band wording carries its provenance, so no screen can render a band without saying where it came from',
+  )
+  check(
+    !INSTRUMENTS.some((i) => i.bands.some((b) => /ways of knowing|counterclaim/i.test(b.descriptor))),
+    'and neither instrument mentions "ways of knowing" or "counterclaims" — the tell that the pre-2022 rubric has been pasted in',
+  )
+
+  console.log('\n15d. The /30, and the letter it never sets')
+
+  check(
+    ESSAY_WEIGHT === 2 && EXHIBITION_WEIGHT === 1 && TOK_TOTAL_MAX === 30,
+    'the essay counts twice and the exhibition once — the IB’s published 2/3 and 1/3, as arithmetic',
+  )
+  check(tokTotal(7, 7) === 21 && tokTotal(10, 10) === 30, 'the total is exhibition + 2 x essay')
+  check(
+    tokTotal(7, null) === null && tokTotal(null, 7) === null,
+    'and a half-built total is NOTHING rather than a number — one mark in is not two thirds of an answer',
+  )
+  const table15 = TOK_BOUNDARIES.find((b) => b.cohortId === 'c15')!
+  check(
+    letterFor(21, table15) === 'B' && letterFor(24, table15) === 'A' && letterFor(0, table15) === 'E',
+    'the total maps to a letter through the table',
+  )
+  check(
+    letterFor(null, table15) === null && letterFor(21, null) === null,
+    'no total and no table both produce no letter — never a default grade',
+  )
+  check(
+    Array.from({ length: 31 }, (_, n) => letterFor(n, table15)).every((l) => l != null),
+    'and every total from 0 to 30 lands somewhere — the table cannot leave a candidate ungraded',
+  )
+  check(boundaryProblems(SEED_BOUNDARIES).length === 0, 'the seed table is sound')
+  check(
+    boundaryProblems({ A: 16, B: 22, C: 10, D: 4 }).length > 0 &&
+      boundaryProblems({ A: 22, B: 16, C: 10, D: 0 }).length > 0 &&
+      boundaryProblems({ A: 40, B: 16, C: 10, D: 4 }).length > 0,
+    'and an out-of-order, zero-floored or off-scale table is refused rather than silently applied',
+  )
+
+  console.log('\n15e. Titles never carry over. Boundaries do, unconfirmed.')
+
+  check(
+    TOK_TITLE_SETS.find((t) => t.cohortId === 'c16') == null,
+    'THE NEW COHORT HAS NO TITLE SET AT ALL — the six change every session, and an essay on last May’s title scores zero',
+  )
+  check(
+    titlesArePosted(TOK_TITLE_SETS.find((t) => t.cohortId === 'c16')) === false &&
+      titlesArePosted(TOK_TITLE_SETS.find((t) => t.cohortId === 'c15')) === true,
+    'so c16 reads "not posted" and c15 reads "posted" — the empty state is a fact, not a gap',
+  )
+  check(
+    TOK_TITLE_SETS.every((t) => t.titles.length === PRESCRIBED_TITLE_COUNT &&
+      t.titles.map((x) => x.number).join(',') === '1,2,3,4,5,6'),
+    'a posted set is exactly six, numbered 1-6 as the IB numbers them and the school’s filenames use',
+  )
+  check(
+    TOK_BOUNDARIES.find((b) => b.cohortId === 'c15')!.carriedFrom === 'c14' &&
+      TOK_BOUNDARIES.find((b) => b.cohortId === 'c15')!.confirmed === false,
+    'the boundary table DOES carry forward — and arrives unconfirmed, so nothing computed from it looks settled',
+  )
+  check(
+    TOK_BOUNDARIES.find((b) => b.cohortId === 'c14')!.confirmed === true,
+    'while the finished year’s table is confirmed, because somebody confirmed it',
+  )
+
+  console.log('\n15f. TK/PPF — the lines, and the honest negatives')
+
+  for (const n of [1, 2, 3] as const) {
+    const lines = INTERACTION_LINES[n]
+    check(lines.length >= 4, `interaction ${n}: ${lines.length} lines to choose from`)
+    check(
+      lines.some((l) => !l.held) && lines[lines.length - 1].key === 'not_held',
+      `interaction ${n}: carries a not-held line, last — the IB gives no guidance on a missed interaction, so we record one honestly`,
+    )
+    check(new Set(lines.map((l) => l.key)).size === lines.length, `interaction ${n}: no duplicate keys`)
+  }
+  check(
+    interactionLine(3, 'no_draft')!.held === true,
+    '"student had no draft — no feedback was given" counts as HELD: the meeting happened, the work did not',
+  )
+  check(
+    interactionLine(3, 'not_held')!.held === false,
+    'and only a meeting that did not happen reads as not held — which is a school compliance flag, never a mark against the student',
+  )
+  check(
+    interactionLine(1, 'full_draft') === null,
+    'the lines are scoped per interaction — a draft cannot be read at the title-choosing meeting',
+  )
+  check(
+    AUTHORSHIP_ORDER[0] === 'none' && AUTHORSHIP_ORDER.length === 4,
+    'authorship is a FIELD with a default of no concern — five of last year’s 34 comments buried one in prose, where April could not find it',
+  )
+
+  console.log('\n15g. The TOK fixtures are still honest')
+
+  const tokStates15 = REQUIREMENT_STATES.filter((st) => {
+    const d = REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)
+    return d?.cohortId === 'c15' && d.lane === 'TOK'
+  })
+  const seededKeys = new Set(
+    tokStates15.map((st) => REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)!.key),
+  )
+  check(
+    ['tok.exh', 'tok.exhmark', 'tok.ppf2', 'tok.ppf3', 'tok.ppfsign', 'tok.essay', 'tok.essaymark']
+      .every((k) => !seededKeys.has(k)),
+    'NOT ONE state exists for TOK work still ahead of the Class of 2027 — no exhibition, no marks, no sign-off, no essay',
+  )
+  check(
+    seededKeys.has('tok.title') && seededKeys.has('tok.prompt') && seededKeys.has('tok.ppf1'),
+    'while the work they HAVE done — titles, some prompts, a first interaction — is all there',
+  )
+  const c14Signed = REQUIREMENT_STATES.filter((st) => {
+    const d = REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)
+    return d?.cohortId === 'c14' && d.key === 'tok.ppfsign'
+  })
+  check(
+    c14Signed.length > 0 && c14Signed.every((st) => st.recordedBy === 'H. Adeyemi'),
+    'and the graduated cohort HAS its sign-offs, recorded by staff — an unsigned finished year would be a lie in the other direction',
   )
 
   console.log('\n' + '='.repeat(60))

@@ -13,8 +13,8 @@ import type { MetadataRoute } from 'next'
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: 'IB Core',
-    short_name: 'IB Core',
+    name: 'IB Central',
+    short_name: 'IB Central',
     description: 'CAS, Extended Essay and TOK for the IB Diploma Programme.',
     // '/' RATHER THAN '/courses/cas', and the reason is that a manifest is
     // per-SITE, not per-page. Pointing it at CAS would mean a coordinator who

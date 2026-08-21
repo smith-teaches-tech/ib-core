@@ -135,7 +135,9 @@ export function makeExportRepository(deps: {
     if (jobKey === 'ee.essay') return ['ee.final']
     if (jobKey === 'ee.rpf') return ['ee.rpf']
     if (jobKey === 'tok.essay') return ['tok.essay']
-    if (jobKey === 'tok.tkppf') return ['tok.ppf1', 'tok.ppf2', 'tok.ppf3']
+    // The teacher's comment and signature are part of the form, so a TK/PPF
+    // with three interactions and no sign-off is not ready to go.
+    if (jobKey === 'tok.tkppf') return ['tok.ppf1', 'tok.ppf2', 'tok.ppf3', 'tok.ppfsign']
     if (jobKey.startsWith('g6:')) return [jobKey.slice(3) + '.file']
     return null
   }

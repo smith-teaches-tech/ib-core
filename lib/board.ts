@@ -62,7 +62,7 @@ export const LANE_SUMMARY: Record<Lane, LaneSummary[]> = {
 
   TOK: [
     { kind: 'one', key: 'tok.essay', label: 'Essay in' },
-    { kind: 'fraction', label: 'TK/PPF', keys: ['tok.ppf1', 'tok.ppf2', 'tok.ppf3'] },
+    { kind: 'fraction', label: 'TK/PPF', keys: ['tok.ppf1', 'tok.ppf2', 'tok.ppf3', 'tok.ppfsign'] },
   ],
 
   // The whole reason the board was unreadable: 30 subject courses × 2 defs = 60
@@ -127,7 +127,7 @@ const SENT_TO_IB: Record<Lane, LaneSummary[]> = {
   ],
   TOK: [
     { kind: 'one', key: 'tok.essay', label: 'Essay in' },
-    { kind: 'fraction', label: 'TK/PPF', keys: ['tok.ppf1', 'tok.ppf2', 'tok.ppf3'] },
+    { kind: 'fraction', label: 'TK/PPF', keys: ['tok.ppf1', 'tok.ppf2', 'tok.ppf3', 'tok.ppfsign'] },
   ],
   'Internal assessment': [],
   // ONLY the April point carries exportTarget: 'ibis_predicted'. The earlier
@@ -157,9 +157,13 @@ const SCHOOL_RECORDS: Record<Lane, LaneSummary[]> = {
     },
   ],
   TOK: [
+    { kind: 'one', key: 'tok.prompt', label: 'Prompt' },
     { kind: 'one', key: 'tok.exh', label: 'Exhibition' },
     { kind: 'one', key: 'tok.exhmark', label: 'Exh. mark' },
     { kind: 'one', key: 'tok.title', label: 'Title' },
+    // The school's own read on the essay — it informs the predicted letter
+    // and is never sent anywhere, so it belongs on this side of the split.
+    { kind: 'one', key: 'tok.essaymark', label: 'Essay mark' },
   ],
   'Internal assessment': [
     {
