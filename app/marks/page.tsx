@@ -30,13 +30,27 @@ export default async function MarksPage({
   // no courses, so this returns [] for them and costs nothing.
   const spaces = await repo.mySpaces(session.school.id, session.user.id)
 
-  if (!session.can('marks.transcribe') && !session.can('ia.manage')) {
+  /**
+   * `marks.transcribe` ONLY — narrowed in the 22 Aug wiring audit.
+   *
+   * The gate used to accept `ia.manage` as well, and `ia.manage` is in the
+   * TEACHER preset. Past it there is no per-course scoping: the course comes
+   * from `?course=` and `getMarksView` answers for any of them. So every
+   * teacher could read — and CSV-download — every candidate's marks, teacher
+   * comments and personal codes in every subject.
+   *
+   * This screen is the coordinator's transcription companion; `lib/nav.ts` has
+   * only ever offered it under `marks.transcribe`, so the capability and the
+   * navigation now agree. A teacher's own marks are on their course page, where
+   * markership is checked per course.
+   */
+  if (!session.can('marks.transcribe')) {
     return (
       <Shell session={session} spaces={spaces} current="/marks">
         <h1>Marks for IBIS</h1>
         <div className="note warn">
-          You need <b>Run the mark transcription companion</b> or <b>IA — enter and release marks</b>{' '}
-          for this school.
+          You need <b>Run the mark transcription companion</b> for this school. Your own courses’
+          marks are on each course page.
         </div>
       </Shell>
     )

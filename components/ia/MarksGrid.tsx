@@ -155,6 +155,7 @@ export default function MarksGrid({
             mark: r.mark,
             total: r.total,
             comment: r.comment,
+            returned: r.returned,
             locked: r.locked,
           }))}
           currentId={paperFor}
@@ -168,6 +169,11 @@ export default function MarksGrid({
           }
           onComment={(studentId, text) =>
             run(() => ia.setComment(view.course.id, view.cohortId, studentId, text))
+          }
+          // Through the SAME `run` as a mark, so a refusal (empty note, nothing
+          // filed) lands in the same error banner rather than in a second one.
+          onReturn={(studentId, note) =>
+            run(() => ia.returnWithNote(view.course.id, view.cohortId, studentId, note))
           }
           footer={
             view.verify ? (
@@ -384,7 +390,9 @@ export default function MarksGrid({
                         title={
                           r.file
                             ? `Read ${r.file.ref.name}`
-                            : 'No file uploaded — opens the reader anyway'
+                            : r.returned
+                              ? `Returned ${r.returned.fileName} — ${r.returned.note}`
+                              : 'No file uploaded — opens the reader anyway'
                         }
                       >
                         <i
@@ -398,9 +406,20 @@ export default function MarksGrid({
                         title={r.fileDisplay === 'done' ? 'Final file uploaded' : r.fileDisplay === 'partial' ? 'In progress' : 'No file uploaded'}
                       />
                     )}
-                    {r.total != null && r.fileDisplay !== 'done' && (
+                    {/* RETURNED IS NOT THE SAME AS NEVER FILED, and the grid
+                        should not draw them the same — one candidate has not
+                        got round to it, the other has been told to do it again.
+                        The pill wins over "no file" because it is the more
+                        specific fact. */}
+                    {r.returned ? (
+                      <div>
+                        <span className="pill warn" style={{ fontSize: 10 }} title={r.returned.note}>
+                          returned
+                        </span>
+                      </div>
+                    ) : r.total != null && r.fileDisplay !== 'done' ? (
                       <div><span className="pill warn" style={{ fontSize: 10 }}>no file</span></div>
-                    )}
+                    ) : null}
                   </td>
 
                   <td style={{ textAlign: 'left', maxWidth: 220 }}>

@@ -13,6 +13,7 @@
 // with the coordinator board, and one of them will be wrong in March.
 
 import { useState, useTransition } from 'react'
+import ReturnedNote from '../ReturnedNote'
 import type { Checkpoint } from '@/lib/types'
 import type { InteractionNumber, TokInteractionView, TokStudentView } from '@/lib/tok/types'
 import { SCHOOL_INTERACTION_WORD_GUIDANCE } from '@/lib/tok/types'
@@ -312,6 +313,10 @@ function WorkPanel({ view, kind }: { view: TokStudentView; kind: 'exh' | 'essay'
           </>
         ) : (
           <>
+            <ReturnedNote
+              view={kind === 'exh' ? view.returned.exh : view.returned.essay}
+              what={kind === 'exh' ? 'exhibition' : 'essay'}
+            />
             <div className="note gold" style={{ marginBottom: 10 }}>
               <b>Cloud storage is not connected yet, so the file itself is not kept.</b> Everything
               else is real and permanent: which file you filed, of what type and size, when, and

@@ -6,6 +6,7 @@
 // RequirementState like any other. IB-TOK-research.md is the design of record.
 
 import type { Id, StoredRef } from '../types'
+import type { ReturnView } from '../returns'
 import { TOK_TOTAL_MAX } from './rubric'
 
 // ---------------------------------------------------------------------------
@@ -326,7 +327,25 @@ export interface TokInteractionLog {
   schoolId: Id
   studentId: Id
   n: InteractionNumber
-  lineKey: string
+  /**
+   * ⚠ THE DROPDOWN BECAME A LINE OF TEXT — 22 Aug. Michael: *"date with free
+   * text line would be better."*
+   *
+   * The dropdown was built from his own marking sheet, where the three
+   * interactions were bare `Conference 1/2/3` booleans; a fixed list recorded
+   * the same fact plus what the conversation covered. It earned its ceremony
+   * while the log GATED the student's write-up — a `held` flag had to come from
+   * somewhere. Once the two halves were decoupled the flag stopped deciding
+   * anything, and a select of eight phrases became a worse way to type a
+   * sentence.
+   *
+   * `lineKey` is kept and still read, because the graduated cohort's logs were
+   * written with it and a fixture that stops rendering is a fixture that lies.
+   * New logs carry `note` instead.
+   */
+  lineKey?: string
+  /** What was covered, in the teacher's own words. Optional, like the log itself. */
+  note?: string
   /** The day the meeting actually happened. */
   heldOn: string
   loggedBy: Id
@@ -394,7 +413,7 @@ export interface TokInteractionView {
    * it is the prompt a student actually needs to write the entry, and it means
    * they are never staring at an empty field wondering which meeting this was.
    */
-  logged: { lineKey: string; label: string; held: boolean; heldOn: string; byName: string } | null
+  logged: { lineKey?: string; label: string; held: boolean; heldOn: string; byName: string } | null
   /** The student's own write-up. Locks on submit. */
   entry: { body: string; words: number; submittedAt: string } | null
   open: boolean
@@ -460,6 +479,12 @@ export interface TokMarkingRow {
   /** Essay only — the chosen prescribed title. */
   title: { number: number | null; text: string } | null
   file: TokFileView | null
+  /**
+   * SENT BACK WITH A NOTE, and nothing filed since (lib/returns.ts). Beside
+   * `file` rather than on it, because a returned paper has no file — the row
+   * went with the filing and the bytes stay superseded on the state.
+   */
+  returned: ReturnView | null
   mark: number | null
   prose: {
     note: string
@@ -489,6 +514,8 @@ export interface TokStudentView {
   titlesPosted: TokTitle[]
   draftHref: string | null
   essay: TokFileView | null
+  /** Whichever of the two came back, keyed the way the student's screen shows it. */
+  returned: { exh: ReturnView | null; essay: ReturnView | null }
   interactions: TokInteractionView[]
   signedOffAt: string | null
 }

@@ -98,6 +98,37 @@ export default async function CoursePage({
   // access to the whole catalogue. Everyone else opens only what they are
   // attached to (a teacher's assignments, a student's enrolments).
   const coordinatorReader = session.can('marks.transcribe') || session.can('marks.override')
+
+  /**
+   * ⚠ THE COHORT IN THE URL IS CHECKED, not trusted — 22 Aug wiring audit.
+   *
+   * The gate below asks whether this person is attached to the COURSE. It did
+   * not ask whether they are attached to it in the YEAR GROUP they requested,
+   * so a Biology teacher for the Class of 2027 could read the Class of 2028's
+   * Biology marks, comments and predicted grades with `?cohort=c16`. Writes
+   * were already safe (`isMarkerFor` is cohort-scoped) — this was read-only
+   * exposure, which is still exposure.
+   *
+   * The coordinator tier reads every cohort by capability, as before.
+   */
+  const wrongCohort =
+    !coordinatorReader &&
+    attached.length > 0 &&
+    cohort != null &&
+    !attached.some((g) => g.cohort.id === cohort.id)
+
+  if (wrongCohort) {
+    return (
+      <Shell session={session} spaces={spaces} current={current}>
+        <h1>{course.name}</h1>
+        <div className="note warn">
+          Not your year group — you teach this course for{' '}
+          {attached.map((g) => g.cohort.label).join(', ')}.
+        </div>
+      </Shell>
+    )
+  }
+
   if (!coordinatorReader && attached.length === 0) {
     return (
       <Shell session={session} spaces={spaces} current={current}>

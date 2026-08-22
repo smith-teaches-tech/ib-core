@@ -19,7 +19,7 @@ import type { InteractionNumber, TokPpfView } from './types'
 export interface ComposeInput {
   studentName: string
   /** What the teacher logged, in order. A missing entry means never logged. */
-  logged: { n: InteractionNumber; lineKey: string; heldOn: string }[]
+  logged: { n: InteractionNumber; lineKey?: string; note?: string; heldOn: string }[]
 }
 
 const firstNameOf = (name: string): string => {
@@ -38,13 +38,21 @@ export function composeTeacherComment(input: ComposeInput): string {
   const ordered = [...input.logged].sort((a, b) => a.n - b.n)
   if (ordered.length === 0) return ''
 
+  // A FREE-TEXT NOTE WINS OVER THE OLD DROPDOWN CLAUSE, and the fallback
+  // survives because the graduated cohort's logs were written with the list.
   const sentences = ordered.map((l) => {
-    const line = interactionLine(l.n, l.lineKey)
-    const clause = line?.clause ?? 'we met'
-    return `On ${l.heldOn}, ${clause}.`
+    const typed = l.note?.trim()
+    if (typed) return `On ${l.heldOn}, ${typed.replace(/\.$/, '')}.`
+    const line = l.lineKey ? interactionLine(l.n, l.lineKey) : null
+    return `On ${l.heldOn}, ${line?.clause ?? 'we met'}.`
   })
 
-  const held = ordered.filter((l) => interactionLine(l.n, l.lineKey)?.held).length
+  // A LOGGED MEETING COUNTS AS HELD unless the old list says otherwise. Free
+  // text cannot carry a boolean, and inventing one by reading the words would
+  // be a machine guessing at a teacher's meaning.
+  const held = ordered.filter(
+    (l) => (l.note?.trim() ? true : (l.lineKey ? interactionLine(l.n, l.lineKey)?.held : false) ?? false),
+  ).length
   const opening = held === 3
     ? `${first} engaged with the essay process across three recorded interactions.`
     : held === 0

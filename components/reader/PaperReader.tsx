@@ -35,8 +35,15 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { MediaBody } from '../MediaViewer'
 import { fileSize, type FileView } from '@/lib/files'
 import { describeAccepts } from '@/lib/accepts'
+import { NO_MESSAGE_SENT, type ReturnView } from '@/lib/returns'
 import { mediaUrl } from '@/lib/storage'
 import type { IaCriterion } from '@/lib/templates'
+
+/** The trail's instants are ISO; the screen says the school day and the time. */
+const when = (iso: string) =>
+  new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Riyadh', dateStyle: 'medium', timeStyle: 'short',
+  }).format(new Date(iso))
 
 export interface ReaderCandidate {
   studentId: string
@@ -51,6 +58,11 @@ export interface ReaderCandidate {
   /** DERIVED, never stored. null until every criterion is in. */
   total: number | null
   comment: string | null
+  /**
+   * SENT BACK, and nothing filed since. Always null when `file` is set — a
+   * return is closed by the student filing again, not by anyone clearing it.
+   */
+  returned?: ReturnView | null
   locked: boolean
 }
 
@@ -71,6 +83,7 @@ export default function PaperReader({
   pending,
   onScore,
   onComment,
+  onReturn,
   pane,
   paneWidth,
   footer,
@@ -95,6 +108,17 @@ export default function PaperReader({
   pending?: boolean
   onScore?: (studentId: string, index: number, value: number | null) => void
   onComment?: (studentId: string, text: string) => void
+  /**
+   * SEND IT BACK. Omitted where returning makes no sense (a read-only view, a
+   * module that has not bound it) and the button then draws as unavailable
+   * rather than vanishing — the reminder line points at the verb, and a
+   * reminder pointing at nothing reads as a screen that lost something.
+   *
+   * Fire-and-forget, like `onScore`: the caller runs its own action and shows
+   * its own error. What the reader owns is the note being non-empty before the
+   * call is made at all.
+   */
+  onReturn?: (studentId: string, note: string) => void
   /** Replaces the built-in marking pane — how EE and TOK bring their own. */
   pane?: React.ReactNode
   /**
@@ -113,6 +137,10 @@ export default function PaperReader({
   // paragraph twice writes two events that say nothing — this is what stops
   // the blur and the pause both landing one.
   const sent = useRef<string | null>(null)
+  // The return composer. Closed by default: returning is rare and a textarea
+  // sitting open beside every paper invites a note nobody meant to write.
+  const [returning, setReturning] = useState(false)
+  const [returnNote, setReturnNote] = useState('')
 
   // A different candidate is a different comment. Without this the textarea
   // keeps the previous student's paragraph, which is how one gets saved onto
@@ -121,6 +149,14 @@ export default function PaperReader({
     setDraft(c?.comment ?? '')
     sent.current = null
   }, [c?.studentId, c?.comment])
+
+  // A half-typed return does NOT follow you to the next candidate. This is the
+  // one control on the screen where carrying a draft across would put a
+  // sentence about one student's paper onto another's record.
+  useEffect(() => {
+    setReturning(false)
+    setReturnNote('')
+  }, [c?.studentId])
 
   const studentId = c?.studentId
   const saved = c?.comment ?? ''
@@ -164,6 +200,11 @@ export default function PaperReader({
   const carriesMark = markMax != null
   const totalOnly = carriesMark && criteria.length === 0
   const writable = editable && !c.locked && onScore != null
+  // FOUR CONDITIONS, and the button's tooltip names whichever one is false.
+  // "Nothing filed" is in here because a return is a return OF something — the
+  // repository refuses it too, and a button that opens a composer for a
+  // refusal is a screen setting someone up to type for nothing.
+  const canReturn = onReturn != null && editable && !c.locked && c.file != null
 
   return (
     <>
@@ -242,13 +283,24 @@ export default function PaperReader({
                 Download
               </button>
             )}
-            {/* STEP 5, and drawn as unbuilt rather than left off. The reminder
-                below points at this verb, and a reminder pointing at a button
-                that is not there reads as a screen that lost something. */}
+            {/* THE VERB THE REMINDER POINTS AT. Disabled rather than absent
+                wherever it cannot be done, and the title says which of the
+                three reasons it is. */}
             <button
-              className="btn sm danger"
-              disabled
-              title="Not built yet — return-with-note is step 5 of the build order."
+              className={'btn sm danger' + (returning ? ' on' : '')}
+              disabled={!canReturn}
+              onClick={() => setReturning((v) => !v)}
+              title={
+                onReturn == null
+                  ? 'Returning is not available on this view.'
+                  : !editable
+                    ? 'You cannot return work here.'
+                    : c.locked
+                      ? 'This record is locked. A released mark is revoked before the paper goes back.'
+                      : !c.file
+                        ? 'Nothing is filed to return.'
+                        : 'Send this paper back with a note'
+              }
             >
               Return with note
             </button>
@@ -263,12 +315,58 @@ export default function PaperReader({
             can act on.
           </div>
 
+          {/* WHAT HAPPENED LAST TIME. Shown whether or not this reader can
+              return anything, because the next marker to open this paper needs
+              to know it is missing on purpose. */}
+          {c.returned && (
+            <div className="note warn" style={{ margin: '0 14px 12px' }}>
+              <b>Returned {when(c.returned.at)} by {c.returned.byName}</b> —{' '}
+              <span className="mut">{c.returned.fileName}</span>
+              <div style={{ marginTop: 4 }}>{c.returned.note}</div>
+            </div>
+          )}
+
+          {returning && canReturn && (
+            <div className="note" style={{ margin: '0 14px 12px' }}>
+              <div className="caps" style={{ marginTop: 0 }}>Send it back</div>
+              <textarea
+                className="cmtarea"
+                rows={3}
+                autoFocus
+                value={returnNote}
+                disabled={pending}
+                onChange={(e) => setReturnNote(e.target.value)}
+                placeholder="What is wrong with it, and what should they send instead?"
+              />
+              <p className="mut" style={{ fontSize: 11.5, margin: '6px 0 8px' }}>
+                {NO_MESSAGE_SENT}
+              </p>
+              <div className="row">
+                <button
+                  className="btn sm danger"
+                  // THE NOTE IS THE POINT. An empty one is not a shorter
+                  // return, it is a return the student cannot act on — so the
+                  // button does not fire and the server refuses it as well.
+                  disabled={!returnNote.trim() || pending}
+                  onClick={() => {
+                    onReturn?.(c.studentId, returnNote.trim())
+                    setReturning(false)
+                    setReturnNote('')
+                  }}
+                >
+                  Return {c.file?.ref.name ?? 'this paper'}
+                </button>
+                <button className="btn sm" onClick={() => setReturning(false)}>Cancel</button>
+              </div>
+            </div>
+          )}
+
           <div className="rdpaper">
             {c.file ? (
               <MediaBody file={c.file.ref} canDownload={canDownload} />
             ) : (
               <div className="rdempty">
-                Nothing uploaded yet.
+                {c.returned ? 'Returned — nothing filed since.' : 'Nothing uploaded yet.'}
                 <div style={{ fontSize: 11, marginTop: 6 }}>
                   {carriesMark
                     ? 'The marks beside this still save — a paper copy is a legitimate way to have marked it, and the grid keeps flagging it as marked with no file.'

@@ -25,10 +25,10 @@ import {
   type TokStep,
 } from '@/lib/tok/marking'
 import {
-  draftTeacherComment, logInteraction, releaseTokMark, revokeTokMark, saveTeacherComment,
-  saveTokMark, saveTokProse, signPpf, unsignPpf,
+  draftTeacherComment, logInteraction, releaseTokMark, returnTokFile, revokeTokMark,
+  saveTeacherComment, saveTokMark, saveTokProse, signPpf, unsignPpf,
 } from '@/lib/tok/actions'
-import { INTERACTION_LINES, canSign, signWarnings } from '@/lib/tok/ppf'
+import { canSign, signWarnings } from '@/lib/tok/ppf'
 import FileChip from '../FileChip'
 import PaperReader from '../reader/PaperReader'
 import { PDF_ONLY } from '@/lib/accepts'
@@ -67,6 +67,10 @@ export default function TokMarking({
   mode?: 'process' | 'grade'
 }) {
   const [open, setOpen] = useState<string | null>(null)
+  // Same shape as the EE roster's: the message lives above the reader, where
+  // the person who pressed the button is looking.
+  const [returnMsg, setReturnMsg] = useState<string | null>(null)
+  const [returning, startReturn] = useTransition()
   const t = summariseMarking(rows)
   const dist = kind === 'exh' ? promptDistribution(rows) : []
 
@@ -76,6 +80,7 @@ export default function TokMarking({
     const doneCount = steps.filter((x) => x.done).length
     return (
       <>
+        {returnMsg && <div className="note warn">{returnMsg}</div>}
         <nav className="modeseg">
           <a className={mode === 'process' ? 'on' : ''} href={`${paperBase}${paperFor}&mode=process`}>
             Process <span className="cnt">{doneCount}/{steps.length}</span>
@@ -125,6 +130,7 @@ export default function TokMarking({
           mark: r.mark,
           total: r.mark,
           comment: r.prose?.comment ?? null,
+          returned: r.returned,
           locked: r.releasedAt != null,
         }))}
         currentId={paperFor}
@@ -132,6 +138,13 @@ export default function TokMarking({
         closeHref={listHref}
         editable={canMark}
         canDownload={canDownload}
+        pending={returning}
+        onReturn={(studentId, note) =>
+          startReturn(async () => {
+            const res = await returnTokFile(studentId, kind, note)
+            setReturnMsg(res.ok ? null : res.message)
+          })
+        }
         paneWidth="wide"
         pane={
           paperRow ? (
@@ -438,6 +451,14 @@ function Drawer({
               {row.file.declaredWords.toLocaleString()} words · filed {row.file.submittedAt}
             </span>
           </div>
+        ) : row.returned ? (
+          /* Sent back, not never sent. The note is here because the marker who
+             opens this next is often not the one who wrote it. */
+          <div className="note warn" style={{ marginTop: 4 }}>
+            <b>Returned to the student</b> — {row.returned.fileName}, sent back by{' '}
+            {row.returned.byName}.
+            <div style={{ marginTop: 4 }}>{row.returned.note}</div>
+          </div>
         ) : (
           <p className="mut" style={{ margin: '4px 0 0' }}>Nothing filed. There is nothing to mark yet.</p>
         )}
@@ -721,11 +742,19 @@ function TokProcess({
                         </div>
                       : <div className="eeowed">Not filed. There is nothing to mark until it is.</div>
                   )}
+                  {/* THE SIGNATURE DOES NOT FREEZE THE TEACHER'S LINE. The
+                      declaration is "I confirm that my comments above are
+                      accurate", and "above" is the Teacher's comments box on
+                      page 2 of the form. THIS LINE IS NOT ON THE FORM AT ALL —
+                      it is our own note, never uploaded, and the composition
+                      source for that box. Locking it on signature locked the
+                      wrong thing. (Michael, 22 Aug: "why do I need to wait on
+                      the student to record our interview?") */}
                   {st.key.startsWith('ppf') && row.ppf && (
                     <InteractionRow
                       studentId={row.studentId}
                       slot={row.ppf.interactions.find((x) => String(x.n) === st.key.slice(-1))!}
-                      canWrite={canWrite && row.ppf.signedAt == null}
+                      canWrite={canWrite}
                     />
                   )}
                 </div>
@@ -751,9 +780,19 @@ function TokProcess({
           <div className="panel-h">
             <h2>Your comment on the form</h2>
             <span className="spacer" />
-            <span className="tag ib">this goes to the IB</span>
+            <span className="tag ib">TK/PPF page 2 · goes to the IB</span>
           </div>
           <div className="panel-b">
+            {/* WHICH COMMENT IS WHICH. Michael, 22 Aug: "I would prefer to send
+                my grading rationale… OR am I wrong about what goes to IB?"
+                Two teacher texts reach the IB and they answer different
+                questions, so each one says which it is. */}
+            <div className="note" style={{ marginBottom: 10 }}>
+              This box is about <b>the process</b> — the three interactions above it — and it is what
+              the declaration covers. The IB marks the essay itself, so there is no mark of ours to
+              justify here. <b>A grading rationale belongs on the exhibition</b>, which is the
+              component we mark and the IB moderates; it travels with the moderation sample.
+            </div>
             <PpfComment row={row} ppf={row.ppf} canWrite={canWrite} canUnlock={canUnlock} />
           </div>
         </div>
@@ -808,10 +847,9 @@ function PpfComment({
           </>
         ) : (
           <>
-            <div className="note" style={{ margin: '6px 0 8px' }}>
-              This is the <b>only</b> thing you write on the official form, and it goes to the IB.
-              Draft it from your three interaction lines, then edit it into your own words.
-            </div>
+            <p className="mut" style={{ fontSize: 11.5, margin: '4px 0 8px' }}>
+              Draft it from your interaction lines above, then edit it into your own words.
+            </p>
             <textarea
               rows={4}
               value={comment}
@@ -880,20 +918,29 @@ function InteractionRow({
   slot: TokPpfView['interactions'][number]
   canWrite: boolean
 }) {
-  const [lineKey, setLineKey] = useState(slot.logged?.lineKey ?? '')
+  // A DATE AND A LINE OF TEXT — the dropdown went on 22 Aug. Michael: "date
+  // with free text line would be better." The old list is still rendered for
+  // logs written with it (the graduated cohort's), which is why `label` is the
+  // fallback below.
+  const [note, setNote] = useState(slot.logged?.label ?? '')
   const [heldOn, setHeldOn] = useState(slot.logged?.heldOn ?? '')
   const [message, setMessage] = useState<string | null>(null)
   const [pending, start] = useTransition()
 
-  const save = (key: string, date: string) => {
-    if (!key || !date) return
+  // THE DATE IS THE ONLY REQUIRED PART. "I want to record the date" was the
+  // whole ask; making the sentence mandatory would put the ceremony back.
+  const save = (text: string, date: string) => {
+    if (!date) return
     start(async () => {
-      setMessage((await logInteraction(studentId, slot.n, key, date)).message ?? null)
+      setMessage((await logInteraction(studentId, slot.n, text, date)).message ?? null)
     })
   }
 
   return (
     <div className="eesession">
+      <div className="caps" style={{ marginBottom: 4 }}>
+        Your note — optional, never uploaded
+      </div>
       <div className="row">
         <i className={`eedot ${slot.entry ? 'done' : slot.logged ? 'partial' : ''}`} />
         <b>{PPF_ORDINAL[slot.n]}</b>
@@ -904,18 +951,16 @@ function InteractionRow({
               value={heldOn}
               style={{ maxWidth: 150 }}
               title="The day the meeting actually happened"
-              onChange={(e) => { setHeldOn(e.target.value); save(lineKey, e.target.value) }}
+              onChange={(e) => { setHeldOn(e.target.value); save(note, e.target.value) }}
             />
-            <select
-              value={lineKey}
-              style={{ minWidth: 300, flex: 1 }}
-              onChange={(e) => { setLineKey(e.target.value); save(e.target.value, heldOn) }}
-            >
-              <option value="">What did this cover?</option>
-              {INTERACTION_LINES[slot.n].map((l) => (
-                <option key={l.key} value={l.key}>{l.label}</option>
-              ))}
-            </select>
+            <input
+              type="text"
+              value={note}
+              style={{ minWidth: 260, flex: 1 }}
+              placeholder="What did this cover? (optional)"
+              onChange={(e) => setNote(e.target.value)}
+              onBlur={() => save(note, heldOn)}
+            />
           </>
         ) : (
           <span className="mut" style={{ fontSize: 12.5 }}>
@@ -938,11 +983,19 @@ function InteractionRow({
               : ' · you have not logged this meeting — optional, and only ever corroboration'}
           </p>
         </>
+      ) : slot.logged ? (
+        // THE STATE HE ASKED FOR: "I meet with the student and they then forget
+        // to write — that's on them." The meeting is recorded; the write-up is
+        // not. Said as a fact about the record, not as a warning about a
+        // person, and it costs the candidate nothing here — the TK/PPF counter
+        // simply has not moved.
+        <p className="mut" style={{ fontSize: 11.5, margin: '6px 0 0 18px' }}>
+          You met them on {slot.logged.heldOn}. <b>They have not written this up.</b>
+          {' '}Their box is open — it never waited on you.
+        </p>
       ) : (
         <p className="mut" style={{ fontSize: 11.5, margin: '6px 0 0 18px' }}>
-          {slot.open
-            ? 'Open to them — not written up yet.'
-            : slot.closedReason ?? 'Not written up yet.'}
+          Nothing recorded on either side. Their box is open regardless.
         </p>
       )}
       {message && <div className="note warn" style={{ marginTop: 6 }}>{message}</div>}

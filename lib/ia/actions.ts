@@ -94,6 +94,33 @@ export async function setComment(
   refresh()
 }
 
+/**
+ * RETURN THE PAPER, WITH A NOTE.
+ *
+ * The marker's gate, not the coordinator's: the person reading the paper is the
+ * person who can tell it is the wrong one, and making them find a coordinator
+ * to say so is how the wrong file stays up for three weeks. Same `allowWrite`
+ * as a mark, because it IS a write on this candidate's record.
+ *
+ * The refusals (empty note, nothing filed) come back from the repository
+ * unchanged — one wording, three modules (lib/returns.ts).
+ */
+export async function returnWithNote(
+  courseId: string,
+  cohortId: string,
+  studentId: string,
+  note: string,
+) {
+  const session = await need('ia.manage')
+  await live(session.school.id, cohortId)
+  await courseInCohort(session.school.id, courseId, cohortId)
+  await allowWrite(session, courseId, cohortId, studentId)
+  await repo.returns.returnWithNote(
+    session.school.id, studentId, `${courseId}.file`, note, session.user.id,
+  )
+  refresh()
+}
+
 export async function setTypedIntoIbis(
   courseId: string,
   cohortId: string,

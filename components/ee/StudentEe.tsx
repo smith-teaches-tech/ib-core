@@ -13,6 +13,7 @@
 // long-form guidance moved to the panel that needs it, once.
 
 import { useState, useTransition } from 'react'
+import ReturnedNote from '../ReturnedNote'
 import type { Checkpoint } from '@/lib/types'
 import type { EeSessionNote, EeStudentView, SessionStage } from '@/lib/ee/types'
 import { EE_CRITERIA, INTERDISCIPLINARY_FRAMEWORKS, WORD_COUNT_RULES, WORD_LIMIT } from '@/lib/ee/rubric'
@@ -490,6 +491,7 @@ function FinalPanel({ view, checkpoint }: { view: EeStudentView; checkpoint?: Ch
           </>
         ) : (
           <>
+            <ReturnedNote view={view.returned} what="essay" />
             <div className="note gold" style={{ marginBottom: 10 }}>
               <b>Cloud storage is not connected yet, so the file itself is not kept.</b> Everything
               else is real and permanent: which file you filed, of what type and size, when, and

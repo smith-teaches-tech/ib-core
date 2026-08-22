@@ -29,7 +29,9 @@ import { detachedStatesOf, stateOf } from '../lib/spine'
 import { LANE_SUMMARY } from '../lib/board'
 import { attestationLabel, eeCoordinatorId, supervisorFor } from '../lib/ee/supervision'
 import { casWindow } from '../lib/cas/window'
-import { EE_EARLY_FILED, EE_EARLY_NO_VIVA, EE_REGISTRATIONS, TOK_EARLY_EXH } from '../lib/data/fixtures'
+import {
+  EE_EARLY_FILED, EE_EARLY_NO_VIVA, EE_FINALS, EE_REGISTRATIONS, TOK_EARLY_EXH,
+} from '../lib/data/fixtures'
 import { BAND_PROVENANCE, EE_CRITERIA, boundariesAreOfficial, indicativeGrade } from '../lib/ee/rubric'
 import { registrationComplete, subjectWarnings, validateRegistration } from '../lib/ee/registration'
 import { nextStep, processSteps } from '../lib/ee/derive'
@@ -2610,7 +2612,8 @@ async function main() {
     const d = REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)!
     const n = Number(d.key.slice(-1))
     const log = TOK_INTERACTION_LOGS.find((l) => l.studentId === st.studentId && l.n === n)
-    return log == null || !(interactionLine(n as 1 | 2 | 3, log.lineKey)?.held ?? false)
+    return log == null ||
+      !(log.lineKey ? interactionLine(n as 1 | 2 | 3, log.lineKey)?.held ?? false : true)
   })
   check(
     ungated.length > 0,
@@ -2858,10 +2861,24 @@ async function main() {
   console.log('\n15m. The TK/PPF — the teacher’s half, and the sentence it composes')
 
   const ppfStudent = STUDENTS.find((x) => x.cohortId === 'c15')!.userId
-  const badLine = await repo.tok.logInteraction('dhahran', ppfStudent, 1, 'full_draft', '2026-09-20', { id: 'u_adeyemi', name: 'H. Adeyemi' })
-  check(!badLine.ok, 'a draft cannot be read at the title-choosing meeting — the lines are scoped per interaction')
-  const badDate = await repo.tok.logInteraction('dhahran', ppfStudent, 1, 'reviewed_titles', 'yesterday', { id: 'u_adeyemi', name: 'H. Adeyemi' })
-  check(!badDate.ok, 'and the meeting needs the day it actually happened, not a word')
+  // ⚠ THE DROPDOWN BECAME A FREE LINE (22 Aug). The per-interaction scoping it
+  // enforced went with it: a sentence cannot be validated against a list, and
+  // Michael asked for the line rather than the list. `interactionLine` survives
+  // for the graduated cohort's logs, and its scoping is still asserted above.
+  const freeLine = await repo.tok.logInteraction(
+    'dhahran', ppfStudent, 1, 'Went through all six titles; she shortlisted two.',
+    '2026-09-20', { id: 'u_adeyemi', name: 'H. Adeyemi' },
+  )
+  check(freeLine.ok, 'a teacher records a meeting with a date and a sentence of their own — no list to pick from')
+  const emptyNote = await repo.tok.logInteraction(
+    'dhahran', ppfStudent, 2, '   ', '2026-09-21', { id: 'u_adeyemi', name: 'H. Adeyemi' },
+  )
+  check(
+    emptyNote.ok,
+    'and the SENTENCE IS OPTIONAL — "I want to record the date" was the ask, so the date alone is a complete record',
+  )
+  const badDate = await repo.tok.logInteraction('dhahran', ppfStudent, 1, 'Reviewed the titles.', 'yesterday', { id: 'u_adeyemi', name: 'H. Adeyemi' })
+  check(!badDate.ok, 'the date is the one required part — the day it actually happened, not a word')
 
   const composed = composeTeacherComment({
     studentName: 'Chen, Marcus',
@@ -2871,6 +2888,21 @@ async function main() {
       { n: 2, lineKey: 'plan_and_aoks', heldOn: '2027-01-20' },
     ],
   })
+  // A FREE NOTE WINS OVER THE OLD CLAUSE, and a log with neither still composes
+  // a sentence — the graduated cohort's forms must not stop rendering because
+  // the input changed shape.
+  const composedFree = composeTeacherComment({
+    studentName: 'Chen, Marcus',
+    logged: [
+      { n: 1, note: 'we went through all six titles and she shortlisted two', heldOn: '2026-10-14' },
+      { n: 2, heldOn: '2027-01-20' },
+    ],
+  })
+  check(
+    composedFree.includes('On 2026-10-14, we went through all six titles and she shortlisted two.') &&
+      composedFree.includes('On 2027-01-20, we met.'),
+    'the composed comment takes the teacher’s own words where there are any, and says only that they met where there are not',
+  )
   check(
     composed.startsWith('Marcus engaged with the essay process across three recorded interactions.'),
     'the comment composes from the year’s logged lines — three small acts become the form',
@@ -3479,6 +3511,214 @@ async function main() {
         .some((x) => x.done),
     'and a write-up with NO teacher note behind it still counts as done — the note is corroboration, it is not the submission',
   )
+  // THE OTHER DIRECTION, and it is the one Michael asked about: "I meet with
+  // the student and they then forget to write — that's on them. I want to
+  // record the date." The teacher's note is recordable with nothing from the
+  // candidate, and it moves no counter when it lands.
+  // In the LIVE cohort, where the first round of meetings is under way — c14
+  // is finished, so everyone there has both halves.
+  const tokLive = (await repo.tok.getMarkingRoster('dhahran', 'c15', 'essay'))!
+  const metNotWritten = tokLive.find((r) =>
+    r.ppf?.interactions.some((i) => i.logged != null && i.entry == null))
+  check(
+    metNotWritten != null,
+    'a meeting is recorded with NO write-up against it — the teacher’s note never waited on the candidate either',
+  )
+  check(
+    metNotWritten == null || (metNotWritten.ppf!.written < 3),
+    'and it does not count toward the TK/PPF: what goes to the IB is the candidate’s three boxes, so only those move the counter',
+  )
+
+
+  console.log('\n22. The wiring audit — what must NOT reach whom')
+
+  // ⚠ ALL THREE WERE REAL LEAKS FOUND ON 22 AUG, not theoretical ones. They are
+  // asserted rather than merely fixed because each is one RLS policy when the
+  // database lands, and a policy nobody wrote down is a policy nobody writes.
+
+  // 1 — A MARK THE CANDIDATE HAS NOT BEEN GIVEN. The module views were gated
+  // correctly; the checkpoint beside them carried the whole state, and the
+  // student screens are client components, so it was in the payload.
+  const gradTok = STUDENTS.find((x) => x.cohortId === 'c14')!
+  const trackAsStaff = (await repo.getTrack('dhahran', gradTok.userId))!
+  const asThem = (await repo.getTrack('dhahran', gradTok.userId, { asCandidate: true }))!
+  const markOf = (t: typeof trackAsStaff, key: string) =>
+    t.lanes.flatMap((l) => l.checkpoints).find((c) => c.def.key === key)?.state ?? null
+  check(
+    markOf(trackAsStaff, 'tok.exhmark')?.mark != null,
+    'a staff read of the track still carries the exhibition mark — the redaction is about the CANDIDATE, not about the field',
+  )
+  check(
+    markOf(asThem, 'tok.exhmark')?.mark == null,
+    'and a candidate read does NOT — an unreleased mark never leaves the server, because a client component serializes every prop whether it renders it or not',
+  )
+  check(
+    markOf(asThem, 'tok.exhmark') != null,
+    'the checkpoint itself SURVIVES though — they should see a mark is coming; only the value goes',
+  )
+  const iaUnreleased = asThem.lanes
+    .flatMap((l) => l.checkpoints)
+    .filter((c) => c.def.artifact === 'mark' && c.state != null && c.state.recordStatus !== 'released')
+  check(
+    iaUnreleased.length > 0 &&
+      iaUnreleased.every((c) => c.state!.mark == null && c.state!.criterionMarks == null),
+    'and it holds for every unreleased mark on the track, not just TOK’s — one predicate on the read, not a rule each view remembers',
+  )
+  const releasedCps = asThem.lanes
+    .flatMap((l) => l.checkpoints)
+    .filter((c) => c.state?.recordStatus === 'released')
+  check(
+    releasedCps.length === 0 || releasedCps.some((c) => c.state!.criterionMarks != null || c.state!.mark != null),
+    'a RELEASED mark still reaches them — releasing is what the word means',
+  )
+
+  // 2 — /marks was open to `ia.manage`, which every teacher holds.
+  check(
+    !resolveCapabilities(
+      MEMBERSHIPS.find((m) => m.userId === 'u_farouk' && m.schoolId === 'dhahran')!,
+    ).has('marks.transcribe'),
+    'a subject teacher does NOT hold marks.transcribe — so the IBIS transcription screen, which is course-unscoped by design, is not theirs',
+  )
+
+  // 3 — the cohort in the URL. The repository was always cohort-scoped; the
+  // page was what trusted the parameter, so this asserts the data-layer fact
+  // the page's new check relies on.
+  // ⚠ ASSERT THE INVARIANT, NOT A CAST LIST. The first version of this check
+  // named cohorts by id and failed — because the checkpoint has been mutating
+  // pinned fixtures for two thousand lines by the time it runs, and R. Farouk
+  // had been assigned to cohorts that no fixture ever gave him. The property is
+  // what the page relies on; the roster is not.
+  const faroukSpaces = await repo.mySpaces('dhahran', 'u_farouk')
+  const sectionExists = (courseId: string, cohortId: string, teacherId: string) =>
+    SECTIONS.some(
+      (sec) =>
+        sec.courseId === courseId && sec.cohortId === cohortId &&
+        TEACHING_ASSIGNMENTS.some((a) => a.sectionId === sec.id && a.teacherId === teacherId),
+    )
+  check(
+    faroukSpaces.length > 0 &&
+      faroukSpaces.every((g) =>
+        g.courses.every(
+          (c) =>
+            sectionExists(c.id, g.cohort.id, 'u_farouk') ||
+            // EE reach is supervision, not a section — the other legitimate source.
+            (c.id === 'ee' &&
+              EE_SUPERVISION.some(
+                (x) => x.cohortId === g.cohort.id && x.supervisorId === 'u_farouk',
+              )),
+        ),
+      ),
+    'every course on a teacher’s spaces is one they are attached to IN THAT YEAR GROUP — which is the fact the course page’s "not your year group" refusal rests on',
+  )
+
+  // -------------------------------------------------------------------------
+  console.log('\n23. Return with a note — one act, three modules')
+  // -------------------------------------------------------------------------
+  //
+  // Michael, 22 Aug: "Return with note is an event, not a log." The three
+  // things IB-Student-Work-Files.md §5 asked for are what these assert: the
+  // record goes back to not-in, the note is required and reaches the student,
+  // and the file that was returned is KEPT.
+
+  if (EE_EARLY_NO_VIVA) {
+    const who = EE_EARLY_NO_VIVA
+    const eeDef = REQUIREMENT_DEFS.find(
+      (d) => d.cohortId === 'c15' && d.schoolId === 'dhahran' && d.key === 'ee.final',
+    )!
+    const stateOfFinal = () =>
+      REQUIREMENT_STATES.find(
+        (x) => x.studentId === who && x.requirementDefId === eeDef.id,
+      ) ?? null
+
+    check(fileOf(stateOfFinal()) != null, 'the fixture candidate has an essay filed to return')
+    const filedName = fileOf(stateOfFinal())!.ref.name
+
+    // 1 — A RETURN WITH NO NOTE IS NOT A RETURN. And the refusal must happen
+    // BEFORE anything is touched: a rejected write that has already superseded
+    // the file is the worst of both.
+    let refused = false
+    try {
+      await repo.returns.returnWithNote('dhahran', who, 'ee.final', '   ', 'u_adeyemi')
+    } catch { refused = true }
+    check(refused, 'a return with an empty note is REFUSED — the note is the only thing the student can act on')
+    check(
+      fileOf(stateOfFinal()) != null,
+      'and the refusal changed nothing — the essay is still filed after it',
+    )
+
+    await repo.returns.returnWithNote(
+      'dhahran', who, 'ee.final', 'This is the outline, not the essay. Please file the finished PDF.',
+      'u_adeyemi',
+    )
+
+    // 2 — BACK TO NOT IN. The board box goes tan because the state says so,
+    // not because a screen remembered to draw it differently.
+    const after = stateOfFinal()!
+    check(after.recordStatus === 'not_started', 'the returned record is back to not_started — the board box goes tan and the candidate is outstanding again')
+    check(after.lockedAt == null, 'and the lock went with the filing — a returned paper the student cannot replace is a dead end')
+    check(fileOf(after) == null, 'nothing is filed against it any more')
+
+    // 3 — THE FILE IS KEPT. This is the assertion that would fail if anyone
+    // ever "tidied up" by deleting the artifact.
+    const kept = filesOf(after)
+    check(
+      kept.some((f) => f.ref.name === filedName && f.supersededAt != null),
+      'the returned paper is still readable, marked superseded — "what exactly did you send back" is asked months later',
+    )
+
+    // 4 — THE MODULE ROW WENT WITH IT, so every reader that asks the module
+    // "is something filed" gets the same answer as the spine.
+    check(
+      !EE_FINALS.some((f) => f.studentId === who && f.schoolId === 'dhahran'),
+      'the EeFinal row is gone — the roster, the process dots and the export pack all read "not filed" without any of them being told about returns',
+    )
+    const steps = processSteps({
+      links: [], sessions: [], final: null, rpf: null,
+    })
+    check(!steps.find((x) => x.key === 'final')!.done, 'and the process spine draws the finished-essay step empty again')
+
+    // 5 — THE NOTE REACHES THE STUDENT, on their own screen.
+    const theirs = await repo.ee.getStudentView('dhahran', who)
+    check(
+      theirs?.returned?.note.startsWith('This is the outline') === true,
+      'the note is on the STUDENT’S own view — which is the only place it is delivered, because no email exists yet',
+    )
+    check(theirs?.final == null, 'and their screen shows nothing filed, so the upload box is open again')
+
+    // 6 — THE STAFF SIDE SEES IT TOO, and sees it as returned rather than as
+    // a candidate who never got round to it.
+    const roster = await repo.ee.getRoster('dhahran', 'c15', null)
+    const rrow = roster.find((r) => r.studentId === who)
+    check(rrow?.returned != null && rrow.final == null, 'the supervisor’s roster distinguishes RETURNED from never-filed — two different conversations to have')
+
+    // 7 — REFILING CLOSES IT, with nobody clearing a flag. This is the whole
+    // reason "outstanding" is derived rather than stored.
+    await repo.ee.submitFinal('dhahran', who, 'ee-second-go.pdf', 3900)
+    const reopened = await repo.returns.outstandingFor('dhahran', who, 'ee.final')
+    check(reopened == null, 'filing again closes the return — derived from the state, so there is no flag to forget to clear')
+    check(
+      (await repo.returns.listFor('dhahran', who, 'ee.final')).length === 1,
+      'but the return is still on the record — append-only, and "sent back twice" is a fact somebody asks about',
+    )
+    check(
+      filesOf(stateOfFinal()).length >= 2,
+      'and both papers are there — the returned one and its replacement',
+    )
+  }
+
+  // 8 — NOTHING TO RETURN is refused as well, on a candidate who never filed.
+  {
+    const never = STUDENTS.find(
+      (st) => st.cohortId === 'c15' && !EE_FINALS.some((f) => f.studentId === st.userId),
+    )
+    if (never) {
+      let refused = false
+      try {
+        await repo.returns.returnWithNote('dhahran', never.userId, 'ee.final', 'nothing here', 'u_adeyemi')
+      } catch { refused = true }
+      check(refused, 'returning a record with nothing filed is refused — a return is a return OF something')
+    }
+  }
 
   console.log('\n' + '='.repeat(60))
   if (fail.length) {

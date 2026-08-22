@@ -21,6 +21,7 @@ import type {
 } from '../ia/types'
 import { iaTotal, templateOf } from '../templates'
 import { fileOf } from '../files'
+import { outstandingReturn, type ReturnEvent } from '../returns'
 import { todayRiyadh } from './dates'
 
 /** How long a coordinator unlock lasts before it re-locks itself. */
@@ -38,10 +39,16 @@ export function makeIaRepository(deps: {
   events: MarkEvent[]
   unlocks: MarkUnlock[]
   samples: SampleRequest[]
+  /**
+   * THE SAME ARRAY the returns repository appends to — read here, never
+   * written. Returns are folded into this course's history rather than copied
+   * onto it, so the two can never disagree about what happened.
+   */
+  returns: ReturnEvent[]
 }): IaRepository {
   const {
     courses, sections, enrollments, students, users, assignments, defs, states,
-    events, unlocks, samples,
+    events, unlocks, samples, returns,
   } = deps
 
   // Both scoped by school: a def or state reached with another school's id is a
@@ -165,6 +172,17 @@ export function makeIaRepository(deps: {
                   ? 'partial'
                   : 'done',
             file: fileOf(file),
+            // Only ever set when nothing is filed — `outstandingReturn` reads
+            // the state, so a candidate who has refiled has no return showing
+            // and nobody has to remember to clear a flag.
+            returned: fileDef
+              ? outstandingReturn(
+                  returns.filter(
+                    (r) => r.studentId === st.userId && r.requirementDefId === fileDef.id,
+                  ),
+                  file,
+                )
+              : null,
             typed: mark?.exportStatus === 'submitted',
             locked: mark?.lockedAt != null,
           }
@@ -396,6 +414,26 @@ export function makeIaRepository(deps: {
     },
 
     async listMarkEvents(schoolId, courseId, cohortId) {
+      // The file requirement's returns, as trail rows. Derived on read — the
+      // ReturnEvent is the record and this is a second reader of it, which is
+      // invariant #2 applied to an audit trail.
+      const fileDef = defFor(schoolId, cohortId, courseId, '.file')
+      const returnRows: MarkEventRow[] = fileDef
+        ? returns
+            .filter((r) => r.schoolId === schoolId && r.requirementDefId === fileDef.id)
+            .map((r) => ({
+              id: r.id,
+              at: r.at,
+              kind: 'return' as const,
+              byName: r.byName,
+              studentName: nameOf(r.studentId),
+              criterion: null,
+              prev: r.fileName,
+              next: null,
+              overrideReason: null,
+              note: r.note,
+            }))
+        : []
       return events
         .filter(
           (e) => e.schoolId === schoolId && e.courseId === courseId && e.cohortId === cohortId,
@@ -413,6 +451,10 @@ export function makeIaRepository(deps: {
         }))
         // Appended in time order, so newest-first is a reverse, not a sort.
         .reverse()
+        // The returns come from a different array, so THIS pair does need a
+        // sort — two append-only lists interleaved are not one append-only list.
+        .concat(returnRows)
+        .sort((a, b) => b.at.localeCompare(a.at))
     },
   }
 }

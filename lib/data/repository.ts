@@ -21,6 +21,7 @@ import type {
   Board, Course, LibraryDocument, Membership, School, Student, StudentTrack, User,
 } from '../types'
 import type { BoardOptions } from '../board'
+import type { ReturnsRepository } from './returns-repo'
 import type { StoredRef } from '../storage'
 import type {
   CasCohortTotals, CasRosterRow, CasStudentView, ExperienceStatus, IndicatorValue,
@@ -124,6 +125,12 @@ export interface Repository {
    * above — and what would make it one.
    */
   cas: CasRepository
+
+  /**
+   * RETURN WITH A NOTE — spine-level, because it is the same act in IA, EE and
+   * TOK and one implementation is how it stays the same act (lib/returns.ts).
+   */
+  returns: ReturnsRepository
 
   /** Setup & people — creating the spine objects everything else reads. */
   setup: SetupRepository
@@ -273,7 +280,8 @@ export interface TokRepository {
     schoolId: string,
     studentId: string,
     n: 1 | 2 | 3,
-    lineKey: string,
+    /** What was covered, in the teacher's own words. May be empty. */
+    note: string,
     heldOn: string,
     by: { id: string; name: string },
   ): Promise<{ ok: boolean; message?: string }>

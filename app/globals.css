@@ -406,6 +406,9 @@ select, input[type='text'] {
 
 .btn.ghost { background: transparent; }
 .btn.danger { color: var(--warn); }
+/* The return composer is OPEN. Pressed state, so the button and the block it
+   opened read as one control rather than two. */
+.btn.danger.on { background: var(--warn); color: #fff; border-color: var(--warn); }
 .btn:disabled { opacity: .45; cursor: not-allowed; }
 
 textarea {

@@ -6,11 +6,14 @@
 // any per-student configuration.
 
 import type {
-  Artifact, Cohort, Course, Deadline, Enrollment, LibraryDocument, Membership,
+  Artifact, Checkpoint, Cohort, Course, Deadline, Enrollment, LibraryDocument, Membership,
   RequirementDef, RequirementState, School, Section, StoredRef, Student,
   TeachingAssignment, User,
 } from '../types'
 import { fileArtifact, fileOf, supersede } from '../files'
+import type { ReturnEvent, ReturnView } from '../returns'
+import { outstandingReturn } from '../returns'
+import { makeReturnsRepository } from './returns-repo'
 import { PDF_ONLY } from '../accepts'
 import type { Repository } from './repository'
 import { buildTrack, coursesOf, requirementsFor } from '../spine'
@@ -1649,6 +1652,15 @@ const MARK_UNLOCKS: MarkUnlock[] = pinned('ibMarkUnlocks', () => [])
 export const SAMPLE_REQUESTS: SampleRequest[] = pinned('ibSampleRequests', () => [])
 
 /**
+ * RETURNS — one row per paper sent back with a note (lib/returns.ts).
+ *
+ * Empty for the same reason the audit trail is: a seeded return would be a
+ * fabricated accusation against a student who never filed the wrong thing.
+ * The first row in here will be a real one.
+ */
+export const RETURN_EVENTS: ReturnEvent[] = pinned('ibReturns', () => [])
+
+/**
  * EE SUPERVISION — who has been assigned, and who has deliberately not been.
  *
  * The Class of 2027 is most of the way through allocation: twenty students are
@@ -1789,6 +1801,7 @@ const iaRepository = makeIaRepository({
   events: MARK_EVENTS,
   unlocks: MARK_UNLOCKS,
   samples: SAMPLE_REQUESTS,
+  returns: RETURN_EVENTS,
 })
 
 const deadlineRepository = makeDeadlineRepository({
@@ -1903,7 +1916,9 @@ function tokPpfView(schoolId: string, studentId: string): TokPpfView {
     const log = TOK_INTERACTION_LOGS.find(
       (l) => l.schoolId === schoolId && l.studentId === studentId && l.n === n,
     )
-    const line = log ? interactionLine(n, log.lineKey) : null
+    // A free-text note has no fixed label; the old dropdown does. Both render
+    // as one line above the candidate's box.
+    const line = log?.lineKey ? interactionLine(n, log.lineKey) : null
     const bodyOf = (k: number) => tokState(schoolId, studentId, `tok.ppf${k}`)?.artifacts
       .find((a) => a.kind === 'text')?.body ?? null
     const body = bodyOf(n)
@@ -2018,6 +2033,62 @@ function supportedSubjectKeys(schoolId: string): string[] {
   return [...out]
 }
 
+const returnsRepository = makeReturnsRepository({
+  students: STUDENTS,
+  users: USERS,
+  defs: REQUIREMENT_DEFS,
+  states: REQUIREMENT_STATES,
+  events: RETURN_EVENTS,
+  today: todayRiyadh,
+  /**
+   * THE MODULE'S OWN BOOKKEEPING. EE and TOK answer "is something filed" from
+   * their own row, so a return has to take the row away or the roster keeps
+   * drawing an essay that is no longer there. The FILE is not lost with it —
+   * it stays on the state, superseded, which is the record that matters.
+   *
+   * IA is deliberately absent: `<courseId>.file` keeps no row beside the
+   * state, so there is nothing to detach and a missing case here would be a
+   * silent no-op rather than a bug.
+   */
+  detachFiling: (schoolId, studentId, defKey) => {
+    const drop = <T extends { schoolId: string; studentId: string }>(
+      rows: T[], keep: (r: T) => boolean,
+    ) => {
+      for (let i = rows.length - 1; i >= 0; i--) {
+        const r = rows[i]
+        if (r.schoolId === schoolId && r.studentId === studentId && !keep(r)) rows.splice(i, 1)
+      }
+    }
+    if (defKey === 'ee.final') drop(EE_FINALS, () => false)
+    if (defKey === 'tok.exh') drop(TOK_FILES, (r) => r.kind !== 'exh')
+    if (defKey === 'tok.essay') drop(TOK_FILES, (r) => r.kind !== 'essay')
+  },
+})
+
+/**
+ * THE OUTSTANDING RETURN on one record, for a view builder — the one call every
+ * roster and student view makes, so none of them has to know that "outstanding"
+ * means "returned and nothing filed since".
+ */
+const returnedOn = (schoolId: string, studentId: string, defKey: string): ReturnView | null => {
+  const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
+  const def = st
+    ? REQUIREMENT_DEFS.find(
+        (d) => d.schoolId === schoolId && d.cohortId === st.cohortId && d.key === defKey,
+      )
+    : null
+  if (!def) return null
+  return outstandingReturn(
+    RETURN_EVENTS.filter(
+      (r) => r.schoolId === schoolId && r.studentId === studentId &&
+        r.requirementDefId === def.id,
+    ),
+    REQUIREMENT_STATES.find(
+      (x) => x.studentId === studentId && x.requirementDefId === def.id,
+    ),
+  )
+}
+
 const roleOf = (userId: string, schoolId: string) =>
   MEMBERSHIPS.find((m) => m.userId === userId && m.schoolId === schoolId)?.roles ?? []
 
@@ -2112,6 +2183,37 @@ export const fixtureRepository: Repository = {
   },
 
   async getTrack(schoolId, studentUserId, opts) {
+    /**
+     * A MARK THE STUDENT HAS NOT BEEN GIVEN DOES NOT LEAVE THE SERVER.
+     *
+     * Found in the 22 Aug wiring audit, and it was a real leak rather than a
+     * theoretical one. The module views were release-gated correctly —
+     * `TokStudentView.exhibitionMark` is null until `releasedAt`, `EeStudentView`
+     * likewise — but the same pages ALSO hand `lane.checkpoints` to those
+     * components, and a checkpoint carries the whole `RequirementState`.
+     * `StudentEe` and `StudentTok` are client components, so every prop is
+     * serialized into the payload whether it is rendered or not: the number was
+     * readable in devtools while the screen showed nothing.
+     *
+     * The graduated cohort proves it — `tok.exhmark` and `tok.essaymark` are
+     * seeded `recordStatus: 'marked'` with a mark and no release.
+     *
+     * SO THE PREDICATE LIVES ON THE READ, not on the view-shape builder. When
+     * the database lands this is one RLS policy on the state row rather than a
+     * rule every future view has to remember.
+     */
+    const unreleased = (cp: Checkpoint): Checkpoint => {
+      const st = cp.state
+      if (!st || st.recordStatus === 'released') return cp
+      if (st.mark == null && st.criterionMarks == null && st.grade == null) return cp
+      // The checkpoint stays — a candidate should see that a mark is COMING,
+      // which is what `display` already says. Only the value goes.
+      return {
+        ...cp,
+        state: { ...st, mark: undefined, criterionMarks: undefined, grade: undefined },
+      }
+    }
+
     const student = STUDENTS.find((s) => s.userId === studentUserId)
     if (!student || student.schoolId !== schoolId) return null
     const user = USERS.find((u) => u.id === studentUserId)
@@ -2154,10 +2256,14 @@ export const fixtureRepository: Repository = {
           // `studentMaySee` is the SAME predicate the home due-list uses, so
           // the two surfaces cannot drift apart. Since 22 Aug it is also belt
           // and braces: a staff stage can no longer be dated by anyone.
+          // BOTH BRANCHES REDACT. The first cut applied `unreleased` only on
+          // the fall-through, so a staff-recorded stage — which is exactly what
+          // a mark is — took the early return and kept its value. The
+          // checkpoint asserts it now.
           if (opts?.asCandidate && !studentMaySee(cp.def)) {
-            return { ...withDate, due: undefined }
+            return unreleased({ ...withDate, due: undefined })
           }
-          return withDate
+          return opts?.asCandidate ? unreleased(withDate) : withDate
         }),
       })),
     }
@@ -2256,6 +2362,10 @@ export const fixtureRepository: Repository = {
           (d) => d.schoolId === schoolId && d.studentId === studentId,
         )?.href ?? null,
         essay: fileView('essay'),
+        returned: {
+          exh: returnedOn(schoolId, studentId, 'tok.exh'),
+          essay: returnedOn(schoolId, studentId, 'tok.essay'),
+        },
         interactions: ppf.interactions,
         signedOffAt: ppf.signedAt,
       }
@@ -2378,6 +2488,7 @@ export const fixtureRepository: Repository = {
                 unlockedAt: file.unlockedAt,
               }
               : null,
+            returned: returnedOn(schoolId, s.userId, kind === 'exh' ? 'tok.exh' : 'tok.essay'),
             mark: view?.mark ?? null,
             prose: prose
               ? {
@@ -2561,10 +2672,10 @@ export const fixtureRepository: Repository = {
       return out
     },
 
-    async logInteraction(schoolId, studentId, n, lineKey, heldOn, by) {
-      if (!interactionLine(n, lineKey)) {
-        return { ok: false, message: 'That is not a line for this interaction.' }
-      }
+    async logInteraction(schoolId, studentId, n, note, heldOn, by) {
+      // THE DATE IS THE ONLY REQUIRED PART. The note is a free line now and the
+      // log itself is optional — refusing it for being empty would be refusing
+      // the only thing the teacher wanted to record, which is that they met.
       if (!/^\d{4}-\d{2}-\d{2}$/.test(heldOn)) {
         return { ok: false, message: 'Give the day the meeting actually happened.' }
       }
@@ -2572,10 +2683,12 @@ export const fixtureRepository: Repository = {
         (l) => l.schoolId === schoolId && l.studentId === studentId && l.n === n,
       )
       const row: TokInteractionLog = {
-        schoolId, studentId, n, lineKey, heldOn,
+        schoolId, studentId, n, note: note.trim() || undefined, heldOn,
         loggedBy: by.id, loggedByName: by.name, loggedAt: todayRiyadh(),
       }
-      if (existing) Object.assign(existing, row)
+      // A REPLACEMENT DROPS THE OLD DROPDOWN KEY rather than keeping both — two
+      // descriptions of one meeting is one too many.
+      if (existing) Object.assign(existing, row, { lineKey: undefined })
       else TOK_INTERACTION_LOGS.push(row)
       return { ok: true }
     },
@@ -2791,6 +2904,7 @@ export const fixtureRepository: Repository = {
         ).sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
         supportedSubjects: supportedSubjectKeys(schoolId),
         final: EE_FINALS.find((x) => x.studentId === studentId && x.schoolId === schoolId) ?? null,
+        returned: returnedOn(schoolId, studentId, 'ee.final'),
         finalLocked: finalIsLocked(schoolId, studentId),
         rpf: eeRpfOf(schoolId, studentId),
         // A STUDENT SEES NOTHING BEFORE RELEASE. Not a partial total, not a
@@ -2839,6 +2953,7 @@ export const fixtureRepository: Repository = {
             EE_REGISTRATIONS.find((r2) => r2.studentId === st.userId)?.subjects ?? []
           ).filter((k) => !supported.has(k)),
           final: EE_FINALS.find((x) => x.studentId === st.userId && x.schoolId === schoolId) ?? null,
+          returned: returnedOn(schoolId, st.userId, 'ee.final'),
           finalLocked: finalIsLocked(schoolId, st.userId),
           // Pulled off the SAME checkpoints the student's own screen shows, so
           // the supervisor is never looking at a different set of documents.
@@ -3180,6 +3295,7 @@ export const fixtureRepository: Repository = {
   },
 
   cas: casRepository,
+  returns: returnsRepository,
   setup: setupRepository,
   ia: iaRepository,
   pg: pgRepository,

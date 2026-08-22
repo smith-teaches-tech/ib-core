@@ -188,6 +188,36 @@ export async function saveTokProse(
 }
 
 /**
+ * RETURN THE EXHIBITION OR THE ESSAY, WITH A NOTE.
+ *
+ * The marker's gate — `asMarker`, the same one the mark itself goes through.
+ * Refused once the mark is released, for the reason EE's is: a released mark
+ * with no paper under it is a number nobody can defend.
+ */
+export async function returnTokFile(
+  studentId: string,
+  kind: 'exh' | 'essay',
+  note: string,
+) {
+  const { session, cohortId } = await asMarker(studentId)
+  const row = (await repo.tok.getMarkingRoster(session.school.id, cohortId, kind))
+    .find((r) => r.studentId === studentId)
+  if (row?.releasedAt) {
+    return { ok: false, message: 'The mark has been released. Revoke it before returning the work.' }
+  }
+  try {
+    await repo.returns.returnWithNote(
+      session.school.id, studentId, kind === 'exh' ? 'tok.exh' : 'tok.essay',
+      note, session.user.id,
+    )
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'That could not be returned.' }
+  }
+  refresh()
+  return { ok: true, message: null }
+}
+
+/**
  * RELEASE — the TOK teacher, or the IB coordinator. Michael, 21 Aug:
  * "released by either teacher and/or IB coordinator." Follows the EE decision
  * of 19 Aug rather than routing every mark through one person in March.
@@ -270,11 +300,11 @@ export async function adoptStudentTitle(cohortId: string, text: string) {
 export async function logInteraction(
   studentId: string,
   n: 1 | 2 | 3,
-  lineKey: string,
+  note: string,
   heldOn: string,
 ) {
   const { session } = await asMarker(studentId)
-  const r = await repo.tok.logInteraction(session.school.id, studentId, n, lineKey, heldOn, {
+  const r = await repo.tok.logInteraction(session.school.id, studentId, n, note, heldOn, {
     id: session.user.id, name: session.user.name,
   })
   if (r.ok) refresh()

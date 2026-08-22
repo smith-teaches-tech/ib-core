@@ -9,7 +9,9 @@ import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import type { EeRosterRow, SessionStage } from '@/lib/ee/types'
 import { subjectName } from '@/lib/ee/subjects'
-import { addSessionNote, assignSupervisor, recordSession, unlockFinal } from '@/lib/ee/actions'
+import {
+  addSessionNote, assignSupervisor, recordSession, returnFinal, unlockFinal,
+} from '@/lib/ee/actions'
 import type { EeAssignableStaff } from '@/lib/ee/types'
 import EeMarking from './EeMarking'
 import PaperReader from '../reader/PaperReader'
@@ -64,6 +66,10 @@ export default function EeRoster({
   mode?: 'process' | 'grade'
 }) {
   const [mineOnly, setMineOnly] = useState(false)
+  // The reader's return runs from here rather than from a nested component,
+  // because the message belongs above the reader where it can be read.
+  const [returnMsg, setReturnMsg] = useState<string | null>(null)
+  const [returning, startReturn] = useTransition()
   const unallocated = rows.filter((r) => r.supervisor?.acting).length
   // THE EE COORDINATOR MAY ALSO BE A SUPERVISOR (Michael, 20 Aug). They need
   // both views, so the full list gets a filter rather than a second screen.
@@ -98,6 +104,7 @@ export default function EeRoster({
         <p className="sub">
           {cohortLabel} · {paperRow?.studentName ?? ''}
         </p>
+        {returnMsg && <div className="note warn">{returnMsg}</div>}
         {/* THE STRIP IS ABOVE THE SWITCH ON PURPOSE. Changing candidate keeps
             the mode you are working in — six candidates in process mode in
             September, the same six in grading mode in February — so the mode
@@ -159,6 +166,7 @@ export default function EeRoster({
               // refuses to total one.
               total: sc.complete ? sc.total : null,
               comment: r.scoring?.comment ?? null,
+              returned: r.returned,
               locked: r.scoring?.releasedAt != null,
             }
           })}
@@ -167,6 +175,13 @@ export default function EeRoster({
           closeHref={listHref}
           editable={canWrite}
           canDownload={canDownload}
+          pending={returning}
+          onReturn={(studentId, note) =>
+            startReturn(async () => {
+              const res = await returnFinal(studentId, note)
+              setReturnMsg(res.ok ? null : res.message)
+            })
+          }
           paneWidth="wide"
           pane={
             paperRow ? (
@@ -813,6 +828,15 @@ function Work({
             )
           )}
         </>
+      ) : row.returned ? (
+        /* NOT THE SAME AS "not filed". This candidate filed something and it
+           went back — with a sentence, which is the thing the supervisor
+           standing here needs to be reminded they wrote. */
+        <div className="note warn" style={{ marginTop: 4 }}>
+          <b>Returned to the student</b> — {row.returned.fileName}, sent back by{' '}
+          {row.returned.byName}.
+          <div style={{ marginTop: 4 }}>{row.returned.note}</div>
+        </div>
       ) : (
         <p className="mut" style={{ margin: '4px 0 0' }}>
           Not filed. The viva stays locked until it is.

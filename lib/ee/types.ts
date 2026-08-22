@@ -3,6 +3,7 @@
 // §2, the rule that generalises to every module).
 
 import type { Id, StoredRef } from '../types'
+import type { ReturnView } from '../returns'
 
 /**
  * WHO SUPERVISES WHOM. One row per student per supervisor, history preserved.
@@ -130,6 +131,14 @@ export interface EeStudentView {
    * visible so a student knows it is coming — it is the writing that is gated.
    */
   rpfOpen: boolean
+  /**
+   * THE ESSAY CAME BACK, and nothing has been filed since (lib/returns.ts).
+   *
+   * Sits beside `final` rather than on it, because a returned essay HAS no
+   * final — the row went with the filing. This is what stops the screen drawing
+   * that as "never started".
+   */
+  returned: ReturnView | null
   /** The finished essay, if it has been filed. */
   final: EeFinal | null
   /** The reflection statement, once submitted. Locks on submission. */
@@ -159,6 +168,14 @@ export interface EeRosterRow {
    * worklist: these candidates need a supervisor found for them.
    */
   unsupportedSubjects: string[]
+  /**
+   * THE ESSAY CAME BACK, and nothing has been filed since (lib/returns.ts).
+   *
+   * Sits beside `final` rather than on it, because a returned essay HAS no
+   * final — the row went with the filing. This is what stops the screen drawing
+   * that as "never started".
+   */
+  returned: ReturnView | null
   /** The finished essay, so a supervisor can see it is in before the viva. */
   final: EeFinal | null
   /** Filed essays are locked; only an `items.unlock` holder reopens one. */

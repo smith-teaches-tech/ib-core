@@ -8,6 +8,7 @@
 import type { Course } from '../types'
 import type { IaCriterion } from '../templates'
 import type { FileView } from '../files'
+import type { ReturnView } from '../returns'
 
 export interface IaMarksRow {
   studentId: string
@@ -32,6 +33,16 @@ export interface IaMarksRow {
    * meant "what has been recorded", not "is there a ref".
    */
   file: FileView | null
+  /**
+   * THE RETURN THAT IS STILL OUTSTANDING, or null.
+   *
+   * Beside `file` rather than inside it, because it is about the ABSENCE of a
+   * file: it is only ever set when nothing is filed, and it says why nothing is
+   * filed. A row with `file: null` and no `returned` is a candidate who has not
+   * got round to it; one with `returned` is a candidate who was told to do it
+   * again, and the grid should not draw those the same.
+   */
+  returned: ReturnView | null
   /** exportStatus === 'submitted' on the mark state: typed into IBIS. */
   typed: boolean
   locked: boolean
@@ -65,6 +76,10 @@ export type MarkEventKind =
   // here, and who"). `pg` is a grade written; `pg_unlock` is a locked grade
   // opened for change, and carries the reason that was required to open it.
   | 'pg' | 'pg_unlock'
+  // A paper sent back with a note. NOT stored on this trail — ReturnEvent is
+  // the record (lib/returns.ts) and `listMarkEvents` folds it in on read, so
+  // the course's history is one list without the act being written twice.
+  | 'return'
 
 /**
  * One recorded change to a course's marks. Every write through the IA
@@ -102,6 +117,8 @@ export interface MarkEventRow {
   prev: string | number | null
   next: string | number | null
   overrideReason: string | null
+  /** The returned-with note, on a `return` row. Null on every other kind. */
+  note?: string | null
 }
 
 /**

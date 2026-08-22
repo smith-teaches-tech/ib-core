@@ -22,7 +22,10 @@ const POINT_LABEL: Record<string, string> = { p1: 'End Y1', p2: 'Jan Y2', p3: 'A
 const point = (k: string | null) => (k ? (POINT_LABEL[k] ?? k) : 'predicted grade')
 
 const what = (e: MarkEventRow) =>
-  e.kind === 'unlock' ? 'unlocked editing'
+  // The file, not a mark — so it reads as the file, and the note is quoted
+  // rather than summarised. The note IS the event.
+  e.kind === 'return' ? `returned ${val(e.prev)} with a note: “${e.note ?? ''}”`
+    : e.kind === 'unlock' ? 'unlocked editing'
     : e.kind === 'relock' ? 're-locked editing'
     : e.kind === 'transcribe' ? `typed into IBIS: ${val(e.prev)} → ${val(e.next)}`
     : e.kind === 'comment' ? `comment: ${val(e.prev)} → ${val(e.next)}`
@@ -42,7 +45,8 @@ export default function MarkHistory({ events }: { events: MarkEventRow[] }) {
         <b>Change history</b>{' '}
         <span className="mut">
           ({events.length} event{events.length === 1 ? '' : 's'} — every mark, predicted grade,
-          comment, transcription tick and unlock; nothing is ever edited or deleted)
+          comment, transcription tick, unlock and returned paper; nothing is ever edited or
+          deleted)
         </span>
       </summary>
       {events.length === 0 ? (

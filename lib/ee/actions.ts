@@ -148,6 +148,36 @@ export async function unlockFinal(studentId: string, reason: string) {
 }
 
 /**
+ * RETURN THE ESSAY, WITH A NOTE — the supervisor's own act.
+ *
+ * `unlockFinal` above is the COORDINATOR reopening a filing on request. This is
+ * a different act by a different person for a different reason: the marker has
+ * the paper open, it is the wrong file or it still has the candidate's name on
+ * it, and it goes back. Same gate as marking, because whoever may mark it is
+ * whoever may say it cannot be marked.
+ *
+ * REFUSED ONCE THE SCORE IS RELEASED. A released mark is out; sending the paper
+ * it was given for back would leave a mark on a record with nothing behind it.
+ * Revoke the release first — that act exists and is recorded.
+ */
+export async function returnFinal(studentId: string, note: string) {
+  const session = await marker(studentId)
+  const view = await repo.ee.getStudentView(session.school.id, studentId)
+  if (view?.releasedScore) {
+    return { ok: false, message: 'The score has been released. Revoke it before returning the essay.' }
+  }
+  try {
+    await repo.returns.returnWithNote(
+      session.school.id, studentId, 'ee.final', note, session.user.id,
+    )
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'That could not be returned.' }
+  }
+  refresh()
+  return { ok: true, message: null }
+}
+
+/**
  * May this person record a session for this student?
  *
  * The supervisor of record, or an `ee.manage` holder — the EE coordinator and
