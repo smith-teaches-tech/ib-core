@@ -969,7 +969,11 @@ table.eeroster tr.eedrawer td{background:#fafbfc}
 .eecheck{display:flex;align-items:flex-start;gap:8px;font-size:12.5px;margin-top:5px;cursor:pointer}
 .eecheck input{margin-top:2px}
 .eework{padding:10px 0;border-bottom:1px solid var(--line)}
-.eelinkrow{display:flex;align-items:center;gap:10px;margin-top:4px;font-size:12.5px}
+.eelinkrow{display:flex;align-items:center;gap:10px;margin-top:4px;font-size:12.5px;flex-wrap:wrap}
+/* The record moved into the reader's column on 22 Aug, which is narrower than
+   the full-width drawer it came from — so a row of file metadata wraps instead
+   of spilling out of the panel. */
+.eelinkrow > *{min-width:0}
 .eelinkrow-l{font-weight:600}
 .eecrit{padding:9px 0;border-bottom:1px solid var(--line)}
 .eecrit.shut{opacity:.55}

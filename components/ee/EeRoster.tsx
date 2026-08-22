@@ -51,7 +51,6 @@ export default function EeRoster({
   listHref?: string
   canDownload?: boolean
 }) {
-  const [open, setOpen] = useState<string | null>(null)
   const [mineOnly, setMineOnly] = useState(false)
   const unallocated = rows.filter((r) => r.supervisor?.acting).length
   // THE EE COORDINATOR MAY ALSO BE A SUPERVISOR (Michael, 20 Aug). They need
@@ -137,10 +136,34 @@ export default function EeRoster({
                     {paperRow.registration?.subjects.map(subjectName).join(' · ') ?? 'not registered'}
                   </span>
                 </div>
+                {/* WHAT THIS ESSAY IS — at the top, where TOK puts the prompt
+                    and the title. The research question is not part of the
+                    "record": it is the thing being marked, and a marker reading
+                    criterion A ("framework for the essay") is judging the essay
+                    AGAINST it. Burying it below the marks was the mistake. */}
+                {paperRow.registration ? (
+                  <div className="note" style={{ margin: '12px 14px 0' }}>
+                    <b>{paperRow.registration.title}</b>
+                    <div style={{ marginTop: 4 }}>{paperRow.registration.researchQuestion}</div>
+                  </div>
+                ) : (
+                  <div className="note warn" style={{ margin: '12px 14px 0' }}>
+                    Not registered — no subject, title or research question yet.
+                  </div>
+                )}
                 <div className="panel-b">
                   <EeMarking row={paperRow} canMark={canWrite} canRevoke={canRevoke} />
                 </div>
               </div>
+            ) : undefined
+          }
+          footer={
+            paperRow ? (
+              <CandidateRecord
+                row={paperRow}
+                canWrite={canWrite}
+                canUnlock={canUnlock}
+              />
             ) : undefined
           }
         />
@@ -206,6 +229,7 @@ export default function EeRoster({
                 <th>Supervisor</th>
                 <th>Subject</th>
                 <th>Sessions</th>
+                <th>Essay</th>
                 <th>Score</th>
                 <th style={{ textAlign: 'right' }}>Hrs</th>
                 <th style={{ textAlign: 'right' }}>In</th>
@@ -218,8 +242,6 @@ export default function EeRoster({
                   key={r.studentId}
                   row={r}
                   cohortId={cohortId}
-                  open={open === r.studentId}
-                  onToggle={() => setOpen(open === r.studentId ? null : r.studentId)}
                   canWrite={canWrite}
                   canAllocate={canAllocate}
                   canUnlock={canUnlock}
@@ -237,12 +259,10 @@ export default function EeRoster({
 }
 
 function Row({
-  row, cohortId, open, onToggle, canWrite, canAllocate, canUnlock, canRevoke, staff, paperBase,
+  row, cohortId, canWrite, canAllocate, canUnlock, canRevoke, staff, paperBase,
 }: {
   row: EeRosterRow
   cohortId: string
-  open: boolean
-  onToggle: () => void
   canWrite: boolean
   canAllocate: boolean
   canUnlock: boolean
@@ -251,18 +271,19 @@ function Row({
   /** Where the candidate's name points — the reader. Absent = no reader. */
   paperBase?: string
 }) {
+  const href = paperBase ? paperBase + row.studentId : null
   return (
     <>
-      <tr onClick={onToggle} style={{ cursor: 'pointer' }}>
-        {/* THE NAME OPENS THE ESSAY, the rest of the row opens the supervision
-            drawer. Two destinations on one row is the thing that went wrong on
-            the IA grid, so the name is a real link with its own affordance
-            rather than a click target that looks identical to its neighbours. */}
-        <td onClick={(e) => e.stopPropagation()}>
-          {paperBase ? (
+      {/* THE ROW DOES NOTHING. Its cells are doors — the name and the essay —
+          and everything that used to expand below it now opens with them.
+          A row that navigates and a row you type into cannot be the same rule,
+          and the IA grid has to type. So: cells are doors, rows are not. */}
+      <tr>
+        <td>
+          {href ? (
             <a
               className="candlink"
-              href={paperBase + row.studentId}
+              href={href}
               title={row.final ? `Read ${row.final.fileName}` : 'Open this candidate’s essay'}
             >
               <b>{row.studentName}</b>
@@ -273,8 +294,13 @@ function Row({
           )}
           {row.sessionNumber && <span className="mut"> · {row.sessionNumber}</span>}
         </td>
+        {/* ALLOCATION LIVES ON THE LIST, not in a candidate's record: it is
+            the coordinator's September job across twenty candidates at once,
+            and doing it one reader at a time would be twenty round trips. */}
         <td>
-          {row.supervisor ? (
+          {canAllocate ? (
+            <Allocate row={row} cohortId={cohortId} staff={staff} />
+          ) : row.supervisor ? (
             <>
               {row.supervisor.name}
               {row.supervisor.acting && <span className="pill grey">acting</span>}
@@ -313,6 +339,23 @@ function Row({
             />
           ))}
         </td>
+        {/* THE SECOND DOOR. Michael asked for name OR file, and the EE roster
+            had no file cell at all — the essay was only reachable through the
+            drawer that has just gone. */}
+        <td>
+          {href ? (
+            <a className="candlink" href={href}>
+              {row.final
+                ? <span className="mut">{row.final.submittedAt}</span>
+                : <span className="pill grey">not filed</span>}
+              <span className="filedoor-x">{row.final ? 'Read ›' : 'Open ›'}</span>
+            </a>
+          ) : row.final ? (
+            <span className="mut">{row.final.submittedAt}</span>
+          ) : (
+            <span className="pill grey">not filed</span>
+          )}
+        </td>
         <td>
           {row.scoring?.releasedAt ? (
             <span className="pill ok">{summariseScore(row.marks).total}</span>
@@ -330,57 +373,80 @@ function Row({
           {row.late > 0 ? <span className="pill bad">{row.late}</span> : <span className="mut">—</span>}
         </td>
       </tr>
-      {open && (
-        <tr className="eedrawer">
-          <td colSpan={8}>
-            <div className="eedrawer-in">
-              {row.registration ? (
-                <p style={{ marginTop: 0 }}>
-                  <b>{row.registration.title}</b>
-                  <br />
-                  <span className="mut">{row.registration.researchQuestion}</span>
-                </p>
-              ) : (
-                <p className="mut" style={{ marginTop: 0 }}>Not registered yet.</p>
-              )}
-
-              {/* THE WORK ITSELF. A drawer that summarises documents nobody can
-                  open is a summary, not a record — and Michael asked for the
-                  links and files in the first pass. */}
-              <Work row={row} canUnlock={canUnlock} />
-
-              {canAllocate && <Allocate row={row} cohortId={cohortId} staff={staff} />}
-
-              {SESSIONS.map((s) => {
-                const held = row.sessions.find((x) => x.stage === s.stage)
-                const notes = row.notes.filter((n) => n.stage === s.stage)
-                return (
-                  <SessionRow
-                    key={s.stage}
-                    studentId={row.studentId}
-                    stage={s.stage}
-                    label={s.label}
-                    heldOn={held?.heldOn ?? null}
-                    onBehalf={held?.onBehalf}
-                    notes={notes}
-                    canWrite={canWrite}
-                  />
-                )
-              })}
-
-              {/* MARKING MOVED TO THE READER on 22 Aug — it belongs beside the
-                  essay, not underneath a list of meetings. What is left here is
-                  the supervision record, which is what this drawer is for. */}
-              {row.final && paperBase && (
-                <a className="btn sm pri" href={paperBase + row.studentId}>
-                  Read and mark the essay ›
-                </a>
-              )}
-            </div>
-          </td>
-        </tr>
-      )}
     </>
+  )
+}
+
+/**
+ * THE CANDIDATE'S RECORD — what used to be the roster drawer.
+ *
+ * Michael, 22 Aug: "Clicking outside name expands to show progress… we need to
+ * make this more clear." The row had two destinations that looked identical,
+ * which is the bug we had just fixed on the IA grid.
+ *
+ * ONE DOOR was the answer rather than a clearer second one. A supervisor does
+ * not want the sessions INSTEAD of the essay; they want them beside it. The
+ * attestation makes the case on its own: the marking pane asks a supervisor to
+ * tick "I held the required reflection sessions", and until now the sessions
+ * themselves were behind a different click. An attestation made with its
+ * evidence off-screen is worse than an extra scroll.
+ *
+ * So: the name or the essay opens the reader, the row itself does nothing, and
+ * there is no drawer left anywhere in the product. ALLOCATION is the one thing
+ * that went the other way — onto the list row — because it is a coordinator's
+ * September job across twenty candidates, not something done while reading one.
+ */
+function CandidateRecord({
+  row, canWrite, canUnlock,
+}: {
+  row: EeRosterRow
+  canWrite: boolean
+  canUnlock: boolean
+}) {
+  return (
+    <div className="panel" style={{ marginTop: 14 }}>
+      <div className="panel-h">
+        <h2>How it got here</h2>
+        <span className="spacer" />
+        <span className="mut" style={{ fontSize: 11.5 }}>
+          {row.done} of {row.total} in{row.late > 0 ? ` · ${row.late} late` : ''}
+        </span>
+      </div>
+      <div className="panel-b">
+        <div className="eedrawer-in">
+          {/* TWO KINDS OF THING, and they are labelled as two rather than run
+              together: the DOCUMENTS the candidate produced on the way, and the
+              THREE CONVERSATIONS the supervisor is about to attest to having
+              held. Michael, 22 Aug: "is that right though? to see everything…
+              one drawer for all". No — the research question went up beside the
+              marks where it is used, and what is left is process evidence. */}
+          {/* `Work` brings its own headings — "Process documents" and
+              "Finished essay" — so adding a third above them would be a
+              heading about headings. */}
+          <Work row={row} canUnlock={canUnlock} />
+
+          <span className="caps" style={{ display: 'block', marginTop: 16 }}>
+            Reflection sessions
+          </span>
+          {SESSIONS.map((s) => {
+            const held = row.sessions.find((x) => x.stage === s.stage)
+            const notes = row.notes.filter((n) => n.stage === s.stage)
+            return (
+              <SessionRow
+                key={s.stage}
+                studentId={row.studentId}
+                stage={s.stage}
+                label={s.label}
+                heldOn={held?.heldOn ?? null}
+                onBehalf={held?.onBehalf}
+                notes={notes}
+                canWrite={canWrite}
+              />
+            )
+          })}
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -571,23 +637,12 @@ function Allocate({
   row: EeRosterRow
   cohortId: string
   staff: EeAssignableStaff[]
-  /**
-   * THE READER, same as the IA grid's (IB-Reading-and-Marking-Papers.md §3).
-   * A student id renders the essay with the marking pane beside it instead of
-   * the roster; null renders the roster. It comes off the URL, so the page owns
-   * it and this component never has to keep it in sync.
-   */
-  paperFor?: string | null
-  paperBase?: string
-  listHref?: string
-  canDownload?: boolean
 }) {
   const [pending, start] = useTransition()
   const current = row.supervisor?.acting ? '' : row.supervisor?.userId ?? ''
 
   return (
-    <div className="eework">
-      <span className="caps">Supervisor</span>
+    <>
       <div className="row" style={{ marginTop: 4 }}>
         <select
           value={current}
@@ -610,7 +665,7 @@ function Allocate({
         Reassigning ends the current allocation rather than editing it — whoever held the earlier
         sessions stays named on them.
       </p>
-    </div>
+    </>
   )
 }
 
