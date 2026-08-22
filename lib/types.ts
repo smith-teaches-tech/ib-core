@@ -112,6 +112,21 @@ export interface RequirementDef {
   order: number
   recordedBy: 'student' | 'staff' | 'coordinator'
   artifact: 'file' | 'text' | 'link' | 'mark' | 'none'
+  /**
+   * WHAT THIS COMPONENT ACCEPTS — mime types, copied off the course template at
+   * def-creation time exactly as `criteria` is, so the def stays self-contained
+   * and immutable.
+   *
+   * It exists so that nobody maintains a list: a Language B individual oral asks
+   * for audio because its template says so, and an IA asks for a PDF because
+   * its template says so. A `.docx` in an eCoursework pack is a non-submission
+   * rather than a formatting nit, which is why the refusal is at upload rather
+   * than a warning in April (IB-Reading-and-Marking-Papers.md §4, state 4).
+   *
+   * Absent on defs that take no file, and on defs created before this existed —
+   * absent means "anything", not "nothing".
+   */
+  accepts?: string[]
   markMax?: number
   /**
    * For `artifact: 'mark'` recorded at criterion grain (IA marks): the rubric,
@@ -201,12 +216,63 @@ export type ExportStatus =
   | 'ready_for_authentication' | 'ready_for_submission' | 'submitted'
   | 'error' | 'non_submission' | 'academic_misconduct'
 
+/**
+ * THE RECORD OF A FILE — moved into the spine on 22 Aug.
+ *
+ * It lived in lib/storage.ts, next to the adapter that mints it, for as long as
+ * CAS evidence was the only thing in the product with a file attached. It is
+ * spine data now, because `Artifact` carries one: what a candidate uploaded, of
+ * what type and what size, under what opaque key, is part of the record and
+ * survives every adapter. lib/storage.ts re-exports it, so nothing that already
+ * imports it from there had to change.
+ */
+export interface StoredRef {
+  id: string
+  name: string
+  /**
+   * WHAT THE STUDENT CALLED IT — required on audio and video, optional on a
+   * photo. Nobody should have to name eleven pictures of a bake sale, but a
+   * coordinator scanning a portfolio of `IMG_4821.mov` is looking at a folder
+   * rather than a record. See IB-CAS-Phone-Build-Plan.md §3A.1.
+   */
+  title?: string
+  mime: string
+  bytes: number
+  /** Opaque to the app. A local path today is a bucket key tomorrow. */
+  key: string
+  addedAt: string
+}
+
 export interface Artifact {
   id: Id
   kind: 'file' | 'text' | 'link'
   label: string
   href?: string
   body?: string
+  /**
+   * THE FILE ITSELF, on a `kind: 'file'` artifact.
+   *
+   * Until 22 Aug a file artifact was a bare filename in `label` and nothing in
+   * the product read it — the box on the board went green and the essay behind
+   * it could not be opened, which is the hole IB-Reading-and-Marking-Papers.md
+   * was written to close. A real ref means one component (MediaViewer) can show
+   * any of them, and the day storage is connected the same records start
+   * playing with no screen change.
+   *
+   * Optional rather than required so that a state written before this existed
+   * still type-checks and still renders — as a file whose bytes were never
+   * recorded, which is the truth about it.
+   */
+  file?: StoredRef
+  /** Who put it there, by name — the header of every file says so. */
+  addedBy?: string
+  /**
+   * Set when a later upload replaced this one. THE OLD FILE IS KEPT: a returned
+   * or replaced paper is superseded, never deleted (IB-Student-Work-Files.md
+   * §8), because "which version did the supervisor read" is a question that
+   * gets asked a year later.
+   */
+  supersededAt?: string
   addedAt: string
 }
 

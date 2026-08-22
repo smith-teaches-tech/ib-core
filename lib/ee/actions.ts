@@ -9,6 +9,7 @@ import { repo } from '../data'
 import { getSession } from '../session'
 import { assertLiveCohort } from '../cohorts'
 import { anonymityPreflight, preflightPasses } from '../anonymity'
+import { acceptsIn, formatRefusal } from '../accepts'
 import { storage } from '../storage'
 import { EE_CRITERIA, WORD_LIMIT } from './rubric'
 import {
@@ -117,11 +118,13 @@ export async function submitFinal(
   if (!file?.name) return { ok: false, message: 'Choose the PDF to file.' }
   // The IB takes a PDF, and a .docx filed here would be found in April by a
   // coordinator building the upload pack, which is the worst time to find it.
-  const isPdf = file.mime === 'application/pdf' || /\.pdf$/i.test(file.name)
-  if (!isPdf) return { ok: false, message: 'The finished essay has to be a PDF.' }
+  // The list of what is taken comes off the requirement def (`accepts`), not
+  // off a regex in this file — see lib/accepts.ts.
+  const refusal = formatRefusal(acceptsIn(track, 'ee.final'), file)
+  if (refusal) return { ok: false, message: refusal }
 
   const ref = await storage.put(file, { schoolId: session.school.id, studentId })
-  await repo.ee.submitFinal(session.school.id, studentId, ref.name, declaredWords, ref.key, ref.bytes)
+  await repo.ee.submitFinal(session.school.id, studentId, ref.name, declaredWords, ref)
   refresh()
   return { ok: true, message: null }
 }

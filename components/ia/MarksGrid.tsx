@@ -1,6 +1,6 @@
 'use client'
 
-// THE ONE MARKS GRID, worn two ways.
+// THE ONE MARKS GRID, worn two ways — and, since 22 Aug, in two SHAPES.
 //
 //   editable   — the designated marker's entry screen, on their own course page.
 //                Criterion cells are inputs; the total derives as they type.
@@ -13,9 +13,25 @@
 // IBIS asks for marks twice (totals for everyone, criterion breakdown for the
 // moderation sample). Recording at criterion grain here answers both asks with
 // one recording — see claude/IB-IA-Marks-Spec.md.
+//
+// THE MORPH. Open a File cell and this component renders the READER instead of
+// the table: the paper on the left, that candidate's criteria on the right, the
+// cohort along the top in session order. Close it and the table is back.
+//
+// It is ONE COMPONENT rather than two screens on purpose, and the reason is not
+// tidiness (IB-Reading-and-Marking-Papers.md §1): two screens holding the same
+// marks is two places a mark can be, and sooner or later somebody says "I put
+// them in the grading screen". There is one record, so there is one screen.
+//
+// THE STATE IS THE URL (`&paper=<studentId>`), not React state — so the back
+// button works, a reload lands where you were, and a link to a paper is a link
+// to a paper. `&candidate=` was already taken by the whole-student side panel
+// that the NAME column opens, and the two are different doors: the row opens
+// the candidate, the file cell opens the paper.
 
 import Link from 'next/link'
 import { useEffect, useState, useTransition } from 'react'
+import PaperReader from '../reader/PaperReader'
 import * as ia from '@/lib/ia/actions'
 import type { IaMarksView } from '@/lib/ia/types'
 
@@ -45,6 +61,10 @@ export default function MarksGrid({
   canTranscribe,
   readOnlyReason,
   candidateBase,
+  paperFor,
+  paperBase,
+  gridHref,
+  canDownload = false,
 }: {
   view: IaMarksView
   editable: boolean
@@ -52,6 +72,18 @@ export default function MarksGrid({
   canTranscribe: boolean
   /** Set when the cohort is archived — explains why nothing is editable. */
   readOnlyReason?: string
+  /**
+   * THE MORPH. A student id renders the reader over this candidate's paper
+   * instead of the table; null renders the table. It comes off the URL, so the
+   * page decides it and this component never has to keep it in sync.
+   */
+  paperFor?: string | null
+  /** Where a File cell points: `paperBase + studentId`. Absent = no reader. */
+  paperBase?: string
+  /** Back to the table. */
+  gridHref?: string
+  /** Downloading someone's coursework is a capability, here as everywhere. */
+  canDownload?: boolean
   /**
    * When set, candidate names link to `candidateBase + studentId` — the
    * whole-student side panel, same pattern as the board. A STRING, not a
@@ -106,6 +138,62 @@ export default function MarksGrid({
   const mean = withTotals.length
     ? (withTotals.reduce((a, r) => a + (r.total ?? 0), 0) / withTotals.length).toFixed(1)
     : '—'
+
+  // ---- THE READER ---------------------------------------------------------
+  // Rendered INSTEAD OF the panel below. Everything it writes goes through the
+  // same two actions the grid uses, onto the same record — which is the whole
+  // point of not having built a second screen.
+  if (paperFor && paperBase && gridHref) {
+    return (
+      <>
+        {error && <div className="note warn" style={{ marginBottom: 12 }}>{error}</div>}
+        <PaperReader
+          title={view.component}
+          criteria={view.criteria}
+          markMax={view.markMax}
+          guide={view.guide}
+          accepts={view.accepts}
+          exportsToIb={view.exportsToIb}
+          candidates={view.rows.map((r) => ({
+            studentId: r.studentId,
+            name: r.name,
+            sessionNumber: r.sessionNumber,
+            file: r.file,
+            criterionMarks: r.criterionMarks,
+            mark: r.mark,
+            total: r.total,
+            comment: r.comment,
+            locked: r.locked,
+          }))}
+          currentId={paperFor}
+          hrefFor={(id) => paperBase + id}
+          closeHref={gridHref}
+          editable={editable}
+          canDownload={canDownload}
+          pending={pending}
+          onScore={(studentId, index, value) =>
+            run(() => ia.setCriterionMark(view.course.id, view.cohortId, studentId, index, value))
+          }
+          onComment={(studentId, text) =>
+            run(() => ia.setComment(view.course.id, view.cohortId, studentId, text))
+          }
+          footer={
+            view.verify ? (
+              <div className="note gold">
+                <b>Check this rubric:</b> {view.verify} <span className="mut">({view.guide})</span>
+              </div>
+            ) : (
+              <div className="note gold">
+                <b>The descriptors are not in here, on purpose for now.</b> Each criterion&rsquo;s
+                label and maximum came off the guides; the best-fit descriptor paragraphs are not in
+                the data yet. A wrong descriptor shown confidently is worse than no descriptor.
+              </div>
+            )
+          }
+        />
+      </>
+    )
+  }
 
   const download = () => {
     const blob = new Blob([csvOf(view)], { type: 'text/csv' })
@@ -279,11 +367,34 @@ export default function MarksGrid({
                     </td>
                   )}
 
-                  <td className="lanesep">
-                    <i
-                      className={`cellbox ${r.fileDisplay === 'not_started' ? '' : r.fileDisplay}`}
-                      title={r.fileDisplay === 'done' ? 'Final file uploaded' : r.fileDisplay === 'partial' ? 'In progress' : 'No file uploaded'}
-                    />
+                  {/* THE FILE CELL IS THE DOOR (§1). Not the row — the row
+                      already opens the candidate's whole file through the name
+                      link, and that stays. This is where "there is a PDF here"
+                      is already said, so it is where "show me" belongs. An
+                      EMPTY cell opens the reader too: the marking side works
+                      for a teacher who marked from a paper copy. */}
+                  <td className="lanesep filecell">
+                    {paperBase ? (
+                      <a
+                        href={paperBase + r.studentId}
+                        className="filedoor"
+                        title={
+                          r.file
+                            ? `Read ${r.file.ref.name}`
+                            : 'No file uploaded — opens the reader anyway'
+                        }
+                      >
+                        <i
+                          className={`cellbox ${r.fileDisplay === 'not_started' ? '' : r.fileDisplay}`}
+                        />
+                        <span className="filedoor-x">{r.file ? 'Read ›' : 'Open ›'}</span>
+                      </a>
+                    ) : (
+                      <i
+                        className={`cellbox ${r.fileDisplay === 'not_started' ? '' : r.fileDisplay}`}
+                        title={r.fileDisplay === 'done' ? 'Final file uploaded' : r.fileDisplay === 'partial' ? 'In progress' : 'No file uploaded'}
+                      />
+                    )}
                     {r.total != null && r.fileDisplay !== 'done' && (
                       <div><span className="pill warn" style={{ fontSize: 10 }}>no file</span></div>
                     )}

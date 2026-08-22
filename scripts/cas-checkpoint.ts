@@ -57,6 +57,8 @@ import { canRelease, promptDistribution, releaseBlockers as tokReleaseBlockers, 
 import { canSign, composeTeacherComment, signBlockers, signWarnings } from '../lib/tok/ppf'
 import { TOK_PPF } from '../lib/data/fixtures'
 import { iaTotal, templateOf } from '../lib/templates'
+import { AUDIO_ONLY, PDF_ONLY, accepted, acceptsIn, describeAccepts, formatRefusal } from '../lib/accepts'
+import { fileOf, filesOf } from '../lib/files'
 
 const fail: string[] = []
 const check = (ok: boolean, msg: string) => {
@@ -1962,10 +1964,14 @@ async function main() {
     'the automatic name-and-school scan reports WAITING, and waiting never blocks — the student is not to blame for storage',
   )
 
-  await repo.ee.submitFinal('dhahran', pdfStudent, 'Al-Rashid_EE.pdf', 3842, 'stub://ee/1', 812_400)
+  const eeRef1 = {
+    id: 'sr_ee_1', name: 'Al-Rashid_EE.pdf', mime: 'application/pdf', bytes: 812_400,
+    key: 'stub://ee/1', addedAt: '2026-08-22',
+  }
+  await repo.ee.submitFinal('dhahran', pdfStudent, 'Al-Rashid_EE.pdf', 3842, eeRef1)
   const filedNow = (await repo.ee.getStudentView('dhahran', pdfStudent))!
   check(
-    filedNow.final?.storageKey === 'stub://ee/1' && filedNow.final?.bytes === 812_400,
+    filedNow.final?.ref?.key === 'stub://ee/1' && filedNow.final?.ref?.bytes === 812_400,
     'the StorageAdapter ref and the file size are recorded even while the bytes go nowhere — the record of the upload is real',
   )
   check(
@@ -1986,7 +1992,9 @@ async function main() {
     reopened.finalLocked === false && reopened.final?.unlockReason === 'Wrong file uploaded.',
     'an items.unlock holder can reopen it, and the typed reason is kept on the record',
   )
-  await repo.ee.submitFinal('dhahran', pdfStudent, 'Al-Rashid_EE_v2.pdf', 3844, 'stub://ee/2', 815_000)
+  await repo.ee.submitFinal('dhahran', pdfStudent, 'Al-Rashid_EE_v2.pdf', 3844, {
+    ...eeRef1, id: 'sr_ee_2', name: 'Al-Rashid_EE_v2.pdf', key: 'stub://ee/2', bytes: 815_000,
+  })
   const refiled = (await repo.ee.getStudentView('dhahran', pdfStudent))!
   check(
     refiled.finalLocked === true && refiled.final?.unlockReason === 'Wrong file uploaded.',
@@ -2566,7 +2574,12 @@ async function main() {
   )
 
   await repo.tok.submitFile('dhahran', tokC15.userId, 'exh', {
-    fileName: 'Ahmed_TOK Exhibition_May 27.pdf', declaredWords: 934, storageKey: 'stub://tok/1', bytes: 402_100,
+    fileName: 'Ahmed_TOK Exhibition_May 27.pdf',
+    declaredWords: 934,
+    ref: {
+      id: 'sr_tok_1', name: 'Ahmed_TOK Exhibition_May 27.pdf', mime: 'application/pdf',
+      bytes: 402_100, key: 'stub://tok/1', addedAt: '2026-08-22',
+    },
   })
   const tokAfter = (await repo.tok.getStudentView('dhahran', tokC15.userId))!
   check(
@@ -2574,7 +2587,7 @@ async function main() {
     'FILING IS WHAT LOCKS IT — there is no separate lock button, here or in EE',
   )
   check(
-    TOK_FILES.some((f) => f.studentId === tokC15.userId && f.storageKey === 'stub://tok/1' && f.bytes === 402_100),
+    TOK_FILES.some((f) => f.studentId === tokC15.userId && f.ref?.key === 'stub://tok/1' && f.ref?.bytes === 402_100),
     'and the storage ref and size are recorded even while the bytes go nowhere — the record of the upload is real',
   )
   const tokLane = (await repo.getTrack('dhahran', tokC15.userId))!.lanes.find((l) => l.lane === 'TOK')!
@@ -3097,6 +3110,168 @@ async function main() {
   check(
     eeEssayJob.rows.some((r) => /_ee_[a-z-]+\.pdf$/.test(r.fileName) && !r.fileName.endsWith('_ee_essay.pdf')),
     'and a registered EE names its subject rather than falling back to the word "essay"',
+  )
+
+
+  // =========================================================================
+  // READING A PAPER, AND MARKING IT BESIDE THE PAPER
+  // claude/IB-Reading-and-Marking-Papers.md — build steps 1, 2 and 4.
+  // =========================================================================
+
+  console.log('\n18. Reading a paper — files are real objects, and every file def says what it accepts')
+
+  const fileDefs = REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15' && d.artifact === 'file')
+  check(
+    fileDefs.length > 0 && fileDefs.every((d) => d.accepts != null && d.accepts.length > 0),
+    'every requirement that takes a file says what it accepts — EE, both TOK components and every subject IA',
+  )
+  const bioFileDef = fileDefs.find((d) => d.key === 'bio_sl.file')!
+  check(
+    bioFileDef.accepts?.includes('application/pdf') === true,
+    'a scientific investigation asks for a PDF, because that is what eCoursework receives',
+  )
+  const oralDef = fileDefs.find(
+    (d) => templateOf(COURSES.find((c) => c.id === d.key.replace('.file', ''))?.iaTemplateKey).key
+      === 'lang_b_io',
+  )
+  check(
+    oralDef != null && oralDef.accepts?.some((a) => a.startsWith('audio/')) === true,
+    'and a Language B individual oral asks for AUDIO — off the course template, with nobody maintaining a list of screens',
+  )
+
+  check(
+    formatRefusal(PDF_ONLY, { name: 'essay-final.docx', mime: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' })
+      ?.includes('File → Download → PDF') === true,
+    'a .docx is REFUSED where the IB receives a PDF, and the refusal names the four clicks that fix it rather than saying "wrong format"',
+  )
+  check(
+    accepted(PDF_ONLY, { name: 'ia.pdf', mime: 'application/octet-stream' }),
+    'but a real PDF whose mime the browser could not name is still accepted — refusing on mime alone would refuse real work',
+  )
+  check(
+    accepted(AUDIO_ONLY, { name: 'oral.m4a', mime: 'audio/x-m4a' }) &&
+      formatRefusal(AUDIO_ONLY, { name: 'oral.pdf', mime: 'application/pdf' }) != null,
+    'an oral takes a recording and refuses a PDF — the same one rule, read the other way round',
+  )
+  check(
+    accepted(undefined, { name: 'anything.zip', mime: 'application/zip' }),
+    'a def with no accepts fails OPEN — absent means "anything", never "nothing", so a def written before this existed still works',
+  )
+  check(
+    describeAccepts(PDF_ONLY) === 'a PDF' && describeAccepts(AUDIO_ONLY) === 'an audio recording',
+    'and what is accepted is said in words a student reads, not in mime types',
+  )
+  const anyTrack = (await repo.getTrack('dhahran', STUDENTS.find((s) => s.cohortId === 'c15')!.userId))!
+  check(
+    acceptsIn(anyTrack, 'ee.final')?.includes('application/pdf') === true,
+    'the upload action reads `accepts` off the DEF through the track it already fetched — so work filed under one session’s rules keeps being read under them',
+  )
+
+  console.log('\n18b. A file artifact is a RECORD, not a filename')
+
+  const seededFiles = REQUIREMENT_STATES
+    .filter((st) => st.artifacts.some((a) => a.kind === 'file'))
+    .flatMap((st) => st.artifacts.filter((a) => a.kind === 'file'))
+  check(
+    seededFiles.length > 0 && seededFiles.every((a) => a.file != null),
+    'EVERY seeded file artifact carries a real StoredRef — before this a green box on the board had a filename behind it and no file',
+  )
+  check(
+    seededFiles.every((a) => a.file!.bytes > 0 && a.file!.mime.length > 0 && a.file!.key.length > 0),
+    'with a size, a type and an opaque key — the three things MediaViewer needs to say something honest while the bytes go nowhere',
+  )
+  check(
+    seededFiles.some((a) => /_v3\.pdf$|^IA_final|-final\.pdf$/i.test(a.file!.name)),
+    'and the fixtures use the names STUDENTS give files, because "IA_final_v3.pdf" is exactly the problem the reader exists to solve',
+  )
+  // FIXTURES NEVER LIE — and a seeded .pdf against a component that receives
+  // audio would be a fixture lying about a component.
+  const oralStates = REQUIREMENT_STATES.filter((st) => {
+    const d = REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)
+    return d?.accepts?.some((a) => a.startsWith('audio/')) === true
+  }).flatMap((st) => st.artifacts.filter((a) => a.kind === 'file'))
+  check(
+    oralStates.length > 0 && oralStates.every((a) => a.file!.mime.startsWith('audio/')),
+    'and an individual oral is seeded as a RECORDING, not a PDF — the fixture follows the def’s accepts rather than assuming everything is a paper',
+  )
+
+  console.log('\n18c. The old file is kept, superseded, not deleted')
+
+  const supStudent = STUDENTS.find((s) => s.cohortId === 'c15' && s.sessionNumber != null)!.userId
+  const supDef = REQUIREMENT_DEFS.find((d) => d.cohortId === 'c15' && d.key === 'ee.final')!
+  await repo.ee.submitFinal('dhahran', supStudent, 'first.pdf', 3000, {
+    id: 'sr_a', name: 'first.pdf', mime: 'application/pdf', bytes: 111_000, key: 'k/a', addedAt: '2026-08-22',
+  })
+  await repo.ee.unlockFinal('dhahran', supStudent, 'u_msmith', 'Michael Smith', 'Wrong file.')
+  await repo.ee.submitFinal('dhahran', supStudent, 'second.pdf', 3010, {
+    id: 'sr_b', name: 'second.pdf', mime: 'application/pdf', bytes: 112_000, key: 'k/b', addedAt: '2026-08-22',
+  })
+  const supState = REQUIREMENT_STATES.find(
+    (st) => st.studentId === supStudent && st.requirementDefId === supDef.id,
+  )!
+  check(
+    fileOf(supState)?.ref.name === 'second.pdf',
+    'the CURRENT file is the newest one that has not been superseded — one function, so no screen picks its own',
+  )
+  check(
+    filesOf(supState).some((f) => f.ref.name === 'first.pdf' && f.supersededAt != null),
+    'and the replaced paper is still there, marked superseded — "which version did the supervisor read" is asked a year later',
+  )
+  check(
+    new Set(supState.artifacts.map((a) => a.id)).size === supState.artifacts.length,
+    'and each version has its own id — refiling twice in one day is exactly what "wrong file, try again" looks like, so the id carries the ref rather than the date',
+  )
+
+  console.log('\n18d. The reader morph — one screen, two shapes')
+
+  const readerView = (await repo.ia.getMarksView('dhahran', 'bio_sl', 'c15'))!
+  check(
+    readerView.rows.every((r) => 'file' in r),
+    'the marks view carries the PAPER, not just a box colour — the grid and the reader read one row',
+  )
+  check(
+    readerView.exportsToIb === true && readerView.accepts?.includes('application/pdf') === true,
+    'and it carries what the def says: this file goes to eCoursework, as a PDF',
+  )
+  const sessionOrder = readerView.rows
+    .map((r) => r.sessionNumber)
+    .filter((n): n is string => n != null)
+  check(
+    sessionOrder.every((n, i) => i === 0 || sessionOrder[i - 1] <= n),
+    'the candidate strip is the grid’s own order — session number, the order IBIS lists candidates — so moving between grid and paper never means finding your place again',
+  )
+  const noFileMarked = REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15' && d.key.endsWith('.mark'))
+    .length > 0 &&
+    (await Promise.all(
+      COURSES.filter((c) => c.type === 'subject').slice(0, 12).map((c) =>
+        repo.ia.getMarksView('dhahran', c.id, 'c15'),
+      ),
+    )).some((v) => v?.rows.some((r) => r.total != null && r.file == null))
+  check(
+    noFileMarked,
+    'the fixtures contain a candidate MARKED WITH NO FILE — the dangerous one, and a state a screen only ever drawn against a finished candidate would never show',
+  )
+
+  // VIEWING IS VIEWING. Michael, 22 Aug: "no. viewing is viewing." A screen
+  // that records who looked at what becomes a screen people perform at, so the
+  // guard is an assertion rather than a comment.
+  const eventsBeforeRead = MARK_EVENTS.length
+  await repo.ia.getMarksView('dhahran', 'bio_sl', 'c15')
+  await repo.ia.getMarksView('dhahran', 'bio_sl', 'c15')
+  check(
+    MARK_EVENTS.length === eventsBeforeRead,
+    'opening a paper records NOTHING — no "seen by", no count, nothing on the export board. Viewing is viewing',
+  )
+
+  const readerRpfDef = REQUIREMENT_DEFS.find((d) => d.cohortId === 'c15' && d.key === 'ee.rpf')!
+  check(
+    readerRpfDef.markMax == null && readerRpfDef.artifact !== 'mark',
+    'the EE reflection statement carries NO MARK — the case that proves the reader generalises, because "check it is the right file" has to work for things nobody grades',
+  )
+  const exhMarkDef = REQUIREMENT_DEFS.find((d) => d.cohortId === 'c15' && d.key === 'tok.exhmark')!
+  check(
+    exhMarkDef.markMax === 10 && exhMarkDef.criteria == null,
+    'and the TOK exhibition is one total out of ten with no criteria — the right-hand side is derived from the requirement, never invented per module',
   )
 
   console.log('\n' + '='.repeat(60))

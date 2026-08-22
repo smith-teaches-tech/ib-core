@@ -7,9 +7,11 @@
 
 import type {
   Artifact, Cohort, Course, Deadline, Enrollment, LibraryDocument, Membership,
-  RequirementDef, RequirementState, School, Section, Student,
+  RequirementDef, RequirementState, School, Section, StoredRef, Student,
   TeachingAssignment, User,
 } from '../types'
+import { fileArtifact, fileOf, supersede } from '../files'
+import { PDF_ONLY } from '../accepts'
 import type { Repository } from './repository'
 import { buildTrack, coursesOf, requirementsFor } from '../spine'
 import { buildBoard } from '../board'
@@ -431,7 +433,7 @@ function buildDefs(cohortId: string): RequirementDef[] {
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r1', label: 'Reflection session 1', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.draft', label: 'Full draft', lane: 'Extended Essay', recordedBy: 'student', artifact: 'link' }),
     def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.r2', label: 'Reflection session 2', lane: 'Extended Essay', recordedBy: 'staff', artifact: 'text' }),
-    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.final', label: 'Final essay', lane: 'Extended Essay', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
+    def({ scope: { kind: 'course', courseId: 'ee' }, key: 'ee.final', label: 'Final essay', lane: 'Extended Essay', recordedBy: 'student', artifact: 'file', accepts: PDF_ONLY, exportTarget: 'ecoursework' }),
     // THE VIVA CANNOT PRECEDE THE FINISHED ESSAY. Michael, 20 Aug: the final
     // PDF goes in BEFORE the viva so the supervisor can prepare for it, and the
     // PDF is what stops the paper changing on either side of that conversation.
@@ -451,14 +453,14 @@ function buildDefs(cohortId: string): RequirementDef[] {
 
   const tokDefs: RequirementDef[] = [
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.prompt', label: 'Exhibition prompt chosen', lane: 'TOK', recordedBy: 'student', artifact: 'text' }),
-    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.exh', label: 'Exhibition', lane: 'TOK', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.exh', label: 'Exhibition', lane: 'TOK', recordedBy: 'student', artifact: 'file', accepts: PDF_ONLY, exportTarget: 'ecoursework' }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.exhmark', label: 'Exhibition mark', lane: 'TOK', recordedBy: 'staff', artifact: 'mark', markMax: TOK_MARK_MAX }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.title', label: 'Title chosen', lane: 'TOK', recordedBy: 'student', artifact: 'text' }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf1', label: 'TK/PPF 1', lane: 'TOK', recordedBy: 'student', artifact: 'text' }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf2', label: 'TK/PPF 2', lane: 'TOK', recordedBy: 'student', artifact: 'text', opensAfter: 'tok.ppf1' }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppf3', label: 'TK/PPF 3', lane: 'TOK', recordedBy: 'student', artifact: 'text', opensAfter: 'tok.ppf2' }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.ppfsign', label: 'TK/PPF signed off', lane: 'TOK', recordedBy: 'staff', artifact: 'none', opensAfter: 'tok.ppf3' }),
-    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.essay', label: 'Final essay', lane: 'TOK', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
+    def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.essay', label: 'Final essay', lane: 'TOK', recordedBy: 'student', artifact: 'file', accepts: PDF_ONLY, exportTarget: 'ecoursework' }),
     def({ scope: { kind: 'course', courseId: 'tok' }, key: 'tok.essaymark', label: 'Predicted essay mark', lane: 'TOK', recordedBy: 'staff', artifact: 'mark', markMax: TOK_MARK_MAX }),
   ]
 
@@ -476,7 +478,7 @@ function buildDefs(cohortId: string): RequirementDef[] {
   const subjectDefs: RequirementDef[] = COURSES.filter((c) => c.type === 'subject').flatMap((c) => {
     const t = templateOf(c.iaTemplateKey)
     return [
-      def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.file', label: `${c.name} — ${t.component}`, lane: 'Internal assessment', recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework' }),
+      def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.file', label: `${c.name} — ${t.component}`, lane: 'Internal assessment', recordedBy: 'student', artifact: 'file', accepts: t.accepts, exportTarget: 'ecoursework' }),
       def({
         scope: { kind: 'course', courseId: c.id }, key: c.id + '.mark', label: c.name + ' — mark',
         lane: 'Internal assessment', recordedBy: 'staff', artifact: 'mark',
@@ -541,8 +543,93 @@ export const REQUIREMENT_DEFS: RequirementDef[] = pinned('ibRequirementDefs', ()
 // Recorded states — deliberately partial, like a real cohort mid-year
 // ---------------------------------------------------------------------------
 
-const ART = (label: string): Artifact[] => [
-  { id: label, kind: 'file', label, addedAt: '2026-08-01' },
+/**
+ * A FIXTURE FILE, as a real record.
+ *
+ * Until 22 Aug this returned `{ kind: 'file', label }` and nothing in the
+ * product read it — the board's green box had a filename behind it and no file.
+ * It now mints a real StoredRef, so the reader, the chip and MediaViewer all
+ * have something honest to show while storage is stubbed.
+ *
+ * THE SIZE IS DERIVED FROM THE NAME, not drawn: adding a draw here would shift
+ * every lane seeded after it (the standing caution about the shared RNG), and a
+ * demo where the same paper is 1.4 MB on one reload and 0.6 MB on the next is a
+ * demo nobody trusts.
+ */
+function fixtureBytes(name: string): number {
+  let h = 0
+  for (let i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0
+  // 0.4 MB – 2.4 MB, which is what a marked-up IA PDF actually weighs.
+  return 400_000 + (h % 2_000_000)
+}
+
+export function fixtureRef(
+  name: string,
+  addedAt: string,
+  mime = 'application/pdf',
+): StoredRef {
+  return {
+    id: 'sr_' + name.replace(/[^A-Za-z0-9]+/g, '_'),
+    name,
+    mime,
+    bytes: fixtureBytes(name),
+    // The key is opaque and stays opaque — a fixture path today, a bucket key
+    // the day the adapter is real, and nothing reads it either way.
+    key: `dhahran/fixture/${name}`,
+    addedAt,
+  }
+}
+
+/**
+ * THE NAME A REAL CANDIDATE GIVES A FILE — deterministic per (student,
+ * requirement), and it varies, because that is the truth about a folder of
+ * twenty-four uploads. "IA_final_v3.pdf" with no idea whose it is is precisely
+ * the problem the reader exists to solve, and a fixture full of tidy machine
+ * names would hide it.
+ *
+ * THE EXTENSION FOLLOWS THE DEF'S `accepts`. A Language B individual oral is an
+ * audio recording, so its fixture is an .m4a — a seeded .pdf there would be a
+ * fixture lying about a component, which is the one thing fixtures may not do.
+ */
+function studentFileName(userId: string, def: RequirementDef): string {
+  const name = USERS.find((u) => u.id === userId)?.name ?? userId
+  const [last, first] = name.split(',').map((x) => x.trim())
+  const audio = def.accepts?.some((a) => a.startsWith('audio/')) ?? false
+  const ext = audio ? 'm4a' : 'pdf'
+  // The subject or component, as a student would say it — never the word
+  // "file", which is what the def key's last segment happens to be.
+  const stem = def.key.includes('.')
+    ? def.key.slice(0, def.key.indexOf('.')).replace(/_/g, '-')
+    : def.key
+  const forms = audio
+    ? [
+        `${(first ?? name).toLowerCase()}-oral.${ext}`,
+        `${stem}-oral-recording.${ext}`,
+        `${(last ?? name).toLowerCase()}_IO.${ext}`,
+        `recording-final.${ext}`,
+      ]
+    : [
+        `${(first ?? name).toLowerCase()}-${stem}-final.${ext}`,
+        `${stem}_final_v3.${ext}`,
+        `${(last ?? name).toLowerCase()}_${stem}.${ext}`,
+        `IA_final_v3.${ext}`,
+      ]
+  let h = 0
+  const seed = userId + def.key
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0
+  return forms[h % forms.length]
+}
+
+const nameOf = (userId: string) => USERS.find((u) => u.id === userId)?.name ?? userId
+
+/** The mime a fixture file claims. Off the def, for the same reason as above. */
+function fixtureMime(def: RequirementDef): string {
+  const audio = def.accepts?.some((a) => a.startsWith('audio/')) ?? false
+  return audio ? 'audio/mp4' : 'application/pdf'
+}
+
+const ART = (label: string, addedBy?: string, mime?: string): Artifact[] => [
+  fileArtifact(label, fixtureRef(label, '2026-08-01', mime), { addedAt: '2026-08-01', addedBy }),
 ]
 
 /**
@@ -1036,10 +1123,9 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
             put('submitted', '2025-11-14', {
               exportStatus: 'submitted', recordedBy: 'student',
               lockedAt: '2025-11-14T09:00:00.000Z',
-              artifacts: [{
-                id: `art_final_${s.userId}`, kind: 'file',
-                label: `${s.personalCode ?? 'no-code'}_EE.pdf`, addedAt: '2025-11-14',
-              }],
+              artifacts: ART(`${s.personalCode ?? 'no-code'}_EE.pdf`, nameOf(s.userId)).map(
+                (a) => ({ ...a, addedAt: '2025-11-14', file: { ...a.file!, addedAt: '2025-11-14' } }),
+              ),
             })
           } else if (stage === 'rpf') {
             put('submitted', '2026-01-30', {
@@ -1277,7 +1363,11 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
         criterionMarks,
         artifacts:
           d.artifact === 'file' && status !== 'in_progress'
-            ? ART(d.label + '.pdf')
+            // The name a STUDENT would give it, not the requirement's label —
+            // "the file is called IA_final_v3.pdf and I have no idea whose it
+            // is" is precisely the problem the reader exists to solve, and a
+            // fixture full of tidy machine names would hide it.
+            ? ART(studentFileName(s.userId, d), nameOf(s.userId), fixtureMime(d))
             : d.key.endsWith('.comment') && status !== 'in_progress'
               ? [{ id: d.id + ':c', kind: 'text', label: 'Teacher comment', body: 'Marks justified per criterion; see rubric notes.', addedAt: '2026-08-02' }]
               : [],
@@ -1882,6 +1972,10 @@ export const fixtureRepository: Repository = {
           fileName: row.fileName,
           declaredWords: row.declaredWords,
           submittedAt: row.submittedAt,
+          // From the ARTIFACT where one exists — the state is the record and
+          // this row points at it (lib/files.ts). Falling back to the module
+          // row keeps a fixture written before the artifact carried a ref.
+          ref: fileOf(state)?.ref ?? row.ref,
           // FILING IS WHAT LOCKS IT — the same rule as the EE final.
           locked: state?.lockedAt != null,
           unlockReason: row.unlockReason,
@@ -1986,19 +2080,29 @@ export const fixtureRepository: Repository = {
       const state = REQUIREMENT_STATES.find(
         (x) => x.studentId === studentId && x.requirementDefId === def.id,
       )
-      const artifacts = [{
-        id: `art_tok_${kind}_${studentId}`, kind: 'file' as const, label: file.fileName, addedAt: at,
-      }]
+      // THE ARTIFACT IS THE FILE RECORD. A replacement after an unlock does
+      // not overwrite it — the old paper is superseded and kept, because the
+      // question "which version did the marker read" is asked months later
+      // (IB-Reading-and-Marking-Papers.md §4, state 3).
+      const tokRef = file.ref ?? fixtureRef(file.fileName, at)
+      // The id carries the REF's id, not the date: refiling twice in one day
+      // is exactly what "wrong file, try again" looks like, and two artifacts
+      // sharing an id is a record that cannot tell them apart.
+      const artifact = fileArtifact(
+        `art_tok_${kind}_${studentId}_${tokRef.id}`,
+        tokRef,
+        { addedAt: at, addedBy: 'student' },
+      )
       if (state) {
         state.recordStatus = 'submitted'
         state.recordedAt = at
         state.lockedAt = lockedAt
-        state.artifacts = artifacts
+        supersede(state, at, artifact)
       } else {
         REQUIREMENT_STATES.push({
           studentId, requirementDefId: def.id, schoolId,
           recordStatus: 'submitted', recordedAt: at, recordedBy: 'student',
-          lockedAt, artifacts,
+          lockedAt, artifacts: [artifact],
         })
       }
     },
@@ -2734,7 +2838,7 @@ export const fixtureRepository: Repository = {
       return { ok: true, problems: [] }
     },
 
-    async submitFinal(schoolId, studentId, fileName, declaredWords, storageKey, bytes) {
+    async submitFinal(schoolId, studentId, fileName, declaredWords, ref) {
       const st = STUDENTS.find((x) => x.userId === studentId && x.schoolId === schoolId)
       if (!st) return
       const def = REQUIREMENT_DEFS.find(
@@ -2744,7 +2848,7 @@ export const fixtureRepository: Repository = {
       const at = todayRiyadh()
 
       const existing = EE_FINALS.find((x) => x.studentId === studentId && x.schoolId === schoolId)
-      const row: EeFinal = { schoolId, studentId, fileName, declaredWords, submittedAt: at, storageKey, bytes }
+      const row: EeFinal = { schoolId, studentId, fileName, declaredWords, submittedAt: at, ref }
       if (existing) Object.assign(existing, row, {
         // A replacement after an unlock keeps the unlock on the record.
         unlockedBy: existing.unlockedBy, unlockedByName: existing.unlockedByName,
@@ -2759,16 +2863,22 @@ export const fixtureRepository: Repository = {
       // paper the student can still change is not the fixed artefact the viva
       // needs to be about.
       const lockedAt = new Date(`${at}T00:00:00.000Z`).toISOString()
+      const eeRef = ref ?? fixtureRef(fileName, at)
+      const artifact = fileArtifact(
+        `art_final_${studentId}_${eeRef.id}`,
+        eeRef,
+        { addedAt: at, addedBy: 'student' },
+      )
       if (state) {
         state.recordStatus = 'submitted'
         state.recordedAt = at
         state.lockedAt = lockedAt
-        state.artifacts = [{ id: `art_final_${studentId}`, kind: 'file', label: fileName, addedAt: at }]
+        supersede(state, at, artifact)
       } else {
         REQUIREMENT_STATES.push({
           studentId, requirementDefId: def.id, schoolId,
           recordStatus: 'submitted', recordedAt: at, recordedBy: studentId, lockedAt,
-          artifacts: [{ id: `art_final_${studentId}`, kind: 'file', label: fileName, addedAt: at }],
+          artifacts: [artifact],
         })
       }
     },

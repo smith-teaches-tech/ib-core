@@ -6,7 +6,7 @@
 
 import { useState } from 'react'
 import { kindOf, thumbLabel, type StoredRef } from '@/lib/storage'
-import MediaViewer from './MediaViewer'
+import MediaViewer from '../MediaViewer'
 import {
   INDICATOR_META, LO_LABEL, STRAND_LABEL,
   type ExperienceStatus, type IndicatorValue, type LoKey, type Strand, type ThreadEntry,

@@ -2,7 +2,7 @@
 // RequirementStates, which the module records or derives (IB-CAS-Build-Plan.md
 // §2, the rule that generalises to every module).
 
-import type { Id } from '../types'
+import type { Id, StoredRef } from '../types'
 
 /**
  * WHO SUPERVISES WHOM. One row per student per supervisor, history preserved.
@@ -272,9 +272,16 @@ export interface EeFinal {
   schoolId: Id
   studentId: Id
   fileName: string
-  /** The StorageAdapter's opaque ref. A local path today, a bucket key tomorrow. */
-  storageKey?: string
-  bytes?: number
+  /**
+   * THE FILE, as one record.
+   *
+   * Was `storageKey?: string` + `bytes?: number` until 22 Aug — two thirds of a
+   * StoredRef, missing the mime, and a second copy of what the requirement
+   * state's artifact already carried. It is the same ref that hangs off
+   * `ee.final`'s artifact (lib/files.ts), not a copy of it: the artifact is the
+   * record every reader already looks at, and this row points at it.
+   */
+  ref?: StoredRef
   /** What the STUDENT counted. Not measured — see lib/anonymity.ts. */
   declaredWords: number
   submittedAt: string

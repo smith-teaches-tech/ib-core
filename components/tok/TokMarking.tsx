@@ -25,6 +25,7 @@ import {
   saveTokMark, saveTokProse, signPpf, unsignPpf,
 } from '@/lib/tok/actions'
 import { INTERACTION_LINES, canSign, signWarnings } from '@/lib/tok/ppf'
+import FileChip from '../FileChip'
 
 export default function TokMarking({
   rows, instrument, kind, canMark, canRelease, canRevoke, canUnlock, readOnlyReason,
@@ -238,14 +239,25 @@ function Drawer({
         <span className="caps">The work</span>
         {row.file ? (
           <div className="eelinkrow">
-            <span className="eelinkrow-l">{row.file.fileName}</span>
+            {/* Same door as the IA grid and the EE roster: one chip, one
+                viewer. The exhibition and the essay are read here, beside the
+                band ladder they are marked against. */}
+            <FileChip
+              file={{
+                ref: row.file.ref ?? {
+                  id: 'tok_' + row.studentId, name: row.file.fileName,
+                  mime: 'application/pdf', bytes: 0, key: '', addedAt: row.file.submittedAt,
+                },
+                addedAt: row.file.submittedAt,
+                addedBy: row.studentName,
+                supersededAt: null,
+              }}
+              canDownload
+            />
             {row.file.locked && <span className="pill ok">🔒 locked</span>}
             <span className="mut" style={{ fontSize: 11.5 }}>
               {row.file.declaredWords.toLocaleString()} words · filed {row.file.submittedAt}
             </span>
-            {/* Viewing needs the bytes, and storage is a stub — so the button
-                that would lie is absent rather than present and dead. */}
-            <span className="mut" style={{ fontSize: 11.5 }}>(viewing needs cloud storage)</span>
           </div>
         ) : (
           <p className="mut" style={{ margin: '4px 0 0' }}>Nothing filed. There is nothing to mark yet.</p>

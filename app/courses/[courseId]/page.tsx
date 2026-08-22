@@ -35,13 +35,29 @@ export default async function CoursePage({
   searchParams,
 }: {
   params: Promise<{ courseId: string }>
-  searchParams: Promise<{ cohort?: string; candidate?: string; screen?: string }>
+  searchParams: Promise<{
+    cohort?: string
+    candidate?: string
+    screen?: string
+    /**
+     * THE READER (IB-Reading-and-Marking-Papers.md §1). A student id here means
+     * "show me this candidate's paper"; the marks screen morphs rather than
+     * navigating anywhere.
+     *
+     * It is `paper`, not `candidate`, because `candidate` is already the
+     * whole-student side panel that the NAME column opens — two different
+     * doors, and one parameter cannot be both. The doc wrote `&candidate=`
+     * before that collision was noticed.
+     */
+    paper?: string
+  }>
 }) {
   const { courseId } = await params
   const {
     cohort: wantedCohort,
     candidate: wantedCandidate,
     screen: wantedScreen,
+    paper: wantedPaper,
   } = await searchParams
   const session = await getSession()
   const { user, school, memberships } = session
@@ -286,7 +302,10 @@ export default async function CoursePage({
                 No predicted-grade requirements exist for this course and year group yet.
               </div>
             )}
-            {screen === 'ia' && overrideHolder && !readOnly && (
+            {/* The unlock panel and the sample belong to the GRID. In the
+                reader the screen is one paper, and a course-level ceremony
+                beside it is noise. */}
+            {screen === 'ia' && !wantedPaper && overrideHolder && !readOnly && (
               <UnlockMarks
                 courseId={course.id}
                 cohortId={cohortId}
@@ -309,9 +328,17 @@ export default async function CoursePage({
                     : undefined
               }
               candidateBase={`${baseHref}&screen=ia&candidate=`}
+              paperFor={wantedPaper ?? null}
+              paperBase={`${baseHref}&screen=ia&paper=`}
+              gridHref={`${baseHref}&screen=ia`}
+              // Reading a paper and downloading it are different acts, so the
+              // second is a capability rather than a consequence of the first:
+              // the marker of the course, the coordinator tier, and whoever
+              // builds the school packs.
+              canDownload={isMarker || coordinatorReader || session.can('pack.school')}
             />
             )}
-            {screen === 'ia' && showSample && (
+            {screen === 'ia' && !wantedPaper && showSample && (
               <SamplePanel
                 view={view}
                 sample={sample}
@@ -323,7 +350,7 @@ export default async function CoursePage({
                 the same history, because the question a reader has is "what
                 happened to this candidate in my course", not "what kind of
                 thing happened". */}
-            {events != null && <MarkHistory events={events} />}
+            {events != null && !wantedPaper && <MarkHistory events={events} />}
             {refused && (
               <div className="note warn" style={{ marginTop: 14 }}>
                 Not your student — the panel opens only for students in your own courses.

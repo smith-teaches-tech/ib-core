@@ -9,6 +9,7 @@ import { repo } from '../data'
 import { getSession } from '../session'
 import { assertLiveCohort } from '../cohorts'
 import { anonymityPreflight, preflightPasses } from '../anonymity'
+import { acceptsIn, formatRefusal } from '../accepts'
 import { storage } from '../storage'
 import { marksWriteGrant } from '../ia/authorize'
 import { EXHIBITION_WORD_LIMIT, ESSAY_WORD_LIMIT } from './rubric'
@@ -104,11 +105,14 @@ export async function submitWork(
         + `${limit.toLocaleString()}. Cut it before you file.`,
     }
   }
-  if (!/\.pdf$/i.test(file.name) && file.mime !== 'application/pdf') {
-    return { message: 'It has to be a PDF.' }
-  }
-
   const track = await repo.getTrack(session.school.id, studentId, { includeIdentifiers: true })
+  // What this component takes comes off the requirement def, not off a regex
+  // here — one list, in lib/accepts.ts, copied onto the def from the template.
+  const refusal = formatRefusal(
+    acceptsIn(track, kind === 'exh' ? 'tok.exh' : 'tok.essay'),
+    file,
+  )
+  if (refusal) return { message: refusal }
   const preflight = anonymityPreflight({
     personalCode: track?.student.personalCode ?? null,
     identifiersState: track?.student.identifiersState ?? 'missing',
@@ -126,8 +130,7 @@ export async function submitWork(
   await repo.tok.submitFile(session.school.id, studentId, kind, {
     fileName: file.name,
     declaredWords,
-    storageKey: stored?.key,
-    bytes: file.bytes,
+    ref: stored,
   })
   refresh()
   return { message: null }

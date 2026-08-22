@@ -7,6 +7,7 @@
 
 import type { Course } from '../types'
 import type { IaCriterion } from '../templates'
+import type { FileView } from '../files'
 
 export interface IaMarksRow {
   studentId: string
@@ -22,6 +23,15 @@ export interface IaMarksRow {
   total: number | null
   comment: string | null
   fileDisplay: 'done' | 'partial' | 'not_started'
+  /**
+   * THE PAPER ITSELF — null when nothing is uploaded, which is a state the grid
+   * and the reader both have to draw rather than hide (§4, state 1).
+   *
+   * `fileDisplay` stays beside it and is NOT derived from this: a state can be
+   * `in_progress` with no artifact yet, and the box on the board has always
+   * meant "what has been recorded", not "is there a ref".
+   */
+  file: FileView | null
   /** exportStatus === 'submitted' on the mark state: typed into IBIS. */
   typed: boolean
   locked: boolean
@@ -35,6 +45,10 @@ export interface IaMarksView {
   markMax: number
   guide: string
   verify: string | null
+  /** What this component takes, off the def. Shown when nothing is uploaded. */
+  accepts?: string[]
+  /** Does the file go to eCoursework? Drives the "to the IB" tag in the reader. */
+  exportsToIb: boolean
   /** The designated marker's name, if one is set. */
   marker: string | null
   rows: IaMarksRow[]

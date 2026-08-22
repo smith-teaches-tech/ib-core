@@ -144,7 +144,12 @@ export function makeSetupRepository(deps: {
         scope: { kind: 'course', courseId: course.id },
         key: course.id + '.file', label: `${course.name} — ${t.component}`,
         lane: 'Internal assessment',
-        order: order + 1, recordedBy: 'student', artifact: 'file', exportTarget: 'ecoursework',
+        order: order + 1, recordedBy: 'student', artifact: 'file',
+        // Off the template, exactly as `criteria` is below — which is what
+        // makes a Language B oral ask for audio the day it is added, with
+        // nobody editing a list of screens.
+        accepts: t.accepts,
+        exportTarget: 'ecoursework',
       },
       {
         id: `${cohortId}:${course.id}.mark`, schoolId, cohortId,

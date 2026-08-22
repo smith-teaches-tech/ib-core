@@ -17,6 +17,18 @@
 // immutable once states exist) — a guide change between sessions versions
 // forward, never rewrites.
 
+import { AUDIO_ONLY, PDF_ONLY } from './accepts'
+
+/**
+ * Two families take something other than a PDF, and they are marked [VERIFY]
+ * rather than asserted: Visual Arts uploads artwork images alongside the written
+ * parts, and Film uploads a reel. Both are widened rather than narrowed — an
+ * `accepts` that is too tight REFUSES real work, which is worse than one that is
+ * too loose, so where the guide has not been read the list errs open.
+ */
+const IMAGE = ['image/jpeg', 'image/png', 'image/webp']
+const VIDEO = ['video/mp4', 'video/quicktime']
+
 export interface IaCriterion {
   key: string
   label: string
@@ -36,6 +48,13 @@ export interface IaTemplate {
    */
   criteria: IaCriterion[]
   markMax: number
+  /**
+   * WHAT THE IB RECEIVES for this component, as mime types. Copied onto every
+   * `.file` def the family produces (`RequirementDef.accepts`), which is how a
+   * Language A oral asks for audio and a scientific investigation asks for a PDF
+   * with nobody maintaining a list of screens. See lib/accepts.ts.
+   */
+  accepts: string[]
   /** Which guide these numbers came from — display it, so nobody trusts a stale rubric silently. */
   guide: string
   /** Unresolved [VERIFY] — shown as a flag wherever the rubric is shown. */
@@ -63,6 +82,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'D', label: 'Language', max: 10 },
     ],
     markMax: 40,
+    accepts: AUDIO_ONLY,
     guide: 'Language A guide, 2019 · first assessment M21 · same criteria HL & SL',
     groups: [G1],
   },
@@ -77,6 +97,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'C', label: 'Interactive skills — communication', max: 6 },
     ],
     markMax: 30,
+    accepts: AUDIO_ONLY,
     guide: 'Language B / ab initio guides, 2018 · first assessment M20 · marks identical HL & SL',
     groups: [G2],
   },
@@ -94,6 +115,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'G', label: 'Presentation', max: 2 },
     ],
     markMax: 25,
+    accepts: PDF_ONLY,
     guide: 'Business Management guide, 2022 · first assessment M24 · identical HL & SL',
     groups: [G3],
   },
@@ -111,6 +133,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'F', label: 'Rubric requirements (whole portfolio)', max: 3 },
     ],
     markMax: 45,
+    accepts: PDF_ONLY,
     guide: 'Economics guide, 2020 · first assessment M22 · identical HL & SL',
     groups: [G3],
   },
@@ -126,6 +149,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'E', label: 'Communication', max: 3 },
     ],
     markMax: 24,
+    accepts: PDF_ONLY,
     guide: 'Global Politics guide, NEW · first assessment M26 — the old engagement activity (/20) does not apply',
     verify: 'Per-criterion split rests on one secondary source — confirm against the guide on MyIB before a live cohort.',
     groups: [G3],
@@ -143,6 +167,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'F', label: 'Recommendation (HL only)', max: 6 },
     ],
     markMax: 30,
+    accepts: PDF_ONLY,
     guide: 'Global Politics guide, NEW · first assessment M26 · HL adds criterion F',
     verify: 'Per-criterion split rests on one secondary source — confirm against the guide on MyIB before a live cohort.',
     groups: [G3],
@@ -156,6 +181,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
     // mark is a single total until the full guide is checked on MyIB.
     criteria: [],
     markMax: 24,
+    accepts: PDF_ONLY,
     guide: 'Psychology guide, NEW · FIRST ASSESSMENT M27 — the old /22 experimental report does not apply',
     verify: 'Criterion split of the /24 unconfirmed — check the full guide on MyIB, then add the criteria here.',
     groups: [G3],
@@ -170,6 +196,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'C', label: 'Reflection', max: 4 },
     ],
     markMax: 25,
+    accepts: PDF_ONLY,
     guide: 'History guide, 2015 · first assessment M17 (new guide is M28) · identical HL & SL',
     groups: [G3],
   },
@@ -184,6 +211,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'D', label: 'Evaluation', max: 6 },
     ],
     markMax: 24,
+    accepts: PDF_ONLY,
     guide: 'Biology / Chemistry / Physics guides, 2023 · first assessment M25 · identical HL & SL',
     groups: [G4],
   },
@@ -200,6 +228,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'F', label: 'Evaluation', max: 6 },
     ],
     markMax: 30,
+    accepts: PDF_ONLY,
     guide: 'ESS guide, NEW · first assessment M26 — NOT the /24 sciences model',
     verify: 'Criterion B label ("Strategy") varies between sources — confirm the exact wording if displayed verbatim.',
     groups: [G4],
@@ -216,6 +245,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'E', label: 'Use of mathematics', max: 6 },
     ],
     markMax: 20,
+    accepts: PDF_ONLY,
     guide: 'Mathematics guides, 2019 · first assessment M21 · identical AA/AI, HL/SL (E descriptors differ at HL)',
     groups: [G5],
   },
@@ -229,6 +259,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'C', label: 'Technical resolution', max: 12 },
     ],
     markMax: 32,
+    accepts: [...PDF_ONLY, ...IMAGE],
     guide: 'Visual Arts guide, NEW · FIRST ASSESSMENT M27 — the portfolio & artist project are EXTERNAL, uploaded for all candidates',
     verify: 'SL criterion split rests on one secondary source — confirm against the guide on MyIB.',
     groups: [G6],
@@ -241,6 +272,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
     // the /40 is not — single total until the guide is checked.
     criteria: [],
     markMax: 40,
+    accepts: [...PDF_ONLY, ...IMAGE],
     guide: 'Visual Arts guide, NEW · FIRST ASSESSMENT M27 — artist project (/40) is EXTERNAL, all candidates',
     verify: 'Criterion split of the /40 unconfirmed — check the full guide on MyIB, then add the criteria here.',
     groups: [G6],
@@ -254,6 +286,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
       { key: 'B', label: 'Film reel (3 roles × 4)', max: 12 },
     ],
     markMax: 24,
+    accepts: [...PDF_ONLY, ...VIDEO],
     guide: 'Film guide, 2017 · first assessment M19 · no new guide through M29',
     groups: [G6],
   },
@@ -263,6 +296,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
     component: 'Internal assessment',
     criteria: [],
     markMax: 25,
+    accepts: PDF_ONLY,
     guide: 'NO GUIDE CHECKED — the pre-template default',
     verify: 'This course has no confirmed rubric. Check the subject guide and pick or add the right family.',
     groups: [G1, G2, G3, G4, G5, G6],

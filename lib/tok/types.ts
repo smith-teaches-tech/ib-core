@@ -5,7 +5,7 @@
 // one line per TK/PPF interaction. Everything else about TOK is a
 // RequirementState like any other. IB-TOK-research.md is the design of record.
 
-import type { Id } from '../types'
+import type { Id, StoredRef } from '../types'
 import { TOK_TOTAL_MAX } from './rubric'
 
 // ---------------------------------------------------------------------------
@@ -283,8 +283,14 @@ export interface TokFile {
   /** The student counts, before they file. The measured count needs the bytes. */
   declaredWords: number
   submittedAt: string
-  storageKey?: string
-  bytes?: number
+  /**
+   * THE FILE, as one record — the same StoredRef that hangs off the
+   * requirement state's artifact (lib/files.ts), not a copy. Replaced
+   * `storageKey` + `bytes` on 22 Aug: those were two thirds of a ref, and the
+   * missing third (the mime) is what the viewer needs to decide whether it can
+   * show the thing at all.
+   */
+  ref?: StoredRef
   unlockedBy?: Id
   unlockedByName?: string
   unlockReason?: string
@@ -368,6 +374,13 @@ export interface TokFileView {
   fileName: string
   declaredWords: number
   submittedAt: string
+  /**
+   * The file, so the screen can SHOW it rather than saying "viewing needs cloud
+   * storage" — which is what both TOK and EE said until 22 Aug. MediaViewer
+   * itself says the honest thing while the bytes go nowhere, and it says it
+   * once, in one place.
+   */
+  ref?: StoredRef
   locked: boolean
   unlockReason?: string
   unlockedByName?: string

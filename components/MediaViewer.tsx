@@ -2,6 +2,17 @@
 
 // Play evidence in the app. No download required to look at it.
 //
+// LIFTED OUT OF components/cas/ ON 22 AUG, unchanged in behaviour. It was never
+// CAS-specific — its only import is lib/storage — and CAS was simply the first
+// module with a file attached (IB-Student-Work-Files.md §4: "Do not write a
+// second viewer"). The IA/EE/TOK reader shows papers through the same code.
+//
+// TWO SHAPES, ONE BODY. `MediaViewer` is the lightbox CAS has always used;
+// `MediaBody` is the same pane with no modal chrome, which is what the reader
+// puts the paper in. They share every branch below — including the honest
+// no-bytes message — so there is exactly one place that decides what a file
+// looks like when storage is not connected.
+//
 // WHAT THIS TAKES, since it sounds like it should be hard: nothing. No VLC, no
 // player library, no plugin. Browsers already decode images, video, audio and
 // PDF natively — <img>, <video controls>, <audio controls>, <iframe>. That is
@@ -17,7 +28,7 @@
 // Flagged in the build plan.
 
 import { useEffect, useState } from 'react'
-import { kindOf, mediaUrl, STORAGE_IS_STUB, type StoredRef } from '@/lib/storage'
+import { kindOf, mediaUrl, type StoredRef } from '@/lib/storage'
 
 type Support = 'yes' | 'maybe' | 'no'
 
@@ -41,6 +52,75 @@ function browserSupport(mime: string): Support {
 
 const kb = (n: number) => (n > 1_000_000 ? (n / 1_048_576).toFixed(1) + ' MB' : Math.round(n / 1024) + ' KB')
 
+/**
+ * ONE FILE, NO CHROME — the pane the reader puts a paper in, and the body of
+ * the lightbox below. Everything that decides what a file looks like lives
+ * here: the no-bytes message, the unplayable-format message, and the four
+ * elements a browser already knows how to render.
+ */
+export function MediaBody({
+  file: media,
+  canDownload,
+  className,
+}: {
+  /**
+   * Deliberately NOT called `ref`: in React 19 `ref` is an ordinary prop on a
+   * function component, so a prop of that name would be swallowed by React
+   * before this component ever saw it.
+   */
+  file: StoredRef
+  canDownload: boolean
+  className?: string
+}) {
+  const [support, setSupport] = useState<Support | null>(null)
+  useEffect(() => {
+    setSupport(browserSupport(media.mime))
+  }, [media.mime])
+
+  const url = mediaUrl(media)
+  const kind = kindOf(media)
+
+  return (
+    <div className={className}>
+      {url == null ? (
+        <div className="note gold">
+          <b>Nothing to show yet — storage is not connected.</b>
+          <div style={{ marginTop: 6 }}>
+            The record of this file is real: <b>{media.name}</b>
+            {media.mime && media.mime !== 'application/octet-stream' ? `, ${media.mime}` : ''}
+            {media.bytes ? `, ${kb(media.bytes)}` : ''}, added {media.addedAt}. The bytes are not
+            kept until the cloud project exists. When it does, this same window plays it — nothing
+            here changes.
+          </div>
+        </div>
+      ) : support === 'no' ? (
+        <div className="note warn">
+          <b>Your browser cannot play this format.</b> {media.mime} is not something{' '}
+          {kind === 'image' ? 'browsers render' : 'this browser can decode'} — the usual culprit is
+          footage or photos straight off an iPhone. It needs converting on upload.
+          {canDownload && ' You can still download it and open it locally.'}
+        </div>
+      ) : kind === 'image' ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img className="viewer-media" src={url} alt={media.name} />
+      ) : kind === 'video' ? (
+        <video className="viewer-media" src={url} controls playsInline controlsList={canDownload ? undefined : 'nodownload'} />
+      ) : media.mime.startsWith('audio/') ? (
+        <audio src={url} controls style={{ width: '100%' }} controlsList={canDownload ? undefined : 'nodownload'} />
+      ) : (
+        <iframe className="viewer-media" src={url} title={media.name} />
+      )}
+
+      {support === 'maybe' && url != null && (
+        <p className="mut" style={{ fontSize: 12, marginBottom: 0 }}>
+          This browser reports only partial support for {media.mime}. If it does not play, it needs
+          converting on upload.
+        </p>
+      )}
+    </div>
+  )
+}
+
 export default function MediaViewer({
   media,
   startAt,
@@ -53,12 +133,7 @@ export default function MediaViewer({
   canDownload: boolean
 }) {
   const [i, setI] = useState(startAt)
-  const [support, setSupport] = useState<Support | null>(null)
   const ref = media[i]
-
-  useEffect(() => {
-    setSupport(browserSupport(ref.mime))
-  }, [ref.mime])
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -71,7 +146,6 @@ export default function MediaViewer({
   }, [media.length, onClose])
 
   const url = mediaUrl(ref)
-  const kind = kindOf(ref)
 
   return (
     <div className="modal-bg" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -95,39 +169,7 @@ export default function MediaViewer({
         </div>
 
         <div className="modal-b viewer-b">
-          {url == null ? (
-            <div className="note gold">
-              <b>Nothing to play yet — storage is not connected.</b>
-              <div style={{ marginTop: 6 }}>
-                The record of this file is real: <b>{ref.name}</b>, {ref.mime}, {kb(ref.bytes)},
-                added {ref.addedAt}. The bytes are not kept until the cloud project exists. When it
-                does, this same window plays it — nothing here changes.
-              </div>
-            </div>
-          ) : support === 'no' ? (
-            <div className="note warn">
-              <b>Your browser cannot play this format.</b> {ref.mime} is not something{' '}
-              {kind === 'image' ? 'browsers render' : 'this browser can decode'} — the usual culprit
-              is footage or photos straight off an iPhone. It needs converting on upload.
-              {canDownload && ' You can still download it and open it locally.'}
-            </div>
-          ) : kind === 'image' ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img className="viewer-media" src={url} alt={ref.name} />
-          ) : kind === 'video' ? (
-            <video className="viewer-media" src={url} controls playsInline controlsList={canDownload ? undefined : 'nodownload'} />
-          ) : ref.mime.startsWith('audio/') ? (
-            <audio src={url} controls style={{ width: '100%' }} controlsList={canDownload ? undefined : 'nodownload'} />
-          ) : (
-            <iframe className="viewer-media" src={url} title={ref.name} />
-          )}
-
-          {support === 'maybe' && url != null && (
-            <p className="mut" style={{ fontSize: 12, marginBottom: 0 }}>
-              This browser reports only partial support for {ref.mime}. If it does not play, it
-              needs converting on upload.
-            </p>
-          )}
+          <MediaBody file={ref} canDownload={canDownload} />
         </div>
       </div>
     </div>

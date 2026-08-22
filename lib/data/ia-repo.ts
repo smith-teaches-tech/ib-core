@@ -20,6 +20,7 @@ import type {
   IaMarksRow, IaMarksView, MarkEvent, MarkEventRow, MarkUnlock, SampleRequest,
 } from '../ia/types'
 import { iaTotal, templateOf } from '../templates'
+import { fileOf } from '../files'
 import { todayRiyadh } from './dates'
 
 /** How long a coordinator unlock lasts before it re-locks itself. */
@@ -163,6 +164,7 @@ export function makeIaRepository(deps: {
                 : file.recordStatus === 'in_progress'
                   ? 'partial'
                   : 'done',
+            file: fileOf(file),
             typed: mark?.exportStatus === 'submitted',
             locked: mark?.lockedAt != null,
           }
@@ -185,6 +187,11 @@ export function makeIaRepository(deps: {
         markMax: markDef.markMax ?? t.markMax,
         guide: t.guide,
         verify: t.verify ?? null,
+        // Both off the DEF, not off the template: a def is immutable once work
+        // exists against it, so a candidate who filed under last year's rules
+        // is still read under last year's rules.
+        accepts: fileDef?.accepts,
+        exportsToIb: fileDef?.exportTarget != null,
         marker,
         rows,
       }

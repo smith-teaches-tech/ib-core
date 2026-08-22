@@ -180,7 +180,7 @@ export interface TokRepository {
     schoolId: string,
     studentId: string,
     kind: 'exh' | 'essay',
-    file: { fileName: string; declaredWords: number; storageKey?: string; bytes?: number },
+    file: { fileName: string; declaredWords: number; ref?: StoredRef },
   ): Promise<void>
   /** The student writes up one interaction. Submitting locks it. */
   submitInteraction(
@@ -444,9 +444,12 @@ export interface EeRepository {
     studentId: string,
     fileName: string,
     declaredWords: number,
-    /** The StorageAdapter ref. Present even while the bytes go nowhere. */
-    storageKey?: string,
-    bytes?: number,
+    /**
+     * The StorageAdapter's record of the file. Present even while the bytes go
+     * nowhere — the ref is what the reader, the chip and the export pack read,
+     * and it is what gets attached to `ee.final`'s artifact.
+     */
+    ref?: StoredRef,
   ): Promise<void>
   /** Reopen a filed essay. `items.unlock`, a typed reason, and it stays on the record. */
   unlockFinal(

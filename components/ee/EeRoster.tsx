@@ -12,6 +12,7 @@ import { addSessionNote, assignSupervisor, recordSession, unlockFinal } from '@/
 import type { EeAssignableStaff } from '@/lib/ee/types'
 import EeMarking from './EeMarking'
 import { summariseScore, supervisionHours } from '@/lib/ee/scoring'
+import FileChip from '../FileChip'
 
 const SESSIONS: { stage: SessionStage; label: string }[] = [
   { stage: 'r1', label: 'Reflection session 1' },
@@ -365,15 +366,27 @@ function Work({ row, canUnlock }: { row: EeRosterRow; canUnlock: boolean }) {
       {row.final ? (
         <>
           <div className="eelinkrow">
-            <span className="eelinkrow-l">{row.final.fileName}</span>
+            {/* THE CHIP OPENS IT. Until 22 Aug this row said "(viewing needs
+                cloud storage)" and offered nothing — a supervisor could see
+                that an essay had been filed and could not check it was the
+                right one, which is the hole the reader was built to close.
+                MediaViewer says the honest thing about the missing bytes, in
+                one place, and starts playing the file the day storage lands. */}
+            <FileChip
+              file={{
+                ref: row.final.ref ?? {
+                  id: 'ee_' + row.studentId, name: row.final.fileName,
+                  mime: 'application/pdf', bytes: 0, key: '', addedAt: row.final.submittedAt,
+                },
+                addedAt: row.final.submittedAt,
+                addedBy: row.studentName,
+                supersededAt: null,
+              }}
+              canDownload
+            />
             {row.finalLocked && <span className="pill ok">🔒 locked</span>}
             <span className="mut" style={{ fontSize: 11.5 }}>
               {row.final.declaredWords.toLocaleString()} words · filed {row.final.submittedAt}
-            </span>
-            {/* Viewing needs the bytes, and storage is a stub — so the button
-                that would lie is simply absent rather than present and dead. */}
-            <span className="mut" style={{ fontSize: 11.5 }}>
-              (viewing needs cloud storage)
             </span>
           </div>
           {row.final.unlockReason && (

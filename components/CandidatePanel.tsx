@@ -1,7 +1,9 @@
 import Link from 'next/link'
+import FileChip from './FileChip'
 import type { Checkpoint, StudentTrack } from '@/lib/types'
 import type { PgStudentView } from '@/lib/pg/types'
 import { iaTotal } from '@/lib/templates'
+import { fileOf } from '@/lib/files'
 
 /**
  * THE SIDE PANEL — what replaced v7's expanding lanes and drill-down rows.
@@ -91,6 +93,23 @@ export default function CandidatePanel({
     (c) => c.display !== 'done' && c.display !== 'future',
   ).length
 
+  /**
+   * EVERY FILE THIS CANDIDATE HAS IN — the IA PDFs, the EE, the two TOK
+   * components, in one place.
+   *
+   * IB-Student-Work-Files.md §4 named this surface ("the coordinator's
+   * candidate panel — final PDFs only") and it shipped without it, because
+   * there was nothing to show: a file artifact was a bare label. There is now.
+   *
+   * DERIVED, not stored, and it selects rather than asking for anything new —
+   * the third architectural rule. A candidate with nothing in gets no section
+   * rather than an empty one.
+   */
+  const files = all
+    .map((c) => ({ cp: c, file: fileOf(c.state) }))
+    .filter((x): x is { cp: Checkpoint; file: NonNullable<ReturnType<typeof fileOf>> } =>
+      x.file != null)
+
   return (
     <>
       <Link href={closeHref} className="soverlay" aria-label="Close panel" />
@@ -129,6 +148,28 @@ export default function CandidatePanel({
               </div>
             )}
           </div>
+
+          {files.length > 0 && (
+            <div className="sp-sec">
+              <h4>
+                Files in <span className="tag ib">what eCoursework will get</span>
+              </h4>
+              {files.map(({ cp, file }) => (
+                <div className="ck" key={cp.def.key}>
+                  <span className="lab" style={{ minWidth: 0 }}>
+                    <span style={{ display: 'block', fontSize: 11.5, color: 'var(--muted)' }}>
+                      {cp.def.label}
+                    </span>
+                    <FileChip file={file} canDownload />
+                  </span>
+                </div>
+              ))}
+              <div className="sp-note">
+                Open one to check it is the right file. Viewing is viewing — nothing here records
+                that you looked.
+              </div>
+            </div>
+          )}
 
           {pg && pg.courses.length > 0 && (
             <div className="sp-sec">
