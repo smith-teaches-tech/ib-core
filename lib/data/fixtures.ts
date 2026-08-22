@@ -261,7 +261,10 @@ export const MEMBERSHIPS: Membership[] = pinned('ibMemberships', () => [
   { userId: 'u_haddad', schoolId: 'jubail', roles: ['school_coordinator'], presetKey: 'school_standard', addedCapabilities: [], removedCapabilities: ['students.add', 'teachers.invite'] },
   { userId: 'u_okonjo', schoolId: 'dhahran', roles: ['school_coordinator'], presetKey: 'school_standard', addedCapabilities: [], removedCapabilities: ['students.add', 'teachers.invite'] },
   // Four distinct roles held by one person — never merged into a "Core teacher" role.
-  { userId: 'u_adeyemi', schoolId: 'dhahran', roles: ['cas_coordinator', 'ee_coordinator', 'tok_teacher'], presetKey: 'teacher', addedCapabilities: ['items.unlock'], removedCapabilities: [] },
+  // The Core capabilities are HIS, not the teacher preset's — narrowed 22 Aug.
+  // Farouk and Silva teach a subject; Adeyemi runs CAS, EE and TOK, and holds
+  // the three that go with those jobs.
+  { userId: 'u_adeyemi', schoolId: 'dhahran', roles: ['cas_coordinator', 'ee_coordinator', 'tok_teacher'], presetKey: 'teacher', addedCapabilities: ['items.unlock', 'cas.manage', 'ee.manage', 'tok.manage'], removedCapabilities: [] },
   { userId: 'u_farouk', schoolId: 'dhahran', roles: ['teacher'], presetKey: 'teacher', addedCapabilities: [], removedCapabilities: [] },
   { userId: 'u_silva', schoolId: 'dhahran', roles: ['teacher'], presetKey: 'teacher', addedCapabilities: [], removedCapabilities: [] },
   ...STUDENTS.map<Membership>((s) => ({
@@ -1515,12 +1518,22 @@ export const TOK_PPF: TokPpf[] = pinned('ibTokPpf', () =>
 export const EE_SUPERVISION: EeSupervision[] = pinned('ibEeSupervision', () => {
   const rows: EeSupervision[] = []
   const c15 = STUDENTS.filter((s) => s.cohortId === 'c15')
+  // THREE SUPERVISORS, NOT TWO — and the third is a subject teacher.
+  //
+  // Michael, 22 Aug: "give Farouk an EE so I can see what that looks like from
+  // a teacher's POV." Until now every c15 essay belonged to Adeyemi or Silva,
+  // so the screen a plain subject teacher sees had never been looked at.
+  //
+  // Two of Farouk's three are candidates he does NOT teach Biology — which is
+  // the case that matters: supervision is a relationship, not an enrolment, and
+  // it is why `teachesStudent` alone is the wrong gate on a student's record.
+  const SUPERVISORS = ['u_adeyemi', 'u_silva', 'u_farouk']
   c15.slice(0, 20).forEach((st, i) => {
     rows.push({
       schoolId: 'dhahran',
       cohortId: 'c15',
       studentId: st.userId,
-      supervisorId: i % 2 === 0 ? 'u_adeyemi' : 'u_silva',
+      supervisorId: SUPERVISORS[i % SUPERVISORS.length],
       assignedBy: 'u_msmith',
       assignedAt: '2025-10-06',
       endedAt: null,

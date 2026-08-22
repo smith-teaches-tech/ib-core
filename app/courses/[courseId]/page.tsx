@@ -1,6 +1,5 @@
 import { notFound } from 'next/navigation'
 import Shell from '@/components/Shell'
-import CandidatePanel from '@/components/CandidatePanel'
 import CasRoster from '@/components/cas/CasRoster'
 import EeRoster from '@/components/ee/EeRoster'
 import StudentEe from '@/components/ee/StudentEe'
@@ -18,7 +17,7 @@ import TokBoundaries from '@/components/tok/TokBoundaries'
 import { repo } from '@/lib/data'
 import { getSession } from '@/lib/session'
 import { cohortTitle, isArchived, sortCohorts } from '@/lib/cohorts'
-import { isCoordinatorTier, restrictStudentView } from '@/lib/pg/authorize'
+import { isCoordinatorTier } from '@/lib/pg/authorize'
 import { ESSAY_INSTRUMENT, EXHIBITION_INSTRUMENT } from '@/lib/tok/rubric'
 
 // A course page, dispatched by course TYPE.
@@ -37,7 +36,6 @@ export default async function CoursePage({
   params: Promise<{ courseId: string }>
   searchParams: Promise<{
     cohort?: string
-    candidate?: string
     screen?: string
     /**
      * THE READER (IB-Reading-and-Marking-Papers.md §1). A student id here means
@@ -45,9 +43,10 @@ export default async function CoursePage({
      * navigating anywhere.
      *
      * It is `paper`, not `candidate`, because `candidate` is already the
-     * whole-student side panel that the NAME column opens — two different
-     * doors, and one parameter cannot be both. The doc wrote `&candidate=`
-     * before that collision was noticed.
+     * whole-student side panel that the name column used to open. That panel
+     * is gone from this page (see below) and the name now opens the paper too,
+     * but `paper` stays the parameter: it names what is being opened, which
+     * `candidate` never did.
      */
     paper?: string
   }>
@@ -55,7 +54,6 @@ export default async function CoursePage({
   const { courseId } = await params
   const {
     cohort: wantedCohort,
-    candidate: wantedCandidate,
     screen: wantedScreen,
     paper: wantedPaper,
   } = await searchParams
@@ -112,50 +110,32 @@ export default async function CoursePage({
   const screen: 'ia' | 'pg' = wantedScreen === 'pg' ? 'pg' : 'ia'
 
   /**
-   * The whole-student panel, teacher edition — the SAME component the board
-   * uses. A teacher reaches only students in courses they are assigned to;
-   * identifiers leave only for identifier holders; and predicted grades in
-   * OTHER courses leave only for `grades.cross_course` holders.
+   * THERE IS NO WHOLE-STUDENT PANEL ON A COURSE PAGE. Removed 22 Aug.
+   *
+   * It was here from 16 Aug because it existed and this page had nothing else
+   * to offer a click on a name. Once the reader landed, that click had somewhere
+   * better to go — and the panel was the wrong object anyway. Michael:
+   *
+   *   "He clicks on a student, and that opens the student's grades in other
+   *    subjects... This isn't right. Not intuitive. Clicking on the student (or
+   *    the file) should do what clicking on the FILE does: open the read view to
+   *    read and score."
+   *
+   * `CandidatePanel` is the COORDINATOR'S REGISTER ENTRY — every lane, every
+   * course, identifiers. It belongs to the board, which is a register of people.
+   * A course page is a register of WORK IN ONE COURSE, so a name here means that
+   * person's work here, and it opens the paper.
+   *
+   * The job the panel was being misused for — "this student is struggling in my
+   * class, how are they doing elsewhere?" — is answered by MY STUDENTS, with
+   * PREDICTED GRADES ONLY, because those are the only cross-course numbers that
+   * are comparable: a 14 is 14/20 in Maths and 14/45 in Economics.
+   * See claude/IB-Teacher-Student-View-Spec.md.
+   *
+   * Removing it also closed two ungated leaks rather than gating them: this page
+   * was handing a subject teacher every other course's IA totals, and (since
+   * 21 Aug) every other course's uploaded files.
    */
-  const renderCandidatePanel = async (closeHref: string) => {
-    const mayOpen = wantedCandidate
-      ? coordinatorReader || (await repo.teachesStudent(school.id, user.id, wantedCandidate))
-      : false
-    if (!wantedCandidate || !mayOpen) {
-      return {
-        panel: null,
-        refused: Boolean(wantedCandidate) && !mayOpen,
-      }
-    }
-    const track = await repo.getTrack(school.id, wantedCandidate, {
-      includeIdentifiers: session.can('identifiers.manage'),
-    })
-    if (!track) return { panel: null, refused: false }
-
-    const full = await repo.pg.getStudentView(school.id, wantedCandidate)
-    let pgView = full
-    let hidden = 0
-    if (full && !session.can('grades.cross_course')) {
-      // Without the capability a teacher still sees the courses they teach —
-      // the thing being granted is the OTHER courses, so that is the thing
-      // taken away.
-      const mine = new Set((await repo.myCourses(school.id, user.id)).map((c) => c.id))
-      const r = restrictStudentView(full, mine)
-      pgView = r.view
-      hidden = r.hidden
-    }
-    return {
-      refused: false,
-      panel: (
-        <CandidatePanel
-          track={track}
-          closeHref={closeHref}
-          pg={pgView && pgView.courses.length > 0 ? pgView : null}
-          pgRedacted={hidden > 0}
-        />
-      ),
-    }
-  }
 
   let body: React.ReactNode
 
@@ -242,7 +222,6 @@ export default async function CoursePage({
           : null
 
         const baseHref = `/courses/${course.id}?cohort=${cohortId}`
-        const { panel, refused } = await renderCandidatePanel(baseHref)
 
         // Predicted grades: the same roster, the other screen. Editable for the
         // marker OR the coordinator tier — directly, no unlock ceremony. The
@@ -294,7 +273,6 @@ export default async function CoursePage({
                           : 'Read-only — no designated marker is set for this course.'
                         : undefined
                 }
-                candidateBase={`${baseHref}&screen=pg&candidate=`}
               />
             )}
             {screen === 'pg' && !pgView && (
@@ -327,7 +305,6 @@ export default async function CoursePage({
                       : 'Read-only — no designated marker is set for this course.'
                     : undefined
               }
-              candidateBase={`${baseHref}&screen=ia&candidate=`}
               paperFor={wantedPaper ?? null}
               paperBase={`${baseHref}&screen=ia&paper=`}
               gridHref={`${baseHref}&screen=ia`}
@@ -351,12 +328,6 @@ export default async function CoursePage({
                 happened to this candidate in my course", not "what kind of
                 thing happened". */}
             {events != null && !wantedPaper && <MarkHistory events={events} />}
-            {refused && (
-              <div className="note warn" style={{ marginTop: 14 }}>
-                Not your student — the panel opens only for students in your own courses.
-              </div>
-            )}
-            {panel}
           </>
         )
       } else {
@@ -523,7 +494,6 @@ export default async function CoursePage({
     )
     const pgEditable =
       !readOnly && session.can('pg.manage') && (isMarker || isCoordinatorTier(session.can))
-    const { panel, refused } = await renderCandidatePanel(baseHref)
 
     body = (
       <>
@@ -645,7 +615,6 @@ export default async function CoursePage({
                     : 'Read-only — no designated marker is set for TOK.'
                   : undefined
             }
-            candidateBase={`${baseHref}&candidate=`}
           />
         ) : (
           <div className="note">
@@ -653,12 +622,6 @@ export default async function CoursePage({
           </div>
         ))}
 
-        {refused && (
-          <div className="note warn" style={{ marginTop: 14 }}>
-            Not your student — the panel opens only for students in your own courses.
-          </div>
-        )}
-        {panel}
       </>
     )
   } else {

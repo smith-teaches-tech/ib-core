@@ -57,6 +57,7 @@ import { canRelease, promptDistribution, releaseBlockers as tokReleaseBlockers, 
 import { canSign, composeTeacherComment, signBlockers, signWarnings } from '../lib/tok/ppf'
 import { TOK_PPF } from '../lib/data/fixtures'
 import { iaTotal, templateOf } from '../lib/templates'
+import { resolveCapabilities } from '../lib/capabilities'
 import { AUDIO_ONLY, PDF_ONLY, accepted, acceptsIn, describeAccepts, formatRefusal } from '../lib/accepts'
 import { fileOf, filesOf } from '../lib/files'
 
@@ -1763,24 +1764,34 @@ async function main() {
     supSpaces.some((g) => g.courses.some((x) => x.id === 'ee')),
     'a supervisor has an Extended Essay space',
   )
+  // REACH IS PER COHORT, which is why these are asked per cohort. R. Farouk
+  // supervises three c15 essays (since 22 Aug) and none in c16 — so the c16
+  // answer is the one that moves, and his c15 space must not move with it.
   const nonSupervisor = 'u_farouk'
+  const eeIn = (spaces2: Awaited<ReturnType<typeof repo.mySpaces>>, cohortId: string) =>
+    spaces2.some((g) => g.cohort.id === cohortId && g.courses.some((x) => x.id === 'ee'))
+
   const beforeSpaces = await repo.mySpaces('dhahran', nonSupervisor)
   check(
-    !beforeSpaces.some((g) => g.courses.some((x) => x.id === 'ee')),
-    'a teacher who supervises nobody has NO EE space — not an empty one, none',
+    !eeIn(beforeSpaces, 'c16'),
+    'a teacher who supervises nobody IN THAT YEAR GROUP has no EE space there — not an empty one, none',
+  )
+  check(
+    eeIn(beforeSpaces, 'c15'),
+    'and a subject teacher who supervises three essays in ANOTHER year group has one there — supervision is a relationship, not a capability',
   )
   const orphan = (await repo.ee.listSupervision('dhahran', 'c16'))[0]
   await repo.ee.assignSupervisor('dhahran', 'c16', orphan.studentId, nonSupervisor, 'u_msmith')
   const afterSpaces = await repo.mySpaces('dhahran', nonSupervisor)
   check(
-    afterSpaces.some((g) => g.cohort.id === 'c16' && g.courses.some((x) => x.id === 'ee')),
+    eeIn(afterSpaces, 'c16'),
     'give them one supervisee and the space appears — in that cohort, derived, nothing stored',
   )
   await repo.ee.assignSupervisor('dhahran', 'c16', orphan.studentId, 'u_adeyemi', 'u_msmith')
   const restoredSpaces = await repo.mySpaces('dhahran', nonSupervisor)
   check(
-    !restoredSpaces.some((g) => g.courses.some((x) => x.id === 'ee')),
-    'reassign their last supervisee and it goes again',
+    !eeIn(restoredSpaces, 'c16') && eeIn(restoredSpaces, 'c15'),
+    'reassign their last supervisee and it goes again — from that year group only, leaving the other alone',
   )
 
   console.log('\n13g. Reflection sessions, and the RPF gate')
@@ -3272,6 +3283,58 @@ async function main() {
   check(
     exhMarkDef.markMax === 10 && exhMarkDef.criteria == null,
     'and the TOK exhibition is one total out of ten with no criteria — the right-hand side is derived from the requirement, never invented per module',
+  )
+
+
+  console.log('\n19. The teacher’s surfaces — what a subject teacher may reach')
+
+  // claude/IB-Teacher-Student-View-Spec.md. Michael, 22 Aug: "Clicking on the
+  // student (or the file) should do what clicking on the FILE does."
+  const farouk = resolveCapabilities(
+    MEMBERSHIPS.find((m) => m.userId === 'u_farouk' && m.schoolId === 'dhahran')!,
+  )
+  check(
+    farouk.has('ia.manage') && farouk.has('pg.manage'),
+    'a subject teacher keeps what a subject teacher does — their own IA marks and their own predicted grades',
+  )
+  check(
+    !farouk.has('cas.manage') && !farouk.has('ee.manage') && !farouk.has('tok.manage'),
+    'and holds NONE of the Core capabilities — they were school-wide, so every teacher could edit any candidate’s CAS',
+  )
+  const adeyemi = resolveCapabilities(
+    MEMBERSHIPS.find((m) => m.userId === 'u_adeyemi' && m.schoolId === 'dhahran')!,
+  )
+  check(
+    adeyemi.has('cas.manage') && adeyemi.has('ee.manage') && adeyemi.has('tok.manage'),
+    'the person who actually runs CAS, EE and TOK holds all three — a job held by the person who holds it, not by a preset',
+  )
+
+  // THE BRANCH THAT HAD NEVER RENDERED. `all = session.can('ee.manage')` was
+  // true for every teacher, so the supervisor-scoped roster was dead code from
+  // the day it was written.
+  const faroukEe = await repo.ee.getRoster('dhahran', 'c15', 'u_farouk')
+  const wholeEe = await repo.ee.getRoster('dhahran', 'c15', null)
+  check(
+    faroukEe.length > 0 && faroukEe.length < wholeEe.length,
+    'a supervising subject teacher sees SOME of the year group’s essays — the scoped roster finally renders',
+  )
+  check(
+    faroukEe.every((r) => r.supervisor?.userId === 'u_farouk'),
+    'and every row on it is one of theirs — scoping is the argument to getRoster, not a filter in the component',
+  )
+
+  // SUPERVISION IS NOT ENROLMENT. The gate on a student's record is
+  // `teachesStudent`, which is enrolment-only — so the person writing about a
+  // candidate can be the one person locked out of them. Spec §4.
+  const supervisedNotTaught: string[] = []
+  for (const r of faroukEe) {
+    if (!(await repo.teachesStudent('dhahran', 'u_farouk', r.studentId))) {
+      supervisedNotTaught.push(r.studentId)
+    }
+  }
+  check(
+    supervisedNotTaught.length > 0,
+    'a supervisor supervises candidates they do not teach — which is why `teachesStudent` alone is the wrong gate on a student’s record',
   )
 
   console.log('\n' + '='.repeat(60))

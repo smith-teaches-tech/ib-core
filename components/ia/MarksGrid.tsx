@@ -60,7 +60,6 @@ export default function MarksGrid({
   editable,
   canTranscribe,
   readOnlyReason,
-  candidateBase,
   paperFor,
   paperBase,
   gridHref,
@@ -84,13 +83,6 @@ export default function MarksGrid({
   gridHref?: string
   /** Downloading someone's coursework is a capability, here as everywhere. */
   canDownload?: boolean
-  /**
-   * When set, candidate names link to `candidateBase + studentId` — the
-   * whole-student side panel, same pattern as the board. A STRING, not a
-   * function: this component is a client component and a server page cannot
-   * hand a function across the boundary. The page gates who may open it.
-   */
-  candidateBase?: string
 }) {
   const [error, setError] = useState<string | null>(null)
   // IA/EE/TOK comments are PARAGRAPHS, so the cell shows a one-line preview
@@ -290,15 +282,26 @@ export default function MarksGrid({
               return (
                 <tr key={r.studentId} className={dim ? 'dim' : undefined}>
                   <td className="sn idc">{r.sessionNumber ?? '—'}</td>
+                  {/* THE NAME IS THE SAME DOOR AS THE FILE (22 Aug). Michael:
+                      "Clicking on the student (or the file) should do what
+                      clicking on the FILE does: open the read view to read and
+                      score. THAT is an intuitive way to get to the grading view
+                      two different ways."
+
+                      It used to open the whole-student panel, which was the
+                      coordinator's object and is now the board's alone. A name
+                      in a register of WORK means that person's work here — so
+                      it takes the file cell's affordance, `Read ›`, rather than
+                      a chevron that would promise somewhere else. */}
                   <td className="nm idc">
-                    {candidateBase ? (
+                    {paperBase ? (
                       <Link
                         className="candlink"
-                        href={candidateBase + r.studentId}
-                        title="Open this candidate's whole file"
+                        href={paperBase + r.studentId}
+                        title={r.file ? `Read ${r.file.ref.name}` : 'Open this candidate’s paper'}
                       >
                         {r.name}
-                        <span className="chev">›</span>
+                        <span className="filedoor-x">{r.file ? 'Read ›' : 'Open ›'}</span>
                       </Link>
                     ) : (
                       r.name

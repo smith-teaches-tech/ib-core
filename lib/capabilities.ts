@@ -125,11 +125,34 @@ export const PRESETS: Record<PresetKey, { label: string; capabilities: Capabilit
   },
   setup_only: { label: 'Setup only', capabilities: [...SETUP, 'summaries.print'] },
   observer: { label: 'Observer', capabilities: ['summaries.print'] },
+  /**
+   * A SUBJECT TEACHER. Narrowed 22 Aug — `cas.manage`, `ee.manage` and
+   * `tok.manage` were removed.
+   *
+   * They were here because the preset was written before the Core modules had
+   * their own scoping, and they are school-wide: every teacher could edit any
+   * candidate's CAS, and on the EE page `all = session.can('ee.manage')` was
+   * true for everybody — which meant the SUPERVISOR-SCOPED EE ROSTER HAD NEVER
+   * ONCE RENDERED. The `scope: 'mine'` branch was dead code from the day it was
+   * written. (Audit worklist A1, for EE.)
+   *
+   * A Core job is now held by the person who holds it: H. Adeyemi carries the
+   * three as `addedCapabilities`, which is the mechanism that exists for exactly
+   * this and which keeps "a person may hold several unrelated roles at once"
+   * true without handing the set to everyone.
+   *
+   * What a subject teacher keeps is what a subject teacher does: their own IA
+   * marks, their own predicted grades, their enrolments.
+   *
+   * NOTE — supervising an EE needs NO capability. It is a relationship
+   * (`EeSupervision`), and the EE page scopes to it. That is the point: the
+   * capability was never what made someone a supervisor.
+   */
   teacher: {
     label: 'Teacher',
     capabilities: [
       'summaries.print', 'enrolment.manage',
-      'cas.manage', 'ee.manage', 'tok.manage', 'ia.manage', 'pg.manage',
+      'ia.manage', 'pg.manage',
       // See the capability's note: on by default, one tick to take away.
       'grades.cross_course',
     ],

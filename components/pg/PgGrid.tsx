@@ -19,7 +19,6 @@
 // keystroke can reach. Changing one costs a sentence. That is a guard against
 // accident, not a permission boundary: whoever may write may unlock.
 
-import Link from 'next/link'
 import { useEffect, useState, useTransition } from 'react'
 import * as pg from '@/lib/pg/actions'
 import { normaliseGrade, scaleOf } from '@/lib/pg/scale'
@@ -29,14 +28,11 @@ export default function PgGrid({
   view,
   editable,
   readOnlyReason,
-  candidateBase,
 }: {
   view: PgView
   editable: boolean
   /** Set when the cohort is archived, or the reader may not write. */
   readOnlyReason?: string
-  /** When set, candidate names link to `candidateBase + studentId`. */
-  candidateBase?: string
 }) {
   const scale = scaleOf(view.scale)
   const [error, setError] = useState<string | null>(null)
@@ -196,20 +192,12 @@ export default function PgGrid({
             {view.rows.map((r) => (
               <tr key={r.studentId}>
                 <td className="sn idc">{r.sessionNumber ?? '—'}</td>
-                <td className="nm idc">
-                  {candidateBase ? (
-                    <Link
-                      className="candlink"
-                      href={candidateBase + r.studentId}
-                      title="Open this candidate's whole file"
-                    >
-                      {r.name}
-                      <span className="chev">›</span>
-                    </Link>
-                  ) : (
-                    r.name
-                  )}
-                </td>
+                {/* NO LINK. The whole-student panel left the course page on
+                    22 Aug, and a predicted grade has no paper to open — so the
+                    name is a name. The cross-course comparison this used to
+                    serve belongs to My Students, predicted grades only, because
+                    those are the only numbers comparable between subjects. */}
+                <td className="nm idc">{r.name}</td>
                 <td className="lanesep">
                   {r.iaTotal == null ? (
                     <span className="cv none">—</span>
