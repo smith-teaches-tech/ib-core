@@ -135,7 +135,6 @@ export interface RequirementDef {
   exportTarget?: ExportTarget
   /** Not actionable until the named requirement is complete. The RPF needs the viva first. */
   opensAfter?: string
-  dueAt?: string
 }
 
 /**
@@ -165,6 +164,19 @@ export interface Deadline {
   requirementKey: string
   /** null = every course that has this stage. A course-specific row wins over it. */
   courseId: Id | null
+  /**
+   * ONE CANDIDATE'S DATE — an extension, and the most specific row there is.
+   *
+   * A medical note or an inclusive-access arrangement moves one student's
+   * deadline, not the programme's. It is granted by the DESIGNATED MARKER of
+   * that course (or the coordinator), because the teacher is the one who knows
+   * the student broke their arm — and it is a row like any other, so it
+   * supersedes, records who decided it, and resolves through the same
+   * most-specific-wins rule as everything else.
+   *
+   * Absent on every ordinary date.
+   */
+  studentId?: Id | null
   /** Date only, school timezone. Late means: this day has passed and it is not in. */
   dueAt: string
   /** The school's own flag, straight off the planning spreadsheet. */

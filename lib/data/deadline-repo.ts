@@ -8,12 +8,14 @@
 // computed on every read by lib/deadlines.ts, so a new course, a new section or
 // a moved date needs no reconciliation pass anywhere.
 
-import type { DeadlineRepository, DueItem } from './repository'
+import type { DeadlineRepository, DueItem, UnsetStage } from './repository'
 import type {
   Course, Deadline, Enrollment, RequirementDef, RequirementState, Section, Student,
   TeachingAssignment,
 } from '../types'
-import { deadlineFor, deadlineMatches, daysUntil } from '../deadlines'
+import {
+  deadlineFor, deadlineMatches, daysUntil, stageOf, stagesIn, studentMaySee, tierOfStage,
+} from '../deadlines'
 import { REPORTING_POINTS } from '../pg/types'
 import { todayRiyadh } from './dates'
 
@@ -34,6 +36,13 @@ export function makeDeadlineRepository(deps: {
 
   const scoped = (schoolId: string, cohortId: string) =>
     deadlines.filter((d) => d.schoolId === schoolId && d.cohortId === cohortId)
+
+  /** One cohort's definitions — what the tier rule is decided against. */
+  const defsIn = (schoolId: string, cohortId: string) =>
+    defs.filter((d) => d.schoolId === schoolId && d.cohortId === cohortId)
+
+  const tierIn = (schoolId: string, cohortId: string, stage: string) =>
+    tierOfStage(stage, defsIn(schoolId, cohortId))
 
   const stateOf = (schoolId: string, studentId: string, defId: string) =>
     states.find(
@@ -108,6 +117,10 @@ export function makeDeadlineRepository(deps: {
             if (s != null && (COMPLETE.has(s.recordStatus) || s.grade != null)) done += 1
           }
         }
+        const tier = tierIn(schoolId, cohortId, d.requirementKey)
+        const isMarker =
+          d.courseId != null && markerOf(d.courseId, cohortId, viewer.userId)
+        const mayEdit = viewer.hasDeadlinesSet || (tier === 'course' && isMarker)
         return {
           deadline: d,
           label: labelFor(d),
@@ -116,37 +129,107 @@ export function makeDeadlineRepository(deps: {
           done,
           total,
           daysAway: daysUntil(d.dueAt, today),
-          canBeSetByTeacher: !isPgKey(d.requirementKey),
-          mayEdit:
-            viewer.hasDeadlinesSet ||
-            (!isPgKey(d.requirementKey) &&
-              d.courseId != null &&
-              markerOf(d.courseId, cohortId, viewer.userId)),
+          tier,
+          mayEdit,
+          lockedBecause: mayEdit
+            ? ''
+            : tier === 'programme'
+              ? 'the IB coordinator sets this one'
+              : 'you are not the designated marker for this course',
         }
       })
     },
 
-    async maySet(schoolId, cohortId, userId, requirementKey, courseId, hasDeadlinesSet) {
-      // A `deadlines.set` holder sets anything — that is the coordinator tier.
+    async maySet(schoolId, cohortId, userId, requirementKey, courseId, hasDeadlinesSet, studentId) {
+      const tier = tierIn(schoolId, cohortId, requirementKey)
+      // NOBODY DATES SOMEBODY ELSE'S MARKING — not even the coordinator. A mark
+      // is staff work; the coordinator's predicted-grade points already say when
+      // it is needed. Refusing this here rather than filtering it on the way to
+      // a screen is what makes the rule structural: there is no date to leak.
+      if (tier === 'none') return false
+      // A `deadlines.set` holder sets anything that IS a date.
       if (hasDeadlinesSet) return true
-      // A predicted-grade date is a cohort-wide commitment and the April one is
-      // an IB deadline the coordinator signs for. Never a teacher's to move.
-      if (isPgKey(requirementKey)) return false
-      // Otherwise: the designated marker of that course, and only that course.
+      // Everything below is a teacher, and a teacher's authority is one course.
       if (courseId == null) return false
-      return markerOf(courseId, cohortId, userId)
+      if (!markerOf(courseId, cohortId, userId)) return false
+      // An EXTENSION moves one candidate, not the programme, so the marker may
+      // grant one on any dated stage of their own course — including the final
+      // upload, whose cohort date stays exactly where the coordinator put it.
+      if (studentId != null) return true
+      return tier === 'course'
+    },
+
+    async listUnset(schoolId, cohortId, viewer) {
+      const cohortDefs = defsIn(schoolId, cohortId)
+      const live = scoped(schoolId, cohortId)
+      const out: UnsetStage[] = []
+
+      // The courses this teacher marks — the only ones they could be offered.
+      const marked = viewer.hasDeadlinesSet
+        ? []
+        : courses.filter((c) => markerOf(c.id, cohortId, viewer.userId))
+
+      for (const stage of stagesIn(cohortDefs)) {
+        if (stage.tier === 'none') continue
+
+        if (viewer.hasDeadlinesSet) {
+          // One row per stage that has NO date anywhere. A stage dated on
+          // twenty-five of twenty-six courses is not listed as a gap: partial
+          // coverage is a judgement, and judging it is how a list becomes a nag.
+          if (live.some((d) => d.requirementKey === stage.key)) continue
+          out.push({
+            key: stage.key, label: stage.label, lane: stage.lane, tier: stage.tier,
+            courseId: null,
+            courseName: stage.cohortWide ? 'All courses' : '\u2014',
+          })
+          continue
+        }
+
+        // A teacher is offered their own module milestones and nothing else.
+        if (stage.tier !== 'course') continue
+        for (const c of marked) {
+          const def = cohortDefs.find(
+            (d) => stageOf(d) === stage.key &&
+              d.scope.kind === 'course' && d.scope.courseId === c.id,
+          )
+          if (!def) continue
+          if (live.some((d) => deadlineMatches(d, def))) continue
+          out.push({
+            key: stage.key, label: stage.label, lane: stage.lane, tier: stage.tier,
+            courseId: c.id, courseName: c.name,
+          })
+        }
+      }
+      return out
     },
 
     async set(schoolId, cohortId, input, by) {
       const existing = scoped(schoolId, cohortId).find(
-        (d) => d.requirementKey === input.requirementKey && d.courseId === (input.courseId ?? null),
+        (d) => d.requirementKey === input.requirementKey &&
+          d.courseId === (input.courseId ?? null) &&
+          (d.studentId ?? null) === (input.studentId ?? null),
       )
+      // A DATE THAT LANDS ON NOTHING IS NOT A DATE. The checkpoint has asserted
+      // this about the SEEDED rows since 19 Aug — the first fixtures asked for a
+      // def keyed `tok.tok.essay` and nothing complained. The same guarantee has
+      // to hold at write time, or a picker that offers "Title chosen" beside the
+      // course "CAS" quietly creates a row nobody can ever satisfy.
+      const probe = {
+        schoolId, cohortId,
+        requirementKey: input.requirementKey,
+        courseId: input.courseId ?? null,
+        studentId: input.studentId ?? null,
+      } as Deadline
+      if (!defs.some((def) => deadlineMatches(probe, def, input.studentId ?? undefined))) {
+        throw new Error('There is nothing on that course with that stage — the date would land on nothing.')
+      }
       const row: Deadline = {
         id: 'dl_' + (deadlines.length + 1),
         schoolId,
         cohortId,
         requirementKey: input.requirementKey,
         courseId: input.courseId ?? null,
+        studentId: input.studentId ?? null,
         dueAt: input.dueAt,
         isMajor: input.isMajor,
         decidedBy: input.decidedBy.trim() || 'not recorded',
@@ -172,15 +255,15 @@ export function makeDeadlineRepository(deps: {
       if (i >= 0) deadlines.splice(i, 1)
     },
 
-    async forDef(schoolId, cohortId, def) {
-      return deadlineFor(scoped(schoolId, cohortId), def)
+    async forDef(schoolId, cohortId, def, studentId) {
+      return deadlineFor(scoped(schoolId, cohortId), def, studentId)
     },
 
     async definitionsIn(schoolId, cohortId) {
       return defs.filter((d) => d.schoolId === schoolId && d.cohortId === cohortId)
     },
 
-    async dueFor(schoolId, userId, opts) {
+    async dueFor(schoolId, userId) {
       const today = todayRiyadh()
       const out: DueItem[] = []
 
@@ -197,13 +280,17 @@ export function makeDeadlineRepository(deps: {
       for (const cohortId of cohortIds) {
         const rows = scoped(schoolId, cohortId)
         for (const d of rows) {
-          if (opts?.excludePg && isPgKey(d.requirementKey)) continue
           const hits = defsFor(d)
           if (hits.length === 0) continue
 
           if (student) {
             // Only requirements that reach this candidate, via enrolment.
+            // THE ONE RULE for what a candidate sees is `studentMaySee` — the
+            // same predicate the track uses, so the two cannot disagree the way
+            // three separate filters did before 22 Aug. Enrolment says which
+            // requirements reach them; that rule says which dates are theirs.
             const mine = hits.filter((def) => {
+              if (!studentMaySee(def)) return false
               if (def.scope.kind === 'programme') return true
               const ids = sectionIdsOf(def.scope.courseId, cohortId)
               return enrollments.some(

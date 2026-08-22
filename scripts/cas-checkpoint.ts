@@ -21,6 +21,7 @@ import { REPORTING_POINTS, pgKey } from '../lib/pg/types'
 import { normaliseGrade } from '../lib/pg/scale'
 import {
   JOIN_GRACE_DAYS, addDays, deadlineFor, deadlineMatches, daysUntil, lateFrom, stageOf,
+  studentMaySee, tierOfStage,
   stagesIn, studentOwedToIb, warningLevel, withDue,
 } from '../lib/deadlines'
 import { cohortStart, EE_SUPERVISION } from '../lib/data/fixtures'
@@ -1082,6 +1083,9 @@ async function main() {
   // -------------------------------------------------------------------------
   console.log('\n13. Due dates — the record, the match, and who may move one')
 
+  const dueForSource = require('fs').readFileSync(
+    require('path').join(__dirname, '../../lib/data/deadline-repo.ts'), 'utf8',
+  ) as string
   const dlC15 = DEADLINES.filter((d) => d.cohortId === 'c15')
   check(dlC15.length > 0, `${dlC15.length} deadlines seeded for the graduating cohort`)
   check(
@@ -1157,16 +1161,68 @@ async function main() {
   // Section 12 already established this course and its designated marker.
   const bioCourseId = bioPg.id
   const dlMarkerId = markerId
+  const c15Defs = REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15')
+
+  // --- THE TIER RULE: a date belongs to whoever does the work ---
   check(
-    await repo.deadlines.maySet('dhahran', 'c15', dlMarkerId, 'file', bioCourseId, false),
-    'the designated marker sets their own course\u2019s IA date',
+    tierOfStage('mark', c15Defs) === 'none' &&
+      tierOfStage('comment', c15Defs) === 'none' &&
+      tierOfStage('exhmark', c15Defs) === 'none' &&
+      tierOfStage('score', c15Defs) === 'none',
+    'marking and commenting are NOT due dates \u2014 staff work carries no deadline, on any course',
+  )
+  check(
+    tierOfStage('file', c15Defs) === 'programme' &&
+      tierOfStage('essay', c15Defs) === 'programme' &&
+      tierOfStage('pg.p2', c15Defs) === 'programme' &&
+      tierOfStage('ib.auth', c15Defs) === 'programme' &&
+      tierOfStage('complete', c15Defs) === 'programme',
+    'the final upload, the reporting points, CAS and IB authentication are the coordinator\u2019s',
+  )
+  check(
+    tierOfStage('title', c15Defs) === 'course' &&
+      tierOfStage('exh', c15Defs) === 'course' &&
+      tierOfStage('prompt', c15Defs) === 'course',
+    'module milestones are the teacher\u2019s \u2014 they never leave one classroom',
+  )
+  check(
+    tierOfStage('draft', c15Defs) === 'programme',
+    "and 'draft' is read WITH ITS LANE: the EE draft is on the programme's EE calendar, not a teacher's",
+  )
+
+  // --- no seeded date sits on work its owner cannot do ---
+  const wrongOwner = DEADLINES.filter((d) => {
+    const hits = REQUIREMENT_DEFS.filter((def) => deadlineMatches(d, def))
+    return hits.length > 0 && !hits.every((def) => studentMaySee(def) || def.lane === 'Predicted grades')
+  })
+  check(
+    wrongOwner.length === 0,
+    wrongOwner.length === 0
+      ? 'and NOT ONE seeded date lands on staff-recorded work \u2014 the thirty IA mark dates are gone'
+      : `DATES ON SOMEBODY ELSE'S WORK: ${wrongOwner.map((d) => d.courseId + '/' + d.requirementKey).join(', ')}`,
+  )
+  check(
+    !DEADLINES.some((d) => d.requirementKey === 'mark'),
+    'a predicted-grade point is when marks are needed; `.mark` has no date of its own anywhere',
+  )
+
+  // --- WHO MAY MOVE A DATE ---
+  // Section 12 already established this course and its designated marker.
+  const dlTokMarker = 'u_adeyemi'
+  check(
+    !(await repo.deadlines.maySet('dhahran', 'c15', dlMarkerId, 'file', bioCourseId, false)),
+    'the designated marker is REFUSED the final upload date \u2014 the stagger is one person\u2019s decision',
+  )
+  check(
+    await repo.deadlines.maySet('dhahran', 'c15', dlTokMarker, 'exh', 'tok', false),
+    'but sets their own module milestone \u2014 the exhibition date never leaves the TOK room',
   )
   check(
     !(await repo.deadlines.maySet('dhahran', 'c15', dlMarkerId, 'pg.p2', null, false)),
     'and is REFUSED a predicted-grade date \u2014 that is a cohort-wide commitment, coordinator only',
   )
   check(
-    !(await repo.deadlines.maySet('dhahran', 'c15', 'u_silva', 'file', bioCourseId, false)),
+    !(await repo.deadlines.maySet('dhahran', 'c15', 'u_silva', 'exh', 'tok', false)),
     'another course\u2019s teacher is refused',
   )
   check(
@@ -1174,8 +1230,69 @@ async function main() {
     'a deadlines.set holder sets anything, including predicted grades',
   )
   check(
-    !(await repo.deadlines.maySet('dhahran', 'c15', dlMarkerId, 'file', null, false)),
+    !(await repo.deadlines.maySet('dhahran', 'c15', 'u_haddad', 'mark', bioCourseId, true)),
+    'but NOT a marking date \u2014 an undatable stage is refused to the coordinator too, so there is no date to leak',
+  )
+  check(
+    !(await repo.deadlines.maySet('dhahran', 'c15', dlTokMarker, 'exh', null, false)),
     'a teacher cannot set a cohort-wide date even on a stage they own',
+  )
+
+  // --- A PER-STUDENT EXTENSION is the most specific row there is ---
+  const extStudent = STUDENTS.find((st) => st.cohortId === 'c15')!.userId
+  const otherStudent = STUDENTS.filter((st) => st.cohortId === 'c15')[1]!.userId
+  check(
+    await repo.deadlines.maySet('dhahran', 'c15', dlMarkerId, 'file', bioCourseId, false, extStudent),
+    'the marker MAY extend one candidate on their own course \u2014 they are the one who knows why',
+  )
+  check(
+    !(await repo.deadlines.maySet('dhahran', 'c15', 'u_silva', 'file', bioCourseId, false, extStudent)),
+    'a teacher who does not mark that course still cannot, extension or not',
+  )
+  const ext = {
+    ...pgDate, id: 'dl_test_ext', requirementKey: 'file', courseId: bioPg.id,
+    studentId: extStudent, dueAt: '2027-03-15',
+  }
+  check(
+    deadlineFor([wide, narrow, ext], bioFile, extStudent)?.id === 'dl_test_ext',
+    'one candidate\u2019s extension beats the course date, which beats the cohort\u2019s',
+  )
+  check(
+    deadlineFor([wide, narrow, ext], bioFile, otherStudent)?.id === 'dl_test_narrow',
+    'and it reaches NOBODY else \u2014 an extension is a row, not a policy',
+  )
+  check(
+    deadlineFor([wide, narrow, ext], bioFile)?.id === 'dl_test_narrow',
+    'a read with no candidate in hand sees the cohort\u2019s record, never somebody\u2019s extension',
+  )
+
+  // --- UNSET IS OFFERED, NEVER DEMANDED ---
+  const unsetCoord = await repo.deadlines.listUnset('dhahran', 'c15', {
+    userId: 'u_haddad', hasDeadlinesSet: true,
+  })
+  check(
+    unsetCoord.length > 0 && unsetCoord.every((u) => u.tier !== 'none'),
+    `the coordinator is offered ${unsetCoord.length} datable stages with no date \u2014 and no undatable ones`,
+  )
+  check(
+    !unsetCoord.some((u) => DEADLINES.some((d) => d.cohortId === 'c15' && d.requirementKey === u.key)),
+    'nothing already dated appears on it',
+  )
+  const unsetTeacher = await repo.deadlines.listUnset('dhahran', 'c15', {
+    userId: dlTokMarker, hasDeadlinesSet: false,
+  })
+  check(
+    unsetTeacher.every((u) => u.tier === 'course' && u.courseId != null),
+    'a teacher is offered ONLY their own module milestones \u2014 an empty row you cannot fill is an accusation',
+  )
+  check(
+    unsetTeacher.some((u) => u.key === 'prompt'),
+    'including the TOK prompt, which nobody has dated and nobody has to \u2014 Google Classroom is a legitimate answer',
+  )
+  check(
+    (await repo.deadlines.listUnset('dhahran', 'c15', { userId: 'u_silva', hasDeadlinesSet: false }))
+      .every((u) => u.courseId === 'busman_sl' || u.tier === 'course'),
+    'and somebody who marks one course is offered that course, not the programme',
   )
 
   // --- MOVING A DATE SUPERSEDES IT ---
@@ -1200,17 +1317,21 @@ async function main() {
 
   // --- somebody's own dates ---
   const aCandidate = STUDENTS.find((st) => st.cohortId === 'c15')!.userId
-  const studentDue = await repo.deadlines.dueFor('dhahran', aCandidate, { excludePg: true })
+  const studentDue = await repo.deadlines.dueFor('dhahran', aCandidate)
   check(studentDue.length > 0, `a candidate has ${studentDue.length} dates of their own`)
   check(
     studentDue.every((d) => !d.deadline.requirementKey.startsWith('pg.')),
     'and NOT ONE of them is a predicted-grade date — those are staff-facing',
   )
   check(
-    (await repo.deadlines.dueFor('dhahran', aCandidate)).some((d) =>
-      d.deadline.requirementKey.startsWith('pg.'),
+    !/excludePg/.test(dueForSource),
+    'and there is NO FLAG to get that wrong \u2014 the filter was deleted, because a rule that a caller has to remember is not a rule',
+  )
+  check(
+    studentDue.every((d) =>
+      REQUIREMENT_DEFS.filter((def) => deadlineMatches(d.deadline, def)).some(studentMaySee),
     ),
-    'without excludePg the same call does include them — the filter is the caller\u2019s decision, not a hidden rule',
+    'ONE RULE for what a candidate sees: a date is theirs if the work is \u2014 the same predicate the track uses',
   )
   const teacherDue = await repo.deadlines.dueFor('dhahran', dlMarkerId)
   check(
@@ -2863,17 +2984,22 @@ async function main() {
   // due date on ONE student's track — "English HL IA mark, due 28 Jan" is a
   // date for the teacher, about work the candidate cannot do, and it could go
   // late on them for somebody else's lateness.
+  //
+  // 22 AUG: THE FILTER IS NO LONGER WHAT SAVES US. The stage itself is
+  // undatable now, so a staff-recorded checkpoint carries no date on ANY read —
+  // staff's or the candidate's. The `asCandidate` filter stays as the second
+  // line, and this assertion is the first: there is nothing to filter.
   const asStaff = (await repo.getTrack('dhahran', evStudent))!
   const asCandidate = (await repo.getTrack('dhahran', evStudent, { asCandidate: true }))!
   const staffDated = (t: typeof asStaff) => t.lanes.flatMap((l) => l.checkpoints)
     .filter((c) => c.def.recordedBy === 'staff' && c.due != null)
   check(
-    staffDated(asStaff).length > 0,
-    `staff keep every date — ${staffDated(asStaff).length} staff-recorded checkpoints carry one`,
+    staffDated(asStaff).length === 0,
+    'NOT ONE staff-recorded checkpoint carries a date, even on a staff read — the thirty IA mark dates are gone at the source',
   )
   check(
     staffDated(asCandidate).length === 0,
-    'but a CANDIDATE reading their own track sees none of them — a date on somebody else’s work is not theirs to be late for',
+    'and a CANDIDATE reading their own track sees none either — a date on somebody else’s work is not theirs to be late for',
   )
   check(
     asCandidate.lanes.flatMap((l) => l.checkpoints).length ===

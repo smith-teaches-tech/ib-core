@@ -37,6 +37,11 @@ export default function DueDates({
   /** Show only the next N. The rest are still on the due-dates screen. */
   limit?: number
 }) {
+  // ISMAJOR IS DISPLAY WEIGHT AND NOTHING ELSE (settled 22 Aug). It is the
+  // school's own flag off the planning spreadsheet, and its whole job is that a
+  // major date is bold. It ranks nothing, filters nothing and reorders nothing —
+  // this list is chronological and stays chronological, because the next thing
+  // due is the next thing due whatever anybody flagged.
   const shown = limit ? items.slice(0, limit) : items
   const hidden = items.length - shown.length
 
@@ -65,11 +70,15 @@ export default function DueDates({
                     <span className="dd">{d.getUTCDate()}</span>
                   </div>
                   <div className="due-b">
-                    <div className="due-t">{item.label}</div>
+                    <div
+                      className="due-t"
+                      style={item.deadline.isMajor ? { fontWeight: 700 } : undefined}
+                    >
+                      {item.label}
+                    </div>
                     <div className="due-m">
                       {item.courseName}
                       {item.total > 1 && ` · ${item.done}/${item.total} in`}
-                      {item.deadline.isMajor && ' · major'}
                     </div>
                   </div>
                   <div className="due-r">

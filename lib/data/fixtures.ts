@@ -27,7 +27,7 @@ import { makeExportRepository } from './export-repo'
 import type { MarkEvent, MarkUnlock, SampleRequest } from '../ia/types'
 import { makeDeadlineRepository } from './deadline-repo'
 import { pinned } from './pin'
-import { lateFrom, withDue } from '../deadlines'
+import { lateFrom, studentMaySee, withDue } from '../deadlines'
 import type { EeSupervision } from '../ee/types'
 import { eeCoordinatorId, supervisorFor } from '../ee/supervision'
 import { EE_CRITERIA, EE_MARK_MAX, indicativeGrade } from '../ee/rubric'
@@ -605,8 +605,16 @@ export const DEADLINES: Deadline[] = pinned('ibDeadlines', () => {
     mk('c15', 'final', 'ee', '2026-11-13', true),
     mk('c15', 'exh', 'tok', '2026-11-20', false, 'H. Adeyemi · TOK'),
     // Upcoming.
+    // THE FINAL PDF IS THE COORDINATOR'S DATE, and it staggers on purpose:
+    // sciences, then maths, then everything else. One person spreading the
+    // moderation and IBIS load, which is a decision no single teacher can make.
     ...subjects.map((id) => mk('c15', 'file', id, wave(id), true)),
-    ...subjects.map((id) => mk('c15', 'mark', id, wave(id), true)),
+    // `.mark` HAD A DATE HERE ON THIRTY COURSES AND NO LONGER DOES (22 Aug).
+    // Marking is staff work; a deadline on it is pressure with nothing behind
+    // it, and it was reaching the candidates whose work was being marked. The
+    // predicted-grade points below are when marks are actually needed, because
+    // a predicted grade is what an IA mark becomes by the time it matters.
+
     mk('c15', 'pg.p2', null, '2027-01-16', true),
     mk('c15', 'essay', 'tok', '2027-03-05', true),
     mk('c15', 'complete', 'cas', '2027-04-01', true),
@@ -1817,13 +1825,14 @@ export const fixtureRepository: Repository = {
       lanes: track.lanes.map((lane) => ({
         ...lane,
         checkpoints: lane.checkpoints.map((cp) => {
-          const withDate = withDue(cp, mine, today, notBefore)
+          const withDate = withDue(cp, mine, today, notBefore, studentUserId)
           // A DATE ON SOMEBODY ELSE'S WORK IS NOT THE CANDIDATE'S BUSINESS.
           // Staff-recorded requirements keep their checkpoint on a candidate's
-          // track — they should see a mark is coming — but not the deadline,
-          // which is the teacher's and the coordinator's. See the option's
-          // note in lib/data/repository.ts.
-          if (opts?.asCandidate && cp.def.recordedBy === 'staff') {
+          // track — they should see a mark is coming — but not the deadline.
+          // `studentMaySee` is the SAME predicate the home due-list uses, so
+          // the two surfaces cannot drift apart. Since 22 Aug it is also belt
+          // and braces: a staff stage can no longer be dated by anyone.
+          if (opts?.asCandidate && !studentMaySee(cp.def)) {
             return { ...withDate, due: undefined }
           }
           return withDate

@@ -13,7 +13,7 @@
 
 import { useState, useTransition } from 'react'
 import * as dl from '@/lib/deadline-actions'
-import type { ResolvedDeadline } from '@/lib/data/repository'
+import type { ResolvedDeadline, UnsetStage } from '@/lib/data/repository'
 
 const MON = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -27,14 +27,18 @@ function when(daysAway: number, done: number, total: number) {
 
 export default function DeadlineTable({
   rows,
+  unset,
   cohortId,
   cohortLabel,
   courses,
   stages,
   canAddAnything,
+  readOnly,
   readOnlyReason,
 }: {
   rows: ResolvedDeadline[]
+  /** Datable stages with no date. OFFERED, never demanded — see the section below. */
+  unset: UnsetStage[]
   cohortId: string
   cohortLabel: string
   /** Courses this viewer may date, for the add form. */
@@ -42,6 +46,8 @@ export default function DeadlineTable({
   /** Stages this viewer may date. PG stages are absent unless they hold deadlines.set. */
   stages: { key: string; label: string; cohortWide: boolean }[]
   canAddAnything: boolean
+  /** An archived cohort is a record, not a workspace — nothing here is settable. */
+  readOnly: boolean
   readOnlyReason?: string
 }) {
   const [error, setError] = useState<string | null>(null)
@@ -163,13 +169,9 @@ export default function DeadlineTable({
                           </button>
                         </>
                       ) : (
-                        <span className="locked" title={
-                          r.canBeSetByTeacher
-                            ? 'You are not the designated marker for this course.'
-                            : 'Predicted-grade dates are set by the IB coordinator.'
-                        }>
+                        <span className="locked" title={r.lockedBecause}>
                           <LockGlyph />
-                          {r.canBeSetByTeacher ? 'not your course' : 'coordinator only'}
+                          {r.tier === 'programme' ? 'coordinator only' : 'not your course'}
                         </span>
                       )}
                     </td>
@@ -178,6 +180,63 @@ export default function DeadlineTable({
               })}
             </tbody>
           </table>
+
+          {unset.length > 0 && !readOnly && (
+            /*
+              NOT SET — offered, never demanded.
+
+              No count, no badge, no colour, and nothing anywhere else in the
+              product asks why a row is still here. Some teachers run their
+              pacing in Google Classroom and always will, so unset has to be a
+              legitimate permanent state rather than a gap the product complains
+              about. It is collapsed by default for the same reason.
+
+              Students never see this at all: a blank date reads to them as "my
+              teacher does not run deadlines here", which is true, and "no date
+              set" would only invite them to go and ask for one.
+            */
+            <details className="unset">
+              <summary className="mut" style={{ fontSize: 12, cursor: 'pointer', padding: '8px 0' }}>
+                Dates not set ({unset.length}) — optional
+              </summary>
+              <table className="dl">
+                <tbody>
+                  {unset.map((u) => (
+                    <tr key={u.key + '/' + (u.courseId ?? '*')}>
+                      <td style={{ width: 66 }} className="mut">—</td>
+                      <td>
+                        <b>{u.label}</b>
+                        <div className="mut" style={{ fontSize: 11 }}>{u.lane}</div>
+                      </td>
+                      <td>{u.courseName}</td>
+                      <td colSpan={2} className="mut" style={{ fontSize: 11.5 }}>
+                        No date. Nothing is late without one.
+                      </td>
+                      <td style={{ textAlign: 'right', whiteSpace: 'nowrap' }}>
+                        <input
+                          type="date"
+                          disabled={pending}
+                          title="Set a date for this"
+                          onChange={(e) => {
+                            const v = e.target.value
+                            if (v) {
+                              run(() =>
+                                dl.setDeadline(cohortId, u.key, u.courseId, v, false, decidedBy),
+                              )
+                            }
+                          }}
+                        />
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="mut" style={{ fontSize: 11.5, paddingBottom: 8 }}>
+                Leaving these blank is a choice, not an omission — a stage with no date simply
+                never goes late, and nothing here will ask again.
+              </div>
+            </details>
+          )}
 
           {canAddAnything ? (
             <div className="addrow">

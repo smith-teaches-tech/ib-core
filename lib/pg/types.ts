@@ -24,16 +24,26 @@ export interface ReportingPoint {
   /** The def key suffix: `<courseId>.pg.p1`. */
   key: 'p1' | 'p2' | 'p3'
   label: string
-  /** Shown under the column head. Advisory — the deadlines module owns real dates. */
-  due: string
   /** True for the point that is transcribed into IBIS. */
   toIb: boolean
 }
 
+/**
+ * NO DATE LIVES HERE. These three carried advisory prose — "June, end of DP1",
+ * "April, with the IA marks" — which read as a deadline while being nobody's
+ * decision, and stayed on screen whether or not the coordinator had set the
+ * real one. Michael, 22 Aug: *"nothing hardcoded... set by coordinator in case
+ * this changes in the future."* A column now shows the date she set, or it
+ * shows nothing.
+ *
+ * The predicted-grade points are also where "when do I need the marks?" is
+ * answered: a predicted grade is what an IA mark becomes by the time it
+ * matters, so `.mark` has no date of its own. See lib/deadlines.ts.
+ */
 export const REPORTING_POINTS: ReportingPoint[] = [
-  { key: 'p1', label: 'End Y1', due: 'June, end of DP1', toIb: false },
-  { key: 'p2', label: 'Jan Y2', due: 'January, DP2', toIb: false },
-  { key: 'p3', label: 'Apr Y2', due: 'April, with the IA marks', toIb: true },
+  { key: 'p1', label: 'End Y1', toIb: false },
+  { key: 'p2', label: 'Jan Y2', toIb: false },
+  { key: 'p3', label: 'Apr Y2', toIb: true },
 ]
 
 /** The def key for one course × one point. The ONE place this string is built. */

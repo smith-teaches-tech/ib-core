@@ -37,6 +37,7 @@ import type { PgStudentView, PgView, ReportingPoint } from '../pg/types'
 import type { Deadline, RequirementDef } from '../types'
 import type { UploadBoardView } from '../export/types'
 import type { CapabilityKey, Cohort, PresetKey } from '../types'
+import type { DeadlineTier } from '../deadlines'
 
 export interface CohortSpaces {
   cohort: Cohort
@@ -891,10 +892,31 @@ export interface ResolvedDeadline {
   total: number
   /** Negative = the day has passed. */
   daysAway: number
-  /** False for predicted-grade dates — those are the coordinator's alone. */
-  canBeSetByTeacher: boolean
+  /** Who may set this stage at all — see `DeadlineTier` in lib/deadlines.ts. */
+  tier: DeadlineTier
   /** May the CURRENT viewer change this one? Rows are editable individually. */
   mayEdit: boolean
+  /** If not, the sentence saying why. Empty when `mayEdit`. */
+  lockedBecause: string
+}
+
+/**
+ * A DATE THAT COULD EXIST AND DOES NOT.
+ *
+ * Unset is a legitimate, permanent state — some teachers run their pacing in
+ * Google Classroom and always will — so this list is offered, never demanded.
+ * It carries no count, no badge and no colour anywhere it is rendered, and
+ * nothing in the product ever asks why a row is still on it.
+ */
+export interface UnsetStage {
+  /** The stage key, as `setDeadline` wants it. */
+  key: string
+  label: string
+  lane: string
+  tier: DeadlineTier
+  /** null = the viewer would be setting it cohort-wide. */
+  courseId: string | null
+  courseName: string
 }
 
 /** A deadline as it appears on somebody's home page. */
@@ -933,16 +955,35 @@ export interface DeadlineRepository {
   maySet(
     schoolId: string, cohortId: string, userId: string,
     requirementKey: string, courseId: string | null, hasDeadlinesSet: boolean,
+    /** Present for a per-student extension, which the course's marker may grant. */
+    studentId?: string | null,
   ): Promise<boolean>
+  /**
+   * Datable stages with no date on them, for whoever may set one.
+   *
+   * A coordinator gets every stage the programme could date and has not; a
+   * teacher gets only their own module milestones, on the courses they mark.
+   * Anyone who may set nothing gets nothing — an empty row you cannot fill is
+   * an accusation, not information.
+   */
+  listUnset(
+    schoolId: string, cohortId: string,
+    viewer: { userId: string; hasDeadlinesSet: boolean },
+  ): Promise<UnsetStage[]>
   /** Create or MOVE a date. Moving supersedes rather than overwrites. */
   set(
     schoolId: string, cohortId: string,
-    input: { requirementKey: string; courseId?: string | null; dueAt: string; isMajor: boolean; decidedBy: string },
+    input: {
+      requirementKey: string; courseId?: string | null; studentId?: string | null
+      dueAt: string; isMajor: boolean; decidedBy: string
+    },
     by: string,
   ): Promise<Deadline>
   remove(schoolId: string, cohortId: string, id: string): Promise<void>
   /** The one date that applies to one requirement — most specific wins. */
-  forDef(schoolId: string, cohortId: string, def: RequirementDef): Promise<Deadline | null>
+  forDef(
+    schoolId: string, cohortId: string, def: RequirementDef, studentId?: string | null,
+  ): Promise<Deadline | null>
   /**
    * Every requirement definition in a cohort. Read by the due-dates picker to
    * offer the STAGES that actually exist — so a new module's stages appear the
@@ -952,10 +993,13 @@ export interface DeadlineRepository {
   definitionsIn(schoolId: string, cohortId: string): Promise<RequirementDef[]>
   /**
    * Somebody's own due dates, in order. A student gets the work they owe; a
-   * teacher gets the courses they mark. `excludePg` keeps staff-facing
-   * predicted-grade dates off a student's screen.
+   * teacher gets the courses they mark.
+   *
+   * There is no `excludePg` flag any more, and its absence is the point. A
+   * candidate does not see a predicted-grade date because a predicted grade is
+   * not theirs to record — the same rule that keeps marking deadlines off their
+   * track — rather than because a caller remembered to pass something. Three
+   * surfaces had three different filters on 21 Aug; now they have one rule.
    */
-  dueFor(
-    schoolId: string, userId: string, opts?: { excludePg?: boolean },
-  ): Promise<DueItem[]>
+  dueFor(schoolId: string, userId: string): Promise<DueItem[]>
 }

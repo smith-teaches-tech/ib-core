@@ -15,10 +15,27 @@ import type { Checkpoint, CheckpointDue, Deadline, RequirementDef } from './type
  *                    courses, and it is the same suffix match the board's
  *                    rollups already use.
  */
-export function deadlineMatches(d: Deadline, def: RequirementDef): boolean {
+export function deadlineMatches(
+  d: Deadline,
+  def: RequirementDef,
+  /** Whose track this is. A per-student row reaches nobody else, ever. */
+  studentId?: string | null,
+): boolean {
   if (d.cohortId !== def.cohortId || d.schoolId !== def.schoolId) return false
+  // AN EXTENSION IS A ROW, NOT A FLAG. It is keyed exactly like any other date
+  // and resolved by the same rule; it is simply more specific than a course
+  // date, which is more specific than the cohort's. So a medical extension
+  // needs no second code path and cannot be forgotten by one.
+  if (d.studentId != null && d.studentId !== studentId) return false
   if (d.courseId != null) return def.key === `${d.courseId}.${d.requirementKey}`
   return def.key === d.requirementKey || def.key.endsWith(`.${d.requirementKey}`)
+}
+
+/** How specific a row is: the cohort's, one course's, or one candidate's. */
+function specificity(d: Deadline): number {
+  if (d.studentId != null) return 2
+  if (d.courseId != null) return 1
+  return 0
 }
 
 /**
@@ -32,15 +49,19 @@ export function deadlineMatches(d: Deadline, def: RequirementDef): boolean {
  * Ties are broken by the later `setAt`: if two rows are equally specific, the
  * one decided most recently is the live one.
  */
-export function deadlineFor(deadlines: Deadline[], def: RequirementDef): Deadline | null {
+export function deadlineFor(
+  deadlines: Deadline[],
+  def: RequirementDef,
+  studentId?: string | null,
+): Deadline | null {
   let best: Deadline | null = null
   for (const d of deadlines) {
-    if (!deadlineMatches(d, def)) continue
+    if (!deadlineMatches(d, def, studentId)) continue
     if (best == null) { best = d; continue }
-    const moreSpecific = d.courseId != null && best.courseId == null
-    const lessSpecific = d.courseId == null && best.courseId != null
-    if (moreSpecific) best = d
-    else if (!lessSpecific && d.setAt > best.setAt) best = d
+    const a = specificity(d)
+    const b = specificity(best)
+    if (a > b) best = d
+    else if (a === b && d.setAt > best.setAt) best = d
   }
   return best
 }
@@ -103,8 +124,10 @@ export function withDue(
   today: string,
   /** From `lateFrom(student)` — omitted means the student started with the cohort. */
   notBefore?: string | null,
+  /** Whose track this is, so a per-student extension can be found. */
+  studentId?: string | null,
 ): Checkpoint {
-  const d = deadlineFor(deadlines, cp.def)
+  const d = deadlineFor(deadlines, cp.def, studentId)
   if (!d) return cp
   const daysAway = daysUntil(d.dueAt, today)
 
@@ -174,6 +197,106 @@ export function stageOf(def: RequirementDef): string {
   return i < 0 ? def.key : def.key.slice(i + 1)
 }
 
+// ---------------------------------------------------------------------------
+// WHO OWNS A DATE — the rule, stated once, in data
+// ---------------------------------------------------------------------------
+
+/**
+ * THE ONE RULE (settled with Michael, 22 Aug 2026):
+ *
+ *   A stage may carry a date only if the STUDENT does the work,
+ *   or it is a reporting commitment the COORDINATOR owns.
+ *
+ * Everything else follows. A mark has no due date — marking is staff work and a
+ * date on it is pressure with nothing behind it; the coordinator's predicted-
+ * grade points already say when marks are needed, because a predicted grade IS
+ * the mark by the time it matters. A teacher comment has no date for the same
+ * reason. This is not a filter applied on the way to a screen — an undatable
+ * stage cannot be dated by anyone, so there is no date to leak.
+ *
+ * `tier` then says WHO may set the ones that exist:
+ *
+ *   'programme' → the coordinator's Due Date Centre. Moving it moves more than
+ *                 one course, or the IB is waiting for it.
+ *   'course'    → a module milestone. The designated marker sets it for their
+ *                 own course, or leaves it blank and runs their own pacing
+ *                 elsewhere. Unset is a legitimate, permanent state.
+ *   'none'      → not a date. Nobody sets it, including the coordinator.
+ *
+ * A 'course' tier never means the coordinator is locked out — she sets
+ * anything. It means the teacher is not.
+ */
+export type DeadlineTier = 'programme' | 'course' | 'none'
+
+/**
+ * Stages that are dated even though a student does not record them.
+ *
+ * Predicted grades: the coordinator's three reporting points, staff-facing.
+ * CAS `complete`: the coordinator confirms it, but the WORK is the candidate's
+ * and "CAS finished by 1 April" is a real school deadline. It is the only
+ * coordinator-recorded stage a candidate sees a date for, and it is named here
+ * rather than inferred, so adding a second one is a decision somebody makes.
+ */
+const COORDINATOR_DATED = new Set(['complete'])
+const isPgStage = (stage: string) => stage.startsWith('pg.')
+
+/**
+ * MODULE MILESTONES — the teacher's dates, by lane.
+ *
+ * Deliberately short. These are the dates that never leave one classroom: if
+ * the TOK teacher moves the exhibition by a week, nobody outside TOK needs to
+ * know. Everything else datable — the final PDF the IB receives, the EE
+ * calendar, CAS completion, the reporting points — is programme-wide and the
+ * coordinator's, because moving it means telling more than one person.
+ *
+ * Keyed by LANE as well as stage because `draft` means two different things:
+ * an IA draft is the subject teacher's pacing, while the EE draft is a date on
+ * the programme's EE calendar set at the planning meeting.
+ */
+const TEACHER_MILESTONES: Record<string, ReadonlySet<string>> = {
+  'TOK': new Set(['title', 'prompt', 'exh']),
+  'Internal assessment': new Set(['proposal', 'draft']),
+}
+
+/** The defs a stage covers, in one cohort's worth of definitions. */
+function defsOfStage(stage: string, defs: RequirementDef[]): RequirementDef[] {
+  return defs.filter((d) => stageOf(d) === stage)
+}
+
+/**
+ * MAY A CANDIDATE SEE THIS DATE?
+ *
+ * One rule, used by the track, the home list and the due-date resolution alike,
+ * so the three cannot drift apart again. (They had three different filters on
+ * 21 Aug, and one of them was showing thirty teachers' marking deadlines to the
+ * students whose work was being marked.)
+ *
+ * The warning on the student's home page is deliberately NARROWER than this —
+ * it adds `exportTarget != null`, because it is about what the IB will not
+ * receive, not about everything with a date. One rule for whether a date shows;
+ * a second, tighter one for whether it shouts.
+ */
+export function studentMaySee(def: RequirementDef): boolean {
+  return def.recordedBy === 'student' || COORDINATOR_DATED.has(stageOf(def))
+}
+
+/** Which tier a stage belongs to. See `DeadlineTier`. */
+export function tierOfStage(stage: string, defs: RequirementDef[]): DeadlineTier {
+  if (isPgStage(stage)) return 'programme'
+  const hits = defsOfStage(stage, defs)
+  if (hits.length === 0) return 'none'
+  if (!hits.every(studentMaySee)) return 'none'
+  const lane = hits[0].lane
+  return TEACHER_MILESTONES[lane]?.has(stage) ? 'course' : 'programme'
+}
+
+/** Why a row is locked for this viewer — the sentence the screen shows. */
+export function lockReason(tier: DeadlineTier, isMarker: boolean): string {
+  if (tier === 'none') return 'not a due date'
+  if (tier === 'programme') return 'the coordinator\u2019s'
+  return isMarker ? '' : 'not your course'
+}
+
 /**
  * The stages that exist in a cohort, each with a human label and whether it is
  * naturally cohort-wide (every course has it, so one date covers them all).
@@ -185,6 +308,8 @@ export function stagesIn(defs: RequirementDef[]): {
   label: string
   cohortWide: boolean
   lane: string
+  /** Who may set it. 'none' stages are not offered to anybody. */
+  tier: DeadlineTier
 }[] {
   const seen = new Map<string, { key: string; label: string; cohortWide: boolean; lane: string; n: number }>()
   for (const def of defs) {
@@ -197,6 +322,9 @@ export function stagesIn(defs: RequirementDef[]): {
   // A stage on many courses is one a cohort-wide date makes sense for; a stage
   // on one course (the core modules) is named by that course and is not.
   return [...seen.values()]
-    .map((s) => ({ key: s.key, label: s.label, cohortWide: s.n > 1, lane: s.lane }))
+    .map((s) => ({
+      key: s.key, label: s.label, cohortWide: s.n > 1, lane: s.lane,
+      tier: tierOfStage(s.key, defs),
+    }))
     .sort((a, b) => a.lane.localeCompare(b.lane) || a.label.localeCompare(b.label))
 }

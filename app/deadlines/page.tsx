@@ -46,10 +46,11 @@ export default async function DeadlinesPage({
     )
   }
 
-  const rows = await repo.deadlines.listResolved(school.id, cohortId, {
-    userId: user.id,
-    hasDeadlinesSet: coordinator,
-  })
+  const viewer = { userId: user.id, hasDeadlinesSet: coordinator }
+  const rows = await repo.deadlines.listResolved(school.id, cohortId, viewer)
+  // Stages that COULD carry a date and do not — for whoever may set one.
+  // Offered in a collapsed section, with no count anywhere else and no nagging.
+  const unset = await repo.deadlines.listUnset(school.id, cohortId, viewer)
 
   // What this person may ADD. A coordinator: every stage in the cohort, and any
   // course. A teacher: the non-predicted stages, on the courses they mark.
@@ -65,9 +66,12 @@ export default async function DeadlinesPage({
     }
   }
 
+  // WHAT THIS PERSON MAY DATE AT ALL. A stage whose tier is 'none' is not a due
+  // date for anybody — marking is staff work — so it is offered to nobody,
+  // coordinator included. A teacher is offered module milestones only.
   const stages = coordinator
-    ? allStages
-    : allStages.filter((s) => !s.key.startsWith('pg.') && !s.cohortWide)
+    ? allStages.filter((s) => s.tier !== 'none')
+    : allStages.filter((s) => s.tier === 'course' && !s.cohortWide)
   const courses = coordinator
     ? (await repo.listCourses(school.id)).map((c) => ({ id: c.id, name: c.name }))
     : markedCourses
@@ -88,16 +92,18 @@ export default async function DeadlinesPage({
       )}
       <DeadlineTable
         rows={rows}
+        unset={unset}
         cohortId={cohortId}
         cohortLabel={cohort ? cohortTitle(cohort) : ''}
         courses={courses}
         stages={stages}
         canAddAnything={!readOnly && (coordinator || markedCourses.length > 0)}
+        readOnly={readOnly}
         readOnlyReason={
           readOnly
             ? `${cohort?.label} is archived — a record, not a workspace.`
             : !coordinator
-              ? 'You can change dates on the courses you mark. Predicted-grade dates and anything cohort-wide belong to the IB coordinator.'
+              ? 'You set the milestones for the courses you mark — a draft date, a title date. The final upload, the predicted-grade points and anything cohort-wide are the IB coordinator\u2019s. Leaving a milestone blank is fine: nothing goes late without a date.'
               : undefined
         }
       />

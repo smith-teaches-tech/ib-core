@@ -44,7 +44,7 @@ export default async function HomeScreen() {
     // Staff-facing dates are filtered out: a predicted-grade deadline is not a
     // student's to meet, and showing it would invite the one question the
     // product deliberately does not answer for them.
-    const due = await repo.deadlines.dueFor(school.id, user.id, { excludePg: true })
+    const due = await repo.deadlines.dueFor(school.id, user.id)
     const owed = track
       ? studentOwedToIb(track.lanes.flatMap((l) => l.checkpoints))
       : []
