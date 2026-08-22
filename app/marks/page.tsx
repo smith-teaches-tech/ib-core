@@ -1,4 +1,4 @@
-// Check work → IA marks — THE TRANSCRIPTION VIEW.
+// Check work → Marks for IBIS — THE TRANSCRIPTION VIEW.
 //
 // The values live here, one course at a time; the board only ever shows the
 // fractions. Same grid the designated marker uses on their course page, worn
@@ -33,7 +33,7 @@ export default async function MarksPage({
   if (!session.can('marks.transcribe') && !session.can('ia.manage')) {
     return (
       <Shell session={session} spaces={spaces} current="/marks">
-        <h1>IA marks</h1>
+        <h1>Marks for IBIS</h1>
         <div className="note warn">
           You need <b>Run the mark transcription companion</b> or <b>IA — enter and release marks</b>{' '}
           for this school.
@@ -59,10 +59,11 @@ export default async function MarksPage({
 
   return (
     <Shell session={session} spaces={spaces} current="/marks">
-      <h1>IA marks</h1>
+      <h1>Marks for IBIS</h1>
       <p className="sub">
-        Entered by the designated marker, per criterion, in their course space — read here into IBIS.
-        The board shows the fractions; this screen shows the values.
+        Entered by the designated marker, per criterion, on their course\u2019s <b>IA Marks</b> tab —
+        read here, in session order, as they go into IBIS. The board shows the fractions; this screen
+        shows the values.
       </p>
 
       <CohortBar

@@ -90,9 +90,10 @@ export interface PgView {
   /**
    * The DUE DATE for each point, aligned to `points`, or null where none is set.
    *
-   * The point's own `due` string is advisory prose ("April, with the IA marks").
-   * This is the real date, out of the Deadline record — set once by the
-   * coordinator and seen by every teacher above the cells they have to fill.
+   * The real date, out of the Deadline record — set once by the coordinator and
+   * seen by every teacher above the cells they have to fill. There is no
+   * fallback: null renders as nothing, because a sentence about roughly when
+   * reads as a deadline while being nobody's decision (22 Aug).
    */
   pointDue: (string | null)[]
   /** The designated marker's name, if one is set. */

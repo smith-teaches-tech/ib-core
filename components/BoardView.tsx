@@ -386,14 +386,14 @@ export default function BoardView({
               The board is split by <b>where the work goes</b>. This tab holds only what has to reach
               IBIS or eCoursework — CAS confirmation, EE essay and RPF, TOK essay and TK/PPF, predicted
               grades. The <b>in / due</b> column counts only these. IAs, marks and teacher comments
-              are on <b>School tracking</b>; the values behind the marks fractions are on <b>IA marks</b>.
+              are on <b>School tracking</b>; the values behind the marks fractions are on <b>Marks for IBIS</b>.
             </>
           ) : (
             <>
               School-held records: the IA rollup (files · marks · comments across every subject a
               candidate takes), EE supervision, and the TOK internals. The IB sees these only if it
               samples — and when it does, a missing file here is already red. Mark <b>values</b> are on
-              the <b>IA marks</b> screen, one course at a time.
+              <b>Marks for IBIS</b>, one course at a time.
             </>
           )}
         </div>

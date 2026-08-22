@@ -67,8 +67,12 @@ export const COORDINATOR_PAGES: NavPage[] = [
   },
   {
     href: '/marks',
-    label: 'IA marks',
-    hint: 'By course — enter, check, type into IBIS',
+    // NOT "IA marks" — that is the name of the TAB inside a course, where a
+    // teacher enters them. This screen is the coordinator reading every course's
+    // values in session order and ticking them off as they go into IBIS. Two
+    // screens with one name is how somebody ends up on the wrong one in May.
+    label: 'Marks for IBIS',
+    hint: 'Every course\u2019s values in session order, ticked off as they are typed',
     ready: true,
     capability: 'marks.transcribe',
   },

@@ -238,9 +238,9 @@ export default async function CoursePage({
 
         const screens = (
           <nav className="pgseg">
-            <a className={screen === 'ia' ? 'on' : ''} href={`${baseHref}&screen=ia`}>IA marks</a>
+            <a className={screen === 'ia' ? 'on' : ''} href={`${baseHref}&screen=ia`}>IA Marks</a>
             <a className={screen === 'pg' ? 'on' : ''} href={`${baseHref}&screen=pg`}>
-              Predicted grades
+              Predicted Grades
             </a>
           </nav>
         )
@@ -491,7 +491,7 @@ export default async function CoursePage({
       <nav className="pgseg">
         <a className={tokScreen === 'exh' ? 'on' : ''} href={`${baseHref}&screen=exh`}>Exhibition</a>
         <a className={tokScreen === 'essay' ? 'on' : ''} href={`${baseHref}&screen=essay`}>Essay</a>
-        <a className={tokScreen === 'pg' ? 'on' : ''} href={`${baseHref}&screen=pg`}>Predicted grades</a>
+        <a className={tokScreen === 'pg' ? 'on' : ''} href={`${baseHref}&screen=pg`}>Predicted Grades</a>
       </nav>
     )
     const pgEditable =

@@ -114,9 +114,9 @@ export default function TeacherHome({
               </div>
 
               <div className="tcard-f">
-                <Link className="btn sm" href={`${base}&screen=ia`}>IA marks</Link>
+                <Link className="btn sm" href={`${base}&screen=ia`}>IA Marks</Link>
                 {c.predictedIn != null && (
-                  <Link className="btn sm" href={`${base}&screen=pg`}>Predicted grades</Link>
+                  <Link className="btn sm" href={`${base}&screen=pg`}>Predicted Grades</Link>
                 )}
                 <span className="spacer" />
                 <span className="mut" style={{ fontSize: 11.5 }}>
