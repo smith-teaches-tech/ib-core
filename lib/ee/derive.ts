@@ -71,3 +71,68 @@ export function deriveEeAttestStates(
   }
   return out
 }
+
+// ---------------------------------------------------------------------------
+// THE PROCESS — seven steps, in the order the year actually runs
+// ---------------------------------------------------------------------------
+
+/**
+ * WHAT A SUPERVISOR IS RUNNING BEFORE NOVEMBER.
+ *
+ * Michael, 22 Aug: *"needs to see the outline before the first meeting, needs
+ * to see the draft before the second… we NEED the process screen as well."*
+ *
+ * ONE DERIVATION, TWO READERS: the roster's dot column and the process screen
+ * itself are the same seven steps in the same order. Two lists would eventually
+ * disagree about whether a candidate is ready, and the disagreement would land
+ * on the teacher deciding who to schedule.
+ *
+ * INTERLEAVED, not grouped — documents and meetings alternate because that is
+ * what happens: you read the outline TO HAVE the first meeting, you read the
+ * draft TO HAVE the second. Grouped as "three sessions" and "four documents",
+ * a reader has to hold both groups in their head to work out what is owed.
+ * In this order, **the first empty dot is the next thing owed**, which is the
+ * whole question a supervisor has in September.
+ */
+export type EeStepKey = 'outline' | 'r1' | 'draft' | 'r2' | 'final' | 'viva' | 'rpf'
+
+export interface EeStep {
+  key: EeStepKey
+  label: string
+  /** Whose turn it is when it is not in — the same vocabulary as `recordedBy`. */
+  owner: 'student' | 'staff'
+  done: boolean
+  /** The school day it arrived, when it has. */
+  at: string | null
+}
+
+export function processSteps(row: {
+  links: { stage: 'outline' | 'draft'; addedAt: string }[]
+  sessions: { stage: 'r1' | 'r2' | 'viva'; heldOn: string }[]
+  final: { submittedAt: string } | null
+  rpf: { submittedAt: string } | null
+}): EeStep[] {
+  const link = (stage: 'outline' | 'draft') => row.links.find((l) => l.stage === stage) ?? null
+  const held = (stage: 'r1' | 'r2' | 'viva') => row.sessions.find((s) => s.stage === stage) ?? null
+  const step = (
+    key: EeStepKey, label: string, owner: 'student' | 'staff', at: string | null,
+  ): EeStep => ({ key, label, owner, done: at != null, at })
+
+  return [
+    step('outline', 'Outline', 'student', link('outline')?.addedAt ?? null),
+    step('r1', 'Reflection session 1', 'staff', held('r1')?.heldOn ?? null),
+    step('draft', 'Full draft', 'student', link('draft')?.addedAt ?? null),
+    step('r2', 'Reflection session 2', 'staff', held('r2')?.heldOn ?? null),
+    step('final', 'Finished essay', 'student', row.final?.submittedAt ?? null),
+    step('viva', 'Viva voce', 'staff', held('viva')?.heldOn ?? null),
+    step('rpf', 'Reflection statement', 'student', row.rpf?.submittedAt ?? null),
+  ]
+}
+
+/**
+ * The next thing owed, and by whom — the first step that is not in.
+ * `null` once the whole process is complete.
+ */
+export function nextStep(steps: EeStep[]): EeStep | null {
+  return steps.find((s) => !s.done) ?? null
+}

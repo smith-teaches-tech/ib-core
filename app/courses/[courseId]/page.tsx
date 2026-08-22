@@ -49,6 +49,13 @@ export default async function CoursePage({
      * `candidate` never did.
      */
     paper?: string
+    /**
+     * PROCESS or GRADING on the open candidate. Defaulted from the candidate's
+     * own state rather than remembered — before the essay is filed there is
+     * nothing to grade, so landing in grading mode would be landing in an empty
+     * screen. See claude/IB-Reading-and-Marking-Papers.md §3.3.
+     */
+    mode?: string
   }>
 }) {
   const { courseId } = await params
@@ -56,6 +63,7 @@ export default async function CoursePage({
     cohort: wantedCohort,
     screen: wantedScreen,
     paper: wantedPaper,
+    mode: wantedMode,
   } = await searchParams
   const session = await getSession()
   const { user, school, memberships } = session
@@ -397,6 +405,16 @@ export default async function CoursePage({
             paperBase={`/courses/${course.id}?cohort=${cohortId}&paper=`}
             listHref={`/courses/${course.id}?cohort=${cohortId}`}
             canDownload={all || rows.some((r) => r.supervisor?.userId === user.id)}
+            // THE DEFAULT DOES THE CHOOSING. An explicit `&mode=` wins; with
+            // none, a filed essay opens in grading and everything else opens in
+            // process — which is where the work actually is for that candidate.
+            mode={
+              wantedMode === 'grade' || wantedMode === 'process'
+                ? wantedMode
+                : rows.find((r) => r.studentId === wantedPaper)?.final
+                  ? 'grade'
+                  : 'process'
+            }
             scope={all ? 'all' : 'mine'}
             canWrite={!readOnly}
             // Allocation is the coordinator's job; reopening a filed essay is

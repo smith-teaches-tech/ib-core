@@ -5,6 +5,7 @@
 // Scope is decided in the repository (`getRoster`'s `forUserId`), not here. A
 // component that decides who may see whom is a component that can forget to.
 
+import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import type { EeRosterRow, SessionStage } from '@/lib/ee/types'
 import { subjectName } from '@/lib/ee/subjects'
@@ -13,6 +14,7 @@ import type { EeAssignableStaff } from '@/lib/ee/types'
 import EeMarking from './EeMarking'
 import PaperReader from '../reader/PaperReader'
 import { summariseScore, supervisionHours } from '@/lib/ee/scoring'
+import { nextStep, processSteps, type EeStep } from '@/lib/ee/derive'
 import { EE_MARK_MAX } from '@/lib/ee/rubric'
 import { PDF_ONLY } from '@/lib/accepts'
 import FileChip from '../FileChip'
@@ -25,7 +27,7 @@ const SESSIONS: { stage: SessionStage; label: string }[] = [
 
 export default function EeRoster({
   rows, cohortLabel, cohortId, scope, canWrite, canAllocate, canUnlock, canRevoke, staff, meId,
-  paperFor, paperBase, listHref, canDownload = false,
+  paperFor, paperBase, listHref, canDownload = false, mode = 'process',
 }: {
   rows: EeRosterRow[]
   cohortLabel: string
@@ -50,6 +52,16 @@ export default function EeRoster({
   paperBase?: string
   listHref?: string
   canDownload?: boolean
+  /**
+   * WHICH OF THE TWO JOBS you are doing on this candidate.
+   *
+   * Michael, 22 Aug: *"We need two views: a process mode and grading mode."*
+   * They are sequential rather than simultaneous — marking cannot start until
+   * the essay is filed, so before November grading mode is empty BY
+   * CONSTRUCTION. The page defaults the mode from the candidate's own state,
+   * so nobody ever arrives in the empty one.
+   */
+  mode?: 'process' | 'grade'
 }) {
   const [mineOnly, setMineOnly] = useState(false)
   const unallocated = rows.filter((r) => r.supervisor?.acting).length
@@ -83,7 +95,38 @@ export default function EeRoster({
     return (
       <>
         <h1>Extended Essay</h1>
-        <p className="sub">{cohortLabel} · reading and marking one essay</p>
+        <p className="sub">
+          {cohortLabel} · {paperRow?.studentName ?? ''}
+        </p>
+        {/* THE STRIP IS ABOVE THE SWITCH ON PURPOSE. Changing candidate keeps
+            the mode you are working in — six candidates in process mode in
+            September, the same six in grading mode in February — so the mode
+            belongs to the SESSION of work, not to the candidate. */}
+        <nav className="modeseg">
+          <a className={mode === 'process' ? 'on' : ''} href={`${paperBase}${paperFor}&mode=process`}>
+            Process
+            <span className="cnt">
+              {paperRow ? processSteps(paperRow).filter((x) => x.done).length : 0}/7
+            </span>
+          </a>
+          <a
+            className={`${mode === 'grade' ? 'on' : ''}${paperRow?.final ? '' : ' shut'}`}
+            href={`${paperBase}${paperFor}&mode=grade`}
+          >
+            Grading
+            <span className="cnt">
+              {paperRow?.final ? `${summariseScore(paperRow.marks).entered}/5` : '—'}
+            </span>
+          </a>
+        </nav>
+        {mode === 'process' && paperRow ? (
+          <EeProcess
+            row={paperRow}
+            canWrite={canWrite}
+            canUnlock={canUnlock}
+            gradeHref={`${paperBase}${paperFor}&mode=grade`}
+          />
+        ) : (
         <PaperReader
           title="Extended essay"
           criteria={[]}
@@ -158,15 +201,15 @@ export default function EeRoster({
             ) : undefined
           }
           footer={
-            paperRow ? (
-              <CandidateRecord
-                row={paperRow}
-                canWrite={canWrite}
-                canUnlock={canUnlock}
-              />
+            paperRow && !paperRow.final ? (
+              <div className="note gold">
+                <b>Nothing to grade yet — the essay is not filed.</b> Criteria A–D open the day it is;
+                E opens when the reflection statement is in.
+              </div>
             ) : undefined
           }
         />
+        )}
       </>
     )
   }
@@ -228,12 +271,18 @@ export default function EeRoster({
                 <th>Candidate</th>
                 <th>Supervisor</th>
                 <th>Subject</th>
-                <th>Sessions</th>
-                <th>Essay</th>
+                {/* ONE COLUMN, SEVEN DOTS, IN THE ORDER THE WORK HAPPENS.
+                    Replaces "Sessions", "In 3/10" and "Late" — Michael, 22 Aug:
+                    "show what is submitted more clearly… remove late".
+
+                    `In 3/10` was a number nobody could act on and `Late`
+                    repeated what a dot already says. THE FIRST EMPTY DOT IS THE
+                    NEXT THING OWED, which is the question a supervisor actually
+                    has: whose essay can I mark, and who do I need to sit down
+                    with. */}
+                <th>Outline · S1 · Draft · S2 · Essay · Viva · RPF</th>
                 <th>Score</th>
                 <th style={{ textAlign: 'right' }}>Hrs</th>
-                <th style={{ textAlign: 'right' }}>In</th>
-                <th style={{ textAlign: 'right' }}>Late</th>
               </tr>
             </thead>
             <tbody>
@@ -271,14 +320,31 @@ function Row({
   /** Where the candidate's name points — the reader. Absent = no reader. */
   paperBase?: string
 }) {
+  const router = useRouter()
   const href = paperBase ? paperBase + row.studentId : null
+  const steps = processSteps(row)
+  const next = nextStep(steps)
+
   return (
     <>
-      {/* THE ROW DOES NOTHING. Its cells are doors — the name and the essay —
-          and everything that used to expand below it now opens with them.
-          A row that navigates and a row you type into cannot be the same rule,
-          and the IA grid has to type. So: cells are doors, rows are not. */}
-      <tr>
+      {/* THE WHOLE ROW IS THE DOOR. Michael, 22 Aug: "make the whole row the
+          door." It works here because there is now exactly ONE destination —
+          the drawer is gone, so nothing is ambiguous.
+
+          IT CANNOT BE THE RULE EVERYWHERE, and that is not an inconsistency to
+          tidy away later: the IA grid has criterion INPUTS in its cells, and a
+          row that navigates cannot also be a row you type into. So the rule is
+          "a row with nothing editable in it is itself the door; where cells are
+          editable, the name and the file cell are." Written down here because
+          somebody will otherwise 'fix' the difference.
+
+          The name stays a real <a> so the keyboard, middle-click and
+          open-in-new-tab all still work — the row handler is an accelerator on
+          top of a link, not a replacement for one. */}
+      <tr
+        className={href ? 'eerow-door' : undefined}
+        onClick={href ? () => router.push(href) : undefined}
+      >
         <td>
           {href ? (
             <a
@@ -297,7 +363,9 @@ function Row({
         {/* ALLOCATION LIVES ON THE LIST, not in a candidate's record: it is
             the coordinator's September job across twenty candidates at once,
             and doing it one reader at a time would be twenty round trips. */}
-        <td>
+        {/* The allocation select is the one thing in the row you interact with
+            rather than navigate through, so it swallows the click. */}
+        <td onClick={(e) => e.stopPropagation()}>
           {canAllocate ? (
             <Allocate row={row} cohortId={cohortId} staff={staff} />
           ) : row.supervisor ? (
@@ -330,31 +398,27 @@ function Row({
           )}
         </td>
         <td>
-          {(['r1', 'r2', 'viva'] as const).map((st) => (
-            <i
-              key={st}
-              className={`eedot ${row.sessions.some((x) => x.stage === st) ? 'done' : 'not_started'}`}
-              style={{ display: 'inline-block', marginRight: 4 }}
-              title={st === 'viva' ? 'Viva voce' : `Reflection session ${st.slice(1)}`}
-            />
-          ))}
-        </td>
-        {/* THE SECOND DOOR. Michael asked for name OR file, and the EE roster
-            had no file cell at all — the essay was only reachable through the
-            drawer that has just gone. */}
-        <td>
-          {href ? (
-            <a className="candlink" href={href}>
-              {row.final
-                ? <span className="mut">{row.final.submittedAt}</span>
-                : <span className="pill grey">not filed</span>}
-              <span className="filedoor-x">{row.final ? 'Read ›' : 'Open ›'}</span>
-            </a>
-          ) : row.final ? (
-            <span className="mut">{row.final.submittedAt}</span>
-          ) : (
-            <span className="pill grey">not filed</span>
-          )}
+          <div className="eesteps">
+            {steps.map((st) => (
+              <i
+                key={st.key}
+                className={`eedot ${st.done ? 'done' : 'not_started'}${st.key === next?.key ? ' next' : ''}`}
+                title={
+                  st.done
+                    ? `${st.label} — in ${st.at}`
+                    : `${st.label} — not in · ${st.owner === 'student' ? 'the candidate' : 'you'}`
+                }
+              />
+            ))}
+          </div>
+          {/* WHOSE TURN IT IS, in words, because a ring is not a sentence. No
+              count and no ranking: this says what is next, it does not say who
+              is behind. */}
+          <div className="mut eenext">
+            {next
+              ? `${next.owner === 'student' ? 'waiting on them' : 'your turn'} · ${next.label.toLowerCase()}`
+              : 'everything in'}
+          </div>
         </td>
         <td>
           {row.scoring?.releasedAt ? (
@@ -368,84 +432,200 @@ function Row({
         <td style={{ textAlign: 'right' }}>
           {row.scoring?.hoursSupervised ?? <span className="mut">—</span>}
         </td>
-        <td style={{ textAlign: 'right' }}>{row.done} / {row.total}</td>
-        <td style={{ textAlign: 'right' }}>
-          {row.late > 0 ? <span className="pill bad">{row.late}</span> : <span className="mut">—</span>}
-        </td>
       </tr>
     </>
   )
 }
 
 /**
- * THE CANDIDATE'S RECORD — what used to be the roster drawer.
+ * PROCESS MODE — the supervisor's job from September to November.
  *
- * Michael, 22 Aug: "Clicking outside name expands to show progress… we need to
- * make this more clear." The row had two destinations that looked identical,
- * which is the bug we had just fixed on the IA grid.
+ * Michael, 22 Aug: *"needs to see the outline before the first meeting, needs
+ * to see the draft before the second… needs to see these as well to attest…
+ * we NEED the process screen as well. The student screen is perfect. We need
+ * that info to go to the teacher though."*
  *
- * ONE DOOR was the answer rather than a clearer second one. A supervisor does
- * not want the sessions INSTEAD of the essay; they want them beside it. The
- * attestation makes the case on its own: the marking pane asks a supervisor to
- * tick "I held the required reflection sessions", and until now the sessions
- * themselves were behind a different click. An attestation made with its
- * evidence off-screen is worse than an extra scroll.
+ * So this is `StudentEe` read from the other end: the same seven steps in the
+ * same order, from the same derivation (`processSteps`), with staff
+ * affordances instead of student ones — the teacher records a meeting and
+ * corrects its date; the student pastes the links and files the PDF.
  *
- * So: the name or the essay opens the reader, the row itself does nothing, and
- * there is no drawer left anywhere in the product. ALLOCATION is the one thing
- * that went the other way — onto the list row — because it is a coordinator's
- * September job across twenty candidates, not something done while reading one.
+ * ONE COLUMN, NOT A SPLIT. Everything here is a link, a date or a note. The
+ * outline and the draft are Google Docs and open in Drive, where the commenting
+ * actually happens — there is nothing for a paper pane to show, so there is no
+ * paper pane. Grading mode is the split, because there the paper is the point.
+ *
+ * IN ORDER, AND INTERLEAVED. You read the outline TO HAVE the first meeting and
+ * the draft TO HAVE the second, so documents and meetings alternate. Each step
+ * that is not in says what it is FOR rather than merely that it is missing.
  */
-function CandidateRecord({
-  row, canWrite, canUnlock,
+function EeProcess({
+  row, canWrite, canUnlock, gradeHref,
 }: {
   row: EeRosterRow
   canWrite: boolean
   canUnlock: boolean
+  gradeHref: string
+}) {
+  const steps = processSteps(row)
+  const next = nextStep(steps)
+  const done = steps.filter((s) => s.done).length
+
+  return (
+    <>
+      {row.registration ? (
+        <div className="note" style={{ marginBottom: 14 }}>
+          <b>{row.registration.title}</b>
+          <div style={{ marginTop: 4 }}>{row.registration.researchQuestion}</div>
+        </div>
+      ) : (
+        <div className="note warn" style={{ marginBottom: 14 }}>
+          Not registered — no subject, title or research question yet. Nothing else can start until
+          this is in.
+        </div>
+      )}
+
+      <div className="panel">
+        <div className="panel-h">
+          <h2>The process</h2>
+          <span className="spacer" />
+          <span className="mut" style={{ fontSize: 11.5 }}>
+            {done} of 7 in
+            {next ? ` · next: ${next.label.toLowerCase()}` : ' · everything in'}
+          </span>
+        </div>
+        <div className="panel-b">
+          <div className="eespine">
+            <Step
+              step={steps[0]}
+              next={next}
+              body={
+                row.links.find((l) => l.stage === 'outline') ? (
+                  <LinkLine link={row.links.find((l) => l.stage === 'outline')!} />
+                ) : (
+                  <div className="eeowed">
+                    Nothing pasted yet. <b>You need this before the first meeting</b> — it is what
+                    the meeting is about.
+                  </div>
+                )
+              }
+            />
+            <StepSession step={steps[1]} next={next} row={row} stage="r1" canWrite={canWrite} />
+            <Step
+              step={steps[2]}
+              next={next}
+              body={
+                row.links.find((l) => l.stage === 'draft') ? (
+                  <LinkLine link={row.links.find((l) => l.stage === 'draft')!} note="the one draft you may comment on" />
+                ) : (
+                  <div className="eeowed">
+                    <b>You need this before the second meeting.</b> The IB permits written or oral
+                    comments on exactly one draft.
+                  </div>
+                )
+              }
+            />
+            <StepSession step={steps[3]} next={next} row={row} stage="r2" canWrite={canWrite} />
+            <Step
+              step={steps[4]}
+              next={next}
+              body={<Work row={row} canUnlock={canUnlock} bare />}
+            />
+            <StepSession step={steps[5]} next={next} row={row} stage="viva" canWrite={canWrite} />
+            <Step
+              step={steps[6]}
+              next={next}
+              body={
+                row.rpf ? (
+                  <div className="eerpf">
+                    <div className="eenote-h">
+                      {row.rpf.words} words · submitted {row.rpf.submittedAt}
+                    </div>
+                    {row.rpf.body}
+                  </div>
+                ) : (
+                  <div className="eeowed">
+                    Unlocks for the candidate once the viva is recorded.{' '}
+                    <b>Criterion E cannot be marked until it is in.</b>
+                  </div>
+                )
+              }
+            />
+          </div>
+        </div>
+        {row.final && (
+          <div className="panel-b" style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+            <a className="btn pri" href={gradeHref}>Read and mark the essay ›</a>
+          </div>
+        )}
+      </div>
+    </>
+  )
+}
+
+function Step({
+  step, next, body,
+}: {
+  step: EeStep
+  next: EeStep | null
+  body: React.ReactNode
+}) {
+  const state = step.done ? 'done' : step.key === next?.key ? 'now' : ''
+  return (
+    <div className={`eestep ${state}`}>
+      <div className="eestep-h">
+        <b>{step.label}</b>
+        {step.done ? (
+          <span className="pill ok">in {step.at}</span>
+        ) : (
+          <span className="pill grey">
+            {step.owner === 'student' ? 'waiting on the candidate' : 'your turn'}
+          </span>
+        )}
+      </div>
+      <div className="eestep-b">{body}</div>
+    </div>
+  )
+}
+
+/** A meeting — the existing SessionRow, wearing the spine's chrome. */
+function StepSession({
+  step, next, row, stage, canWrite,
+}: {
+  step: EeStep
+  next: EeStep | null
+  row: EeRosterRow
+  stage: SessionStage
+  canWrite: boolean
+}) {
+  const held = row.sessions.find((x) => x.stage === stage)
+  const notes = row.notes.filter((n) => n.stage === stage)
+  return (
+    <div className={`eestep ${step.done ? 'done' : step.key === next?.key ? 'now' : ''}`}>
+      <SessionRow
+        studentId={row.studentId}
+        stage={stage}
+        label={step.label}
+        heldOn={held?.heldOn ?? null}
+        onBehalf={held?.onBehalf}
+        notes={notes}
+        canWrite={canWrite}
+      />
+    </div>
+  )
+}
+
+function LinkLine({
+  link, note,
+}: {
+  link: { stage: 'outline' | 'draft'; label: string; href: string; addedAt: string }
+  note?: string
 }) {
   return (
-    <div className="panel" style={{ marginTop: 14 }}>
-      <div className="panel-h">
-        <h2>How it got here</h2>
-        <span className="spacer" />
-        <span className="mut" style={{ fontSize: 11.5 }}>
-          {row.done} of {row.total} in{row.late > 0 ? ` · ${row.late} late` : ''}
-        </span>
-      </div>
-      <div className="panel-b">
-        <div className="eedrawer-in">
-          {/* TWO KINDS OF THING, and they are labelled as two rather than run
-              together: the DOCUMENTS the candidate produced on the way, and the
-              THREE CONVERSATIONS the supervisor is about to attest to having
-              held. Michael, 22 Aug: "is that right though? to see everything…
-              one drawer for all". No — the research question went up beside the
-              marks where it is used, and what is left is process evidence. */}
-          {/* `Work` brings its own headings — "Process documents" and
-              "Finished essay" — so adding a third above them would be a
-              heading about headings. */}
-          <Work row={row} canUnlock={canUnlock} />
-
-          <span className="caps" style={{ display: 'block', marginTop: 16 }}>
-            Reflection sessions
-          </span>
-          {SESSIONS.map((s) => {
-            const held = row.sessions.find((x) => x.stage === s.stage)
-            const notes = row.notes.filter((n) => n.stage === s.stage)
-            return (
-              <SessionRow
-                key={s.stage}
-                studentId={row.studentId}
-                stage={s.stage}
-                label={s.label}
-                heldOn={held?.heldOn ?? null}
-                onBehalf={held?.onBehalf}
-                notes={notes}
-                canWrite={canWrite}
-              />
-            )
-          })}
-        </div>
-      </div>
+    <div className="eelinkrow">
+      <a href={link.href} target="_blank" rel="noreferrer">open in Drive ↗</a>
+      <span className="mut" style={{ fontSize: 11.5 }}>added {link.addedAt}</span>
+      {note && <span className="mut" style={{ fontSize: 11.5 }}>— {note}</span>}
     </div>
   )
 }
@@ -536,24 +716,42 @@ function SessionRow({
 
 // ---------------------------------------------------------------- the work
 
-function Work({ row, canUnlock }: { row: EeRosterRow; canUnlock: boolean }) {
+function Work({
+  row, canUnlock, bare,
+}: {
+  row: EeRosterRow
+  canUnlock: boolean
+  /**
+   * In the SPINE the outline and the draft are steps of their own, and this
+   * component's own headings would repeat them — the outline was rendering
+   * twice, once as its own step and once inside "Finished essay". `bare` drops
+   * the links and the heading and leaves the filed PDF, which is what the step
+   * it sits in is about.
+   */
+  bare?: boolean
+}) {
   const [reason, setReason] = useState('')
   const [asking, setAsking] = useState(false)
   const [pending, start] = useTransition()
 
   return (
     <div className="eework">
-      <span className="caps">Process documents</span>
-      {row.links.length === 0 && <p className="mut" style={{ margin: '4px 0 0' }}>Nothing filed yet.</p>}
-      {row.links.map((l) => (
-        <div key={l.stage} className="eelinkrow">
-          <span className="eelinkrow-l">{l.stage === 'outline' ? 'Outline' : 'Full draft'}</span>
-          <a href={l.href} target="_blank" rel="noreferrer">open ↗</a>
-          <span className="mut" style={{ fontSize: 11.5 }}>{l.addedAt}</span>
-        </div>
-      ))}
-
-      <span className="caps" style={{ display: 'block', marginTop: 10 }}>Finished essay</span>
+      {!bare && (
+        <>
+          <span className="caps">Process documents</span>
+          {row.links.length === 0 && (
+            <p className="mut" style={{ margin: '4px 0 0' }}>Nothing filed yet.</p>
+          )}
+          {row.links.map((l) => (
+            <div key={l.stage} className="eelinkrow">
+              <span className="eelinkrow-l">{l.stage === 'outline' ? 'Outline' : 'Full draft'}</span>
+              <a href={l.href} target="_blank" rel="noreferrer">open ↗</a>
+              <span className="mut" style={{ fontSize: 11.5 }}>{l.addedAt}</span>
+            </div>
+          ))}
+          <span className="caps" style={{ display: 'block', marginTop: 10 }}>Finished essay</span>
+        </>
+      )}
       {row.final ? (
         <>
           <div className="eelinkrow">

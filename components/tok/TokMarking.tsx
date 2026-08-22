@@ -11,6 +11,7 @@
 // instruments differ only in their wording — which is exactly what
 // lib/tok/rubric.ts holds as data.
 
+import { useRouter } from 'next/navigation'
 import { useState, useTransition } from 'react'
 import type { Instrument } from '@/lib/tok/rubric'
 import { BAND_PROVENANCE, TOK_MARK_MAX, bandFor } from '@/lib/tok/rubric'
@@ -235,13 +236,20 @@ function Row({
   /** Set once the reader is wired: the row OPENS rather than expands. */
   paperBase?: string
 }) {
+  const router = useRouter()
   const href = paperBase ? paperBase + row.studentId : null
   return (
     <>
-      {/* WITH THE READER WIRED THE ROW IS A DOOR, not a disclosure triangle.
-          The drawer's whole content was marking, and marking belongs beside the
-          paper — so there is nothing left to expand into. */}
-      <tr onClick={href ? undefined : onToggle} style={{ cursor: 'pointer' }}>
+      {/* THE WHOLE ROW IS THE DOOR — the same rule as the EE roster, and it
+          holds for the same reason: there is one destination, because the
+          drawer's whole content was marking and marking belongs beside the
+          paper. The name stays a real link so the keyboard and middle-click
+          still work; the row handler is an accelerator on top of it. */}
+      <tr
+        className={href ? 'eerow-door' : undefined}
+        onClick={href ? () => router.push(href) : onToggle}
+        style={{ cursor: 'pointer' }}
+      >
         <td>
           {href ? (
             <a className="candlink" href={href} title={row.file ? `Read ${row.file.fileName}` : 'Open this candidate’s work'}>

@@ -1279,6 +1279,7 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
         if (s.cohortId === 'c16') continue // two weeks into DP1; nothing yet, correctly
 
         // ---- Class of 2027, September of DP2 ----
+        const isEarly = EE_EARLY_FILINGS.some((f) => f.studentId === s.userId)
         if (stage === 'rq') {
           // NOT a dice roll: the requirement is complete exactly when the
           // registration behind it would survive contact with IBIS.
@@ -1287,8 +1288,16 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
         }
         if (stage === 'outline') {
           // Due 25 Sep; a third are early, a few have started.
+          //
+          // THE EARLY FINISHERS ALWAYS HAVE ONE — and the draw still happens
+          // for them, or every lane seeded after this shifts off the shared RNG
+          // stream. A candidate who has filed the essay, held the viva and
+          // written the reflection but never pasted an outline reads on the
+          // roster as "waiting on them · outline", which is nonsense: the dots
+          // exist to say what is owed, and they can only do that if the record
+          // behind them is coherent.
           const roll = r()
-          if (roll < 0.34) {
+          if (isEarly || roll < 0.34) {
             put('submitted', '2026-09-14', {
               recordedBy: 'student',
               artifacts: [{
@@ -1306,6 +1315,22 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
         // r1, r2 and viva are DERIVED from EE_SESSIONS — see lib/ee/derive.ts.
         // Seeding them here as well would store a derived value, which is the
         // one thing spine invariant #2 forbids.
+
+        // THE DRAFT LINK, for the early finishers only. Reflection session 2 is
+        // ABOUT the draft, so one held without the other would be a record that
+        // cannot be true.
+        if (isEarly && stage === 'draft') {
+          put('submitted', '2026-10-06', {
+            recordedBy: 'student',
+            artifacts: [{
+              id: `art_draft_${s.userId}`, kind: 'link',
+              label: 'Full draft',
+              href: 'https://docs.google.com/document/d/draft-' + s.userId,
+              addedAt: '2026-10-06',
+            }],
+          })
+          continue
+        }
 
         // THE TWO EARLY FINISHERS, and nobody else. For the cohort, draft,
         // final, rpf, attest and score are genuinely still ahead and stay

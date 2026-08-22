@@ -32,6 +32,7 @@ import { casWindow } from '../lib/cas/window'
 import { EE_EARLY_FILED, EE_EARLY_NO_VIVA, EE_REGISTRATIONS, TOK_EARLY_EXH } from '../lib/data/fixtures'
 import { BAND_PROVENANCE, EE_CRITERIA, boundariesAreOfficial, indicativeGrade } from '../lib/ee/rubric'
 import { registrationComplete, subjectWarnings, validateRegistration } from '../lib/ee/registration'
+import { nextStep, processSteps } from '../lib/ee/derive'
 import { DP_SUBJECTS, isDpSubject, subjectForCourse } from '../lib/ee/subjects'
 import { anonymityPreflight, preflightPasses } from '../lib/anonymity'
 import {
@@ -3378,6 +3379,63 @@ async function main() {
   check(
     supervisedNotTaught.length > 0,
     'a supervisor supervises candidates they do not teach — which is why `teachesStudent` alone is the wrong gate on a student’s record',
+  )
+
+
+  console.log('\n20. The EE process — one derivation, two readers')
+
+  const procRows = await repo.ee.getRoster('dhahran', 'c15', 'u_farouk')
+  const procFull = procRows.find((r) => r.studentId === EE_EARLY_FILED)!
+  const fullSteps = processSteps(procFull)
+  check(
+    fullSteps.length === 7 &&
+      fullSteps.map((x) => x.key).join(',') === 'outline,r1,draft,r2,final,viva,rpf',
+    'the process is SEVEN STEPS INTERLEAVED — you read the outline to have the first meeting and the draft to have the second, so documents and meetings alternate',
+  )
+  check(
+    fullSteps.every((x) => x.done) && nextStep(fullSteps) === null,
+    'a candidate who has finished has no next step — and no dot on the roster says they owe anything',
+  )
+  const procPart = procRows.find((r) => r.studentId === EE_EARLY_NO_VIVA)!
+  const partSteps = processSteps(procPart)
+  check(
+    nextStep(partSteps)?.key === 'viva' && nextStep(partSteps)?.owner === 'staff',
+    'the second finisher’s next step is the VIVA and it is the supervisor’s — "your turn", not "waiting on them"',
+  )
+  check(
+    partSteps.slice(0, 5).every((x) => x.done),
+    'and everything before it is in, so the FIRST EMPTY DOT IS THE NEXT THING OWED — which is the whole reason the dots are in this order',
+  )
+  // A COHERENT RECORD BEHIND THE DOTS. Reflection session 2 is about the draft,
+  // so one held without the other is a record that cannot be true — and it
+  // would render as "waiting on them · full draft" for a candidate who has
+  // finished, which is exactly the nonsense the column exists to prevent.
+  check(
+    procRows.every((r) => {
+      const st = processSteps(r)
+      const draft = st.find((x) => x.key === 'draft')!
+      const r2 = st.find((x) => x.key === 'r2')!
+      return !r2.done || draft.done
+    }),
+    'nobody has held reflection session 2 without a draft to have held it about',
+  )
+  // HOLES ARE LEGITIMATE, and the first cut of this assertion was a tautology
+  // that hid it. A supervisor can hold the first meeting before the outline
+  // arrives — that happens, and the record must be able to say so. What the
+  // order buys is not "no gaps"; it is that `nextStep` names the EARLIEST gap,
+  // which is the thing actually owed.
+  const holey = procRows.find((r) => {
+    const st = processSteps(r)
+    const firstUndone = st.findIndex((x) => !x.done)
+    return firstUndone >= 0 && st.slice(firstUndone + 1).some((x) => x.done)
+  })
+  check(
+    holey != null,
+    'a candidate has a step done AFTER one that is not — a first meeting held before the outline arrived, which is a real thing and the record says so',
+  )
+  check(
+    nextStep(processSteps(holey!))!.key === processSteps(holey!).find((x) => !x.done)!.key,
+    'and the next thing owed is the EARLIEST gap, not the latest — the dots are read left to right, so that is what they have to mean',
   )
 
   console.log('\n' + '='.repeat(60))

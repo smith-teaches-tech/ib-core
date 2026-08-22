@@ -1149,3 +1149,63 @@ table.marks tbody tr:hover .filedoor-x, .filedoor:focus-visible .filedoor-x { op
   border-top: 1px solid var(--line); border-bottom: 1px solid var(--line);
 }
 .rdbig { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+
+/* ---- the roster's process column, and process mode -----------------------
+   claude/IB-Reading-and-Marking-Papers.md §3.3. Seven dots in the order the
+   work happens, so the FIRST EMPTY DOT IS THE NEXT THING OWED — which is the
+   question a supervisor has in September, and the reason this replaced
+   "In 3/10" and "Late". */
+.eesteps { display: flex; gap: 5px; align-items: center; }
+.eesteps .eedot { margin: 0; }
+/* The next thing owed wears a ring rather than a colour: it is not a warning,
+   it is a cursor. */
+.eedot.next { box-shadow: 0 0 0 3px var(--brand-soft); border-color: var(--brand); }
+.eenext { font-size: 11px; margin-top: 5px; white-space: nowrap; }
+
+.eerow-door { cursor: pointer; }
+.eerow-door:hover td { background: #f7fafc; }
+
+/* ---- the mode switch ---- */
+.modeseg {
+  display: inline-flex; border: 1px solid var(--line); border-radius: 10px;
+  overflow: hidden; background: #fff; margin-bottom: 14px;
+}
+.modeseg a {
+  padding: 9px 20px; font-size: 13.5px; font-weight: 700; color: var(--muted);
+  text-decoration: none; display: flex; align-items: center; gap: 8px;
+}
+.modeseg a + a { border-left: 1px solid var(--line); }
+.modeseg a.on { background: var(--brand); color: #fff; }
+.modeseg a.shut { color: #aab3bc; }
+.modeseg .cnt {
+  font-size: 11px; font-weight: 700; background: rgba(0, 0, 0, .08);
+  border-radius: 99px; padding: 1px 7px;
+}
+.modeseg a.on .cnt { background: rgba(255, 255, 255, .22); }
+
+/* ---- the spine ---- */
+.eespine { position: relative; padding-left: 26px; }
+.eespine:before {
+  content: ''; position: absolute; left: 8px; top: 6px; bottom: 6px;
+  width: 2px; background: var(--line);
+}
+.eestep { position: relative; padding: 0 0 18px; }
+.eestep:last-child { padding-bottom: 0; }
+.eestep:before {
+  content: ''; position: absolute; left: -22px; top: 5px; width: 11px; height: 11px;
+  border-radius: 99px; background: #fff; border: 2px solid #cdd6df;
+}
+.eestep.done:before { background: var(--ok); border-color: var(--ok); }
+.eestep.now:before { background: #fff; border-color: var(--brand); box-shadow: 0 0 0 4px var(--brand-soft); }
+.eestep-h { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin-bottom: 5px; }
+.eestep-h b { font-size: 13.5px; }
+.eestep-b { font-size: 12.5px; color: #4c5763; }
+/* WHAT A MISSING STEP IS FOR, not merely that it is missing. */
+.eeowed {
+  background: #fff; border: 1px dashed #cdd6df; border-radius: 9px;
+  padding: 10px 12px; color: var(--muted); font-size: 12.5px;
+}
+/* A session inside the spine already has the spine's dot; SessionRow's own one
+   would be a second bullet for the same step. */
+.eestep .eedot { display: none; }
+.eestep .eesession { padding-top: 0; }
