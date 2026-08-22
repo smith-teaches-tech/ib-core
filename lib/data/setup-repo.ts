@@ -14,7 +14,7 @@ import type {
 } from '../types'
 import type { MarkEvent } from '../ia/types'
 import { resolveCapabilities } from '../capabilities'
-import { templateOf } from '../templates'
+import { componentsFor, templateOf } from '../templates'
 import { normaliseSessionNumber, parseIdentifiers, parseRoster } from '../setup/parse'
 import { todayRiyadh } from './dates'
 import type { CourseRow, PersonRow } from '../setup/types'
@@ -132,7 +132,7 @@ export function makeSetupRepository(deps: {
    * through here, so there is exactly one place template logic lives.
    */
   const instantiateIaDefs = (
-    course: { id: string; name: string; iaTemplateKey?: string },
+    course: { id: string; name: string; iaTemplateKey?: string; level?: 'HL' | 'SL' | null },
     cohortId: string,
     schoolId: string,
   ) => {
@@ -169,6 +169,51 @@ export function makeSetupRepository(deps: {
         order: order + 3, recordedBy: 'staff', artifact: 'text',
       },
     )
+
+    // EVERYTHING ELSE THIS COURSE HANDS IN. An English HL course gets its oral
+    // AND its HL essay from one declaration; an English SL course gets only the
+    // oral, because componentsFor() reads the level. An EXTERNAL component gets
+    // a file and nothing else — the school never marks it, so there is no
+    // rubric to instantiate and no comment to demand.
+    let n = order + 3
+    for (const c of componentsFor(t, course.level ?? null)) {
+      defs.push({
+        id: `${cohortId}:${course.id}.${c.key}.file`, schoolId, cohortId,
+        scope: { kind: 'course', courseId: course.id },
+        key: `${course.id}.${c.key}.file`, label: `${course.name} — ${c.label}`,
+        lane: 'Internal assessment',
+        order: (n += 1), recordedBy: 'student', artifact: 'file',
+        producedBy: c.producedBy,
+        uploadScope: c.upload,
+        accepts: c.accepts,
+        exportTarget: 'ecoursework',
+      })
+      // A comment is owed wherever a teacher reads the work, whoever awards
+      // the mark that counts — it is the feedback the candidate gets back.
+      if (c.markMax == null) continue
+      defs.push(
+        {
+          id: `${cohortId}:${course.id}.${c.key}.mark`, schoolId, cohortId,
+          scope: { kind: 'course', courseId: course.id },
+          key: `${course.id}.${c.key}.mark`, label: `${course.name} — ${c.label} mark`,
+          lane: 'Internal assessment',
+          order: (n += 1), recordedBy: 'staff', artifact: 'mark',
+          markMax: c.markMax,
+          criteria: c.criteria && c.criteria.length > 0 ? c.criteria : undefined,
+          // NO exportTarget when the IB marks it: the school's reading feeds
+          // the predicted grade and the feedback, and goes nowhere near IBIS.
+          exportTarget: c.assessment === 'internal' ? 'ibis_ia_marks' : undefined,
+        },
+        {
+          id: `${cohortId}:${course.id}.${c.key}.comment`, schoolId, cohortId,
+          scope: { kind: 'course', courseId: course.id },
+          key: `${course.id}.${c.key}.comment`,
+          label: `${course.name} — ${c.label} teacher comment`,
+          lane: 'Internal assessment',
+          order: (n += 1), recordedBy: 'staff', artifact: 'text',
+        },
+      )
+    }
   }
 
   return {
@@ -329,7 +374,10 @@ export function makeSetupRepository(deps: {
       // downstream, so its IA defs are instantiated FROM ITS TEMPLATE FAMILY —
       // the right rubric and the right mark maximum, not a guessed /25. A family
       // whose criterion split is unconfirmed arrives total-only and says so.
-      instantiateIaDefs({ id, name: input.name.trim(), iaTemplateKey: t.key }, cohortId, schoolId)
+      instantiateIaDefs(
+        { id, name: input.name.trim(), iaTemplateKey: t.key, level: input.level },
+        cohortId, schoolId,
+      )
 
       sections.push({ id: id + '_a', schoolId, courseId: id, cohortId, label: 'A' })
       return id

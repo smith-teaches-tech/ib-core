@@ -357,8 +357,12 @@ async function main() {
     `mark maxima genuinely differ by family (${[...spread].sort((a, b) => (a ?? 0) - (b ?? 0)).join(', ')}) — the /25 fiction is gone`,
   )
   check(
-    REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15' && d.key.endsWith('.comment')).length ===
-      subjects.length,
+    // The IA's OWN comment def — `<course>.comment` exactly. Since 22 Aug a
+    // course may have other components with comments of their own, so counting
+    // every key ending '.comment' counts an English HL course twice.
+    subjects.every((c) =>
+      REQUIREMENT_DEFS.some((d) => d.cohortId === 'c15' && d.key === c.id + '.comment'),
+    ),
     'ia.teacher_comment exists for every subject course — named in the MVP set, finally defined',
   )
   check(
@@ -3903,6 +3907,105 @@ async function main() {
           'a mark reaches IBIS WITHOUT ever being released to the candidate — the two axes are independent, because a teacher may hand results back in class',
         )
       }
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  console.log('\n25. A course has COMPONENTS — the Language A HL essay arrives')
+  // -------------------------------------------------------------------------
+  //
+  // IB-Upload-Coverage-and-Folders.md §1: the HL essay in both Language A
+  // courses is EXTERNALLY assessed and uploaded for every HL candidate, and it
+  // was missing entirely — the largest block of files in the product.
+  //
+  // §4 says how it may be fixed: "The export board is a projection. If a
+  // component is missing from it, the fix is a requirement definition, never a
+  // special case in the board." So these assertions check BOTH halves — that
+  // declaring it creates the defs, and that the board finds them by itself.
+
+  {
+    const c15defs = REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15' && d.schoolId === 'dhahran')
+    const hlEssay = c15defs.find((d) => d.key === 'eng_hl.hl_essay.file')
+
+    check(hlEssay != null, 'English HL has an HL essay def — one declaration on the family, not a hand-written def')
+    check(
+      c15defs.every((d) => !d.key.startsWith('eng_sl.hl_essay')),
+      'and English SL does NOT — same family, same /40 oral, and the level is the whole difference',
+    )
+    check(
+      c15defs.every((d) => !d.key.startsWith('germ_a_sl.hl_essay')),
+      'nor German A SL — componentsFor() reads the level, so nobody maintains a second list',
+    )
+
+    // EXTERNAL means the school does not mark it.
+    check(
+      hlEssay?.uploadScope === 'all' && hlEssay?.exportTarget === 'ecoursework',
+      'the HL essay goes to eCoursework for EVERY HL candidate — uploadScope is a separate axis from exportTarget, which cannot say for whom',
+    )
+    // ⚠ THIS ASSERTION WAS WRONG FOR TEN MINUTES and is worth keeping as the
+    // correction. "The IB marks it" and "nobody at school marks it" are two
+    // different claims, and only the first is true. Michael, 22 Aug: "our IB
+    // English HL teacher grades those to generate predicted grades. And will of
+    // course need to provide at least student feedback (even if none goes to
+    // IBIS) and authenticate."
+    const hlMark = c15defs.find((d) => d.key === 'eng_hl.hl_essay.mark')
+    check(
+      hlMark != null && c15defs.some((d) => d.key === 'eng_hl.hl_essay.comment'),
+      'the teacher DOES mark the HL essay, and comments on it — that is what a predicted grade is made of, and what the candidate gets back',
+    )
+    check(
+      hlMark?.exportTarget == null,
+      'but the mark carries NO exportTarget — the IB marks the real thing, so the school\u2019s reading goes nowhere near IBIS. tok.essaymark\u2019s shape exactly',
+    )
+    check(
+      hlMark?.markMax === 20 && (hlMark?.criteria ?? []).length === 0,
+      'and it records as ONE TOTAL out of 20 — the four-criterion split is repeated everywhere but was not read off a guide, and the rule does not bend: never invent a split',
+    )
+    check(
+      c15defs.some((d) => d.key === 'eng_hl.mark' && d.markMax === 40),
+      'while the individual oral still carries the /40 rubric — the IA keeps the keys it always had, so nothing that looks them up changed',
+    )
+
+    // The board's rollup matches by SUFFIX, so a component in the middle of the
+    // key is picked up with no board edit at all.
+    check(
+      hlEssay!.key.endsWith('.file'),
+      'the key ends in .file, so the board\u2019s IA rollup counts it without lib/board.ts being touched',
+    )
+
+    // --- THE BOARD FINDS IT BY ITSELF ---
+    const board25 = await repo.export.getUploadBoard('dhahran', 'c15')
+    const job = board25?.cohortJobs.find((j) => j.key === 'comp:eng_hl.hl_essay.file')
+    check(
+      job != null,
+      'and the UPLOAD BOARD has a whole-cohort job for it — derived from the def, with no special case written into /export',
+    )
+    check(
+      job != null && job.rows.length > 0 && job.rows.length === board25!.cohortJobs.find((j) => j.key === 'comp:eng_hl.hl_essay.file')!.rows.length,
+      `the job covers ${job?.rows.length ?? 0} English HL candidates — every one of them, because that is what "all" means`,
+    )
+    check(
+      board25!.cohortJobs.filter((j) => j.key.startsWith('comp:')).every((j) => j.rows.length > 0),
+      'no derived job is empty — a course nobody takes raises no upload job',
+    )
+
+    // A candidate-level check: the HL student owes it, the SL student does not.
+    const hlStudent = STUDENTS.find(
+      (st) => st.cohortId === 'c15' &&
+        ENROLLMENTS.some((e) => e.studentId === st.userId &&
+          SECTIONS.some((sec) => sec.id === e.sectionId && sec.courseId === 'eng_hl')),
+    )
+    if (hlStudent) {
+      const track25 = (await repo.getTrack('dhahran', hlStudent.userId))!
+      const cps = track25.lanes.flatMap((l) => l.checkpoints)
+      check(
+        cps.some((c) => c.def.key === 'eng_hl.hl_essay.file'),
+        'an English HL candidate\u2019s own track carries the HL essay beside the oral — the two-component course, from data',
+      )
+      check(
+        cps.some((c) => c.def.key === 'eng_hl.file'),
+        'and the oral is still there — a second component ADDS, it never replaces',
+      )
     }
   }
 

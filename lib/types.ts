@@ -132,6 +132,21 @@ export interface RequirementDef {
    * Research: claude/IB-IA-Artefacts-and-Templates-Research.md §3.
    */
   producedBy?: 'student' | 'teacher'
+  /**
+   * DOES THE IB RECEIVE THIS FOR EVERY CANDIDATE, OR ONLY IF SAMPLED?
+   *
+   * Absent means 'sample', which is every internal assessment: the school
+   * enters totals, IBIS runs dynamic sampling, and only the named candidates'
+   * work is uploaded. 'all' is the externally assessed coursework — the EE, the
+   * TOK essay, the Language A HL essay, the Group 6 portfolios — where the file
+   * goes up for everybody and a missing one is a missing submission.
+   *
+   * A SEPARATE AXIS FROM `exportTarget`, which says WHICH upload this feeds and
+   * cannot say for whom. Conflating them is the same mistake `recordedBy` made
+   * (see producedBy above), and it is what let the export board hardcode its
+   * whole-cohort list instead of deriving it.
+   */
+  uploadScope?: 'all' | 'sample'
   artifact: 'file' | 'text' | 'link' | 'mark' | 'none'
   /**
    * WHAT THIS COMPONENT ACCEPTS — mime types, copied off the course template at

@@ -24,7 +24,7 @@ import { CAS_DATA, casCounters } from './cas-fixtures'
 import { makeCasRepository } from './cas-repo'
 import { makeSetupRepository } from './setup-repo'
 import { GROUP_CHOICES, GROUP_KEYS, SIXTH_SUBJECT, catalogueFor } from './catalogue'
-import { templateOf } from '../templates'
+import { componentsFor, templateOf } from '../templates'
 import { makeIaRepository } from './ia-repo'
 import { makePgRepository } from './pg-repo'
 import { REPORTING_POINTS, pgKey } from '../pg/types'
@@ -493,6 +493,36 @@ function buildDefs(cohortId: string): RequirementDef[] {
         exportTarget: 'ibis_ia_marks',
       }),
       def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.comment', label: c.name + ' — teacher comment', lane: 'Internal assessment', recordedBy: 'staff', artifact: 'text' }),
+      // Everything else this course hands in — the HL essay for an English HL
+      // course, nothing for its SL twin. One declaration on the family; the
+      // level decides. External components get a file and NOTHING else.
+      ...componentsFor(t, c.level).flatMap<RequirementDef>((k) => [
+        def({
+          scope: { kind: 'course', courseId: c.id }, key: `${c.id}.${k.key}.file`,
+          label: `${c.name} — ${k.label}`, lane: 'Internal assessment',
+          recordedBy: 'student', producedBy: k.producedBy, artifact: 'file',
+          uploadScope: k.upload, accepts: k.accepts, exportTarget: 'ecoursework',
+        }),
+        ...(k.markMax != null
+          ? [
+              def({
+                scope: { kind: 'course', courseId: c.id }, key: `${c.id}.${k.key}.mark`,
+                label: `${c.name} — ${k.label} mark`, lane: 'Internal assessment',
+                recordedBy: 'staff', artifact: 'mark',
+                markMax: k.markMax,
+                criteria: k.criteria && k.criteria.length > 0 ? k.criteria : undefined,
+                // The IB marks the real thing — the school's number is for the
+                // predicted grade and never reaches IBIS. tok.essaymark's shape.
+                exportTarget: k.assessment === 'internal' ? 'ibis_ia_marks' : undefined,
+              }),
+              def({
+                scope: { kind: 'course', courseId: c.id }, key: `${c.id}.${k.key}.comment`,
+                label: `${c.name} — ${k.label} teacher comment`, lane: 'Internal assessment',
+                recordedBy: 'staff', artifact: 'text',
+              }),
+            ]
+          : []),
+      ]),
     ]
   })
 

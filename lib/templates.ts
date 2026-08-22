@@ -35,6 +35,81 @@ export interface IaCriterion {
   max: number
 }
 
+/**
+ * A COMPONENT OF A COURSE BESIDES ITS INTERNAL ASSESSMENT.
+ *
+ * A family is named for its IA, and for nineteen of ISG's thirty-one courses
+ * that is the whole story. It is not the whole story anywhere else:
+ *
+ *   Language A HL      the individual oral (IA, sampled) PLUS the HL ESSAY,
+ *                      which is EXTERNALLY assessed and uploaded for EVERY HL
+ *                      candidate. At ISG that is the largest block of files the
+ *                      product was missing — see IB-Upload-Coverage-and-Folders.md.
+ *   Classical lang HL  research dossier (IA) plus the HL composition (external)
+ *   Visual arts        resolved artworks (IA) plus two whole-cohort externals
+ *   Music, Theatre     two or three whole-cohort externals each
+ *
+ * ⚠ The IB's own public course pages call the Language A HL essay INTERNAL. The
+ * subject guides are right and the course pages are wrong: at HL the individual
+ * oral is the only IA. Do not resolve this from a course page.
+ *
+ * WHY THIS IS NOT A PATCH TO /export: the upload board is a projection over
+ * `RequirementDef.exportTarget`. A component that is missing from the board is
+ * a missing DEFINITION, never a missing special case. Declaring it here is what
+ * makes it appear — in the board, the track, the deadlines and the packs — with
+ * no screen edited anywhere.
+ */
+export interface TemplateComponent {
+  /** The middle segment of the def key: `eng_hl` + `.hl_essay` + `.file`. */
+  key: string
+  /** What the IB calls it. */
+  label: string
+  /**
+   * WHO AWARDS THE MARK THAT COUNTS — not whether anyone at school marks it.
+   *
+   * These are two questions and collapsing them was wrong (Michael, 22 Aug:
+   * *"I imagine our IB English HL teacher grades those 'IAs' to generate
+   * predicted grades. And will of course need to provide at least student
+   * feedback (even if none goes to IBIS) and authenticate."*).
+   *
+   *   internal   the school's mark IS the mark. It is typed into IBIS, and the
+   *              def carries exportTarget: 'ibis_ia_marks'.
+   *   external   the IB marks the real thing. The school still reads it and
+   *              records a mark — that is what a predicted grade is made of,
+   *              and it is what the candidate gets back as feedback — but the
+   *              number goes NOWHERE near IBIS, so the def carries NO
+   *              exportTarget at all.
+   *
+   * PRECEDENT, and the shape to copy: `tok.essaymark` has always worked this
+   * way — "the IB marks the real essay; this is the school reading it."
+   *
+   * Whether there is a mark at all is a SEPARATE question again, answered by
+   * `markMax`: a component with no maximum gets a file and a comment and
+   * nothing to score.
+   */
+  assessment: 'internal' | 'external'
+  /** HL-only or SL-only. Absent means both levels take it. */
+  level?: 'HL' | 'SL'
+  /**
+   * Does the IB receive this for EVERY candidate, or only if the moderation
+   * sample names them? The whole-cohort/sampled split the export board draws.
+   */
+  upload: 'all' | 'sample'
+  accepts: string[]
+  /** Absent means the candidate makes it. See RequirementDef.producedBy. */
+  producedBy?: 'student' | 'teacher'
+  /**
+   * ABSENT MEANS NOBODY SCORES THIS — no mark def is made and no screen asks
+   * for a number. Present means the school records one, whether or not it ever
+   * reaches the IB (see `assessment`). markMax is the sum of the criteria, as
+   * everywhere; an unconfirmed split ships as `criteria: []` and a total.
+   */
+  criteria?: IaCriterion[]
+  markMax?: number
+  guide: string
+  verify?: string
+}
+
 export interface IaTemplate {
   key: string
   /** Family name as the add-course picker shows it. */
@@ -77,6 +152,17 @@ export interface IaTemplate {
   verify?: string
   /** Subject groups this family is offered under; drives the picker default. */
   groups: string[]
+  /**
+   * EVERYTHING ELSE THIS COURSE HANDS IN, beyond the IA above.
+   *
+   * Deliberately named `other` rather than folding the IA into a components
+   * array: the IA keeps the def keys it has always had (`<course>.file`,
+   * `.mark`, `.comment`), so thirty-one existing courses need no migration and
+   * nothing that looks those keys up has to change. Other components are named
+   * — `<course>.<component>.file` — which still ends with `.file`, so the
+   * board's rollup (lib/board.ts, matched by key SUFFIX) picks them up untouched.
+   */
+  otherComponents?: TemplateComponent[]
 }
 
 const G1 = 'Group 1 — Studies in Language and Literature'
@@ -101,7 +187,37 @@ export const IA_TEMPLATES: IaTemplate[] = [
     accepts: AUDIO_ONLY,
     producedBy: 'teacher',
     guide: 'Language A guide, 2019 · first assessment M21 · same criteria HL & SL',
+    verify:
+      '⚠ GUIDE EDITION: a revised Language A guide is first assessed M26, so M27 sits the NEW edition, not the 2019 one these numbers came from. Secondary sources report the 2024 changes as Paper 2 and text counts only, with the individual oral unchanged — confirm on MyIB before a live cohort.',
     groups: [G1],
+    otherComponents: [
+      {
+        key: 'hl_essay',
+        label: 'HL essay',
+        // EXTERNALLY assessed — the school does not mark it. 1,200–1,500 words
+        // on one of the works studied. Uploaded for EVERY HL candidate, which
+        // is what makes it a whole-cohort job rather than a sampled one.
+        assessment: 'external',
+        level: 'HL',
+        upload: 'all',
+        accepts: PDF_ONLY,
+        producedBy: 'student',
+        // THE TEACHER MARKS IT — for the predicted grade, and for the feedback
+        // the candidate gets back. The number never goes to IBIS, because the
+        // IB marks the real thing; `assessment: 'external'` is what withholds
+        // the exportTarget. Same shape as tok.essaymark.
+        markMax: 20,
+        // ⚠ criteria: [] DELIBERATELY. The four-criterion split is widely
+        // repeated but was not read off a guide in this session, and the rule
+        // does not bend: NEVER INVENT A CRITERION SPLIT. It records as one
+        // total out of the confirmed maximum until somebody checks MyIB, and
+        // the grid says so on screen.
+        criteria: [],
+        guide: 'Language A guides (Literature; Language and Literature) · /20, external, 20% at HL · both courses share the rubric',
+        verify:
+          '/20 and 20% at HL are well corroborated but were not read in an IB primary; the A–D split (5 each) rests on secondary sources only, and Criterion C\u2019s label is disputed ("Focus, organization and development" vs "Coherence, focus and organisation"). Check the guide on MyIB, then add the criteria. Also unconfirmed: that every HL candidate uploads rather than a sample — no source states it for this component.',
+      },
+    ],
   },
   {
     key: 'lang_b_io',
@@ -322,6 +438,21 @@ export const IA_TEMPLATES: IaTemplate[] = [
 ]
 
 const BY_KEY = new Map(IA_TEMPLATES.map((t) => [t.key, t]))
+
+/**
+ * WHICH OTHER COMPONENTS THIS COURSE ACTUALLY TAKES.
+ *
+ * One function, because the level rule is the whole subtlety and two copies of
+ * it would drift: English SL and English HL share the family and share the /40
+ * oral, and differ by exactly this — the HL essay. A course with no level takes
+ * only components that name no level.
+ */
+export function componentsFor(
+  template: IaTemplate,
+  level: 'HL' | 'SL' | null,
+): TemplateComponent[] {
+  return (template.otherComponents ?? []).filter((c) => c.level == null || c.level === level)
+}
 
 export function templateOf(key: string | undefined | null): IaTemplate {
   return (key && BY_KEY.get(key)) || BY_KEY.get('generic')!

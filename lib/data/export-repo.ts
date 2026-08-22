@@ -151,11 +151,18 @@ export function makeExportRepository(deps: {
     // with three interactions and no sign-off is not ready to go.
     if (jobKey === 'tok.tkppf') return ['tok.ppf1', 'tok.ppf2', 'tok.ppf3', 'tok.ppfsign']
     if (jobKey.startsWith('g6:')) return [jobKey.slice(3) + '.file']
+    // A declared whole-cohort component, named by its own def key. This is the
+    // derived branch — nothing is added here when a component is added.
+    if (jobKey.startsWith('comp:')) return [jobKey.slice(5)]
     return null
   }
 
   const jobCourseId = (jobKey: string) =>
-    jobKey.startsWith('g6:') ? jobKey.slice(3) : jobKey.startsWith('ee.') ? 'ee' : 'tok'
+    jobKey.startsWith('g6:')
+      ? jobKey.slice(3)
+      : jobKey.startsWith('comp:')
+        ? jobKey.slice(5).split('.')[0]
+        : jobKey.startsWith('ee.') ? 'ee' : 'tok'
 
   const buildCohortJob = (
     schoolId: string,
@@ -231,6 +238,33 @@ export function makeExportRepository(deps: {
         push(buildCohortJob(schoolId, cohortId, sessionLabel, 'g6:' + c.id,
           `${c.name} — portfolio (Group 6)`, 'files', null,
           `${compact(c.name)}_portfolio`, 'zip', [c.name, 'portfolio']))
+      }
+
+      // ------------------------------------------------ DERIVED whole-cohort
+      //
+      // THE BOARD IS A PROJECTION. IB-Upload-Coverage-and-Folders.md §4: "If a
+      // component is missing from it, the fix is a requirement definition,
+      // never a special case in the board." Everything above this line is a
+      // special case; everything a template declares arrives here instead.
+      //
+      // The Language A HL essay is the first through it — externally assessed,
+      // uploaded for EVERY HL candidate, and the largest block of files the
+      // product was missing. Nothing was edited here to make it appear.
+      for (const d of defs) {
+        if (d.schoolId !== schoolId || d.cohortId !== cohortId) continue
+        if (d.uploadScope !== 'all' || d.artifact !== 'file') continue
+        if (d.scope.kind !== 'course') continue
+        const courseId = d.scope.courseId
+        const course = courses.find((x) => x.id === courseId && x.schoolId === schoolId)
+        if (!course) continue
+        // Group 6 already has a hand-written job per course; do not draw two.
+        if (course.subjectGroup.startsWith('Group 6')) continue
+        if (enrolledIn(schoolId, courseId, cohortId).length === 0) continue
+        const short = d.label.includes('—') ? d.label.split('—').pop()!.trim() : d.label
+        push(buildCohortJob(schoolId, cohortId, sessionLabel, 'comp:' + d.key,
+          d.label, 'files', null,
+          `${compact(course.name)}_${compact(short)}`, 'pdf',
+          [compact(course.name).toLowerCase(), compact(short).toLowerCase()]))
       }
 
       // ------------------------------------------------ moderation samples
