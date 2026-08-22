@@ -64,6 +64,7 @@ export default function MarksGrid({
   paperBase,
   gridHref,
   canDownload = false,
+  canRevoke = false,
 }: {
   view: IaMarksView
   editable: boolean
@@ -83,6 +84,12 @@ export default function MarksGrid({
   gridHref?: string
   /** Downloading someone's coursework is a capability, here as everywhere. */
   canDownload?: boolean
+  /**
+   * `scores.revoke` — taking a mark back off a candidate who has already read
+   * it is a different act from giving it to them, and the capability is off in
+   * every preset by default. Same rule as TOK and the EE.
+   */
+  canRevoke?: boolean
 }) {
   const [error, setError] = useState<string | null>(null)
   // IA/EE/TOK comments are PARAGRAPHS, so the cell shows a one-line preview
@@ -90,10 +97,12 @@ export default function MarksGrid({
   // whoever may write (marker / active override), read-only for everyone else.
   const [commentFor, setCommentFor] = useState<string | null>(null)
   const [commentDraft, setCommentDraft] = useState('')
+  const [note, setNote] = useState<string | null>(null)
   const [pending, start] = useTransition()
 
   const run = (fn: () => Promise<unknown>) => {
     setError(null)
+    setNote(null)
     start(async () => {
       try {
         await fn()
@@ -125,6 +134,11 @@ export default function MarksGrid({
   const missingMarks = view.rows.length - marked
   const missingComments = view.rows.filter((r) => r.total != null && !r.comment).length
   const markNoFile = view.rows.filter((r) => r.total != null && r.fileDisplay !== 'done').length
+  // Derived like every other count on this strip — there is no stored tally.
+  const releasedCount = view.rows.filter((r) => r.releasedAt != null).length
+  const releasable = view.rows.filter(
+    (r) => r.releasedAt == null && r.releaseBlockers.length === 0,
+  ).length
   const typedCount = view.rows.filter((r) => r.typed).length
   const withTotals = view.rows.filter((r) => r.total != null)
   const mean = withTotals.length
@@ -228,6 +242,42 @@ export default function MarksGrid({
             {markNoFile} marked with NO file
           </span>
         )}
+        {editable && (
+          <>
+            <span className={releasedCount === view.rows.length ? 'owe done' : 'owe'}>
+              {releasedCount} of {view.rows.length} released
+            </span>
+            {/* RELEASING IS NOT REQUIRED. Michael, 22 Aug: "teacher may give the
+                grades to students in another way." Nothing downstream waits on
+                it — IBIS transcription rides a separate axis — so this is an
+                offer, never a step. It releases what qualifies and NAMES what
+                it skipped rather than refusing the class over two rows. */}
+            <button
+              className="btn sm"
+              disabled={pending || releasable === 0}
+              title={
+                releasable === 0
+                  ? 'Nothing is ready to release — a mark needs its comment and its paper'
+                  : `Release ${releasable} mark${releasable === 1 ? '' : 's'} to candidates`
+              }
+              onClick={() =>
+                run(async () => {
+                  const out = await ia.releaseCourse(view.course.id, view.cohortId)
+                  setNote(
+                    out.skipped.length === 0
+                      ? `Released ${out.released}.`
+                      : `Released ${out.released}. Skipped ${out.skipped.length}: ` +
+                        out.skipped
+                          .map((s) => `${s.name} — ${s.blockers.map((b) => b.message).join(' ')}`)
+                          .join('  ·  '),
+                  )
+                })
+              }
+            >
+              Release {releasable > 0 ? releasable : ''} to candidates
+            </button>
+          </>
+        )}
         <span className="spacer" />
         {missingMarks === 0 ? (
           <span className="pill ok" title="IBIS runs dynamic sampling once every total is entered. The criterion breakdown for the sampled candidates is already recorded here.">
@@ -255,6 +305,14 @@ export default function MarksGrid({
           <div className="note warn" style={{ flex: 1 }}>{error}</div>
         </div>
       )}
+      {/* WHAT THE BATCH SKIPPED, by name. "18 released, 2 skipped" with no
+          reasons is a dead end — the whole point of skipping rather than
+          refusing is that the two are actionable. */}
+      {note && (
+        <div className="panel-h" style={{ paddingTop: 0, borderBottom: 0 }}>
+          <div className="note" style={{ flex: 1 }}>{note}</div>
+        </div>
+      )}
 
       <div className="bscroll">
         <table className="board marks">
@@ -279,6 +337,7 @@ export default function MarksGrid({
               {!totalOnly && <th className="lanesep">Total</th>}
               <th className="lanesep">File</th>
               <th>Comment</th>
+              {editable && <th className="lanesep">Released</th>}
               {canTranscribe && <th className="lanesep">Typed into IBIS</th>}
             </tr>
           </thead>
@@ -450,6 +509,52 @@ export default function MarksGrid({
                       <span className="mut">·</span>
                     )}
                   </td>
+
+                  {editable && (
+                    <td className="lanesep">
+                      {r.releasedAt ? (
+                        <>
+                          <span className="pill ok" title={`Released ${r.releasedAt}`}>seen</span>
+                          {canRevoke && (
+                            <button
+                              className="btn sm ghost"
+                              disabled={pending}
+                              title="Take it back. Recorded, and the mark becomes editable again."
+                              onClick={() =>
+                                run(() => ia.revokeMark(view.course.id, view.cohortId, r.studentId))
+                              }
+                            >
+                              revoke
+                            </button>
+                          )}
+                        </>
+                      ) : r.releaseBlockers.length > 0 ? (
+                        // The reason, not a disabled button with no explanation.
+                        <span
+                          className="mut"
+                          title={r.releaseBlockers.map((b) => b.message).join(' ')}
+                        >
+                          {r.releaseBlockers.map((b) => b.key).join(' · ')}
+                        </span>
+                      ) : (
+                        <button
+                          className="btn sm"
+                          disabled={pending}
+                          title="Show this candidate their mark and your comment"
+                          onClick={() =>
+                            run(async () => {
+                              const out = await ia.releaseMark(
+                                view.course.id, view.cohortId, r.studentId,
+                              )
+                              if (!out.ok) setError(out.blockers.map((b) => b.message).join(' '))
+                            })
+                          }
+                        >
+                          release
+                        </button>
+                      )}
+                    </td>
+                  )}
 
                   {canTranscribe && (
                     <td className="lanesep">

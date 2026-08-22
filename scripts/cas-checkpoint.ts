@@ -15,6 +15,8 @@ import { DEV_USERS } from '../lib/session'
 import { CAS_DATA } from '../lib/data/cas-fixtures'
 import { summarise } from '../lib/cas/derive'
 import { MAX_RECORDING_SECONDS, extensionFor } from '../lib/cas/recording'
+import type { Checkpoint, RequirementDef } from '../lib/types'
+import { releaseBlockers as iaReleaseBlockers } from '../lib/ia/marking'
 import { marksWriteGrant } from '../lib/ia/authorize'
 import { pgWriteGrant, restrictStudentView } from '../lib/pg/authorize'
 import { REPORTING_POINTS, pgKey } from '../lib/pg/types'
@@ -364,6 +366,59 @@ async function main() {
       (s) => !(s.criterionMarks != null && s.mark != null),
     ),
     'no state stores both criterion marks and a total — the total is derived (invariant #2)',
+  )
+
+  // --- 7b. WHO MAKES THE ARTEFACT is not who files it ---
+  //
+  // For the twelve Language courses the assessed artefact is a recording the
+  // TEACHER makes, and for the nine Group 2 courses the candidate submits
+  // nothing whatever. Until 22 Aug 2026 every one of them told its students
+  // they had not uploaded their individual oral.
+  const c15Files = REQUIREMENT_DEFS.filter(
+    (d) => d.cohortId === 'c15' && d.key.endsWith('.file') && d.lane === 'Internal assessment',
+  )
+  const teacherMade = c15Files.filter((d) => d.producedBy === 'teacher')
+  const courseOf = (d: RequirementDef) => d.key.slice(0, d.key.indexOf('.'))
+  const oralCourses = COURSES.filter(
+    (c) => c.type === 'subject' && (c.iaTemplateKey === 'lang_a_io' || c.iaTemplateKey === 'lang_b_io'),
+  ).map((c) => c.id)
+  check(
+    teacherMade.length === oralCourses.length &&
+      teacherMade.every((d) => oralCourses.includes(courseOf(d))),
+    `the individual oral is TEACHER-produced on all ${oralCourses.length} Language courses — and on no other course`,
+  )
+  check(
+    c15Files.filter((d) => d.producedBy !== 'teacher').length === c15Files.length - oralCourses.length &&
+      c15Files.every((d) => d.recordedBy === 'student'),
+    'every other subject IA is still the candidate\u2019s own paper \u2014 producedBy narrows, it never inverts',
+  )
+  // The bug itself, stated as the thing that must not come back.
+  {
+    const owedDefs = (tpl: string) =>
+      REQUIREMENT_DEFS.filter(
+        (d) =>
+          d.cohortId === 'c15' &&
+          d.key.endsWith('.file') &&
+          COURSES.some((c) => c.id === courseOf(d) && c.iaTemplateKey === tpl),
+      )
+    const asOwed = (d: RequirementDef) =>
+      studentOwedToIb([{ def: d, state: null, display: 'open' } as unknown as Checkpoint]).length
+    check(
+      owedDefs('lang_b_io').length > 0 && owedDefs('lang_b_io').every((d) => asOwed(d) === 0),
+      'a Language B candidate is NOT warned they owe their individual oral \u2014 the teacher records it and they submit nothing at all',
+    )
+    check(
+      owedDefs('sciences').length > 0 && owedDefs('sciences').every((d) => asOwed(d) === 1),
+      'but a scientific investigation IS still owed \u2014 the narrowing is about who makes the artefact, not about silencing the warning',
+    )
+  }
+  // The regression this field was created to avoid. recordedBy also carries
+  // "is this a hand-in with a date"; marking the orals staff made a teacher
+  // DELIVERABLE look like teacher MARKING, and tierOfStage — which needs every
+  // def in a stage to agree — dropped the IA due date for all 31 courses.
+  check(
+    tierOfStage('file', REQUIREMENT_DEFS.filter((d) => d.cohortId === 'c15')) === 'programme',
+    'and the IA file still HAS a due date \u2014 an oral happens on a day; only a MARK is not handed in',
   )
 
   // The marks module: write a criterion mark, watch the total derive and the
@@ -3717,6 +3772,137 @@ async function main() {
         await repo.returns.returnWithNote('dhahran', never.userId, 'ee.final', 'nothing here', 'u_adeyemi')
       } catch { refused = true }
       check(refused, 'returning a record with nothing filed is refused — a return is a return OF something')
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  console.log('\n24. Releasing an IA mark — the half the candidate sees')
+  // -------------------------------------------------------------------------
+  //
+  // Until 22 Aug 2026 the IA module stopped at `marked`. Because the candidate
+  // redaction keys on `recordStatus === 'released'`, that meant NO IA MARK HAD
+  // EVER REACHED A STUDENT — while the course page told them "Marks are
+  // released by your teacher" and the capability was labelled "enter and
+  // release marks". Both were false for a week.
+  //
+  // Michael, 22 Aug: "there should be a batch release OR a per student release.
+  // By teacher. Not a requirement (teacher may give the grades to students in
+  // another way)."
+
+  {
+    const courseId = 'bio_sl'
+    const view0 = await repo.ia.getMarksView('dhahran', courseId, 'c15')
+    const markDef24 = REQUIREMENT_DEFS.find(
+      (d) => d.cohortId === 'c15' && d.key === courseId + '.mark',
+    )!
+    check(view0 != null && view0.rows.length > 0, `${courseId} has a marks view with candidates`)
+
+    // --- the rules, pure, before anything is written ---
+    check(
+      iaReleaseBlockers({ total: null, comment: 'fine work', filed: true })
+        .some((b) => b.key === 'mark'),
+      'an unmarked candidate cannot be released — there is no number to show',
+    )
+    check(
+      iaReleaseBlockers({ total: 18, comment: '  ', filed: true })
+        .some((b) => b.key === 'comment'),
+      'A MARK CANNOT BE RELEASED WITHOUT A COMMENT — the standing rule, now true of IA as well as TOK',
+    )
+    check(
+      iaReleaseBlockers({ total: 18, comment: 'fine work', filed: false })
+        .some((b) => b.key === 'file'),
+      'and a mark with NO PAPER under it cannot go out — nobody could defend it to a moderator',
+    )
+    check(
+      iaReleaseBlockers({ total: 18, comment: 'fine work', filed: true }).length === 0,
+      'marked, justified and filed releases',
+    )
+
+    // --- one candidate, end to end ---
+    const target = view0!.rows.find((r) => r.releaseBlockers.length === 0)
+    const blocked = view0!.rows.find((r) => r.releaseBlockers.length > 0)
+    check(target != null, 'at least one candidate is releasable — a screen with nothing to do cannot be looked at')
+
+    if (target) {
+      const asCandidate = async () =>
+        (await repo.getTrack('dhahran', target.studentId, { asCandidate: true }))!
+          .lanes.flatMap((l) => l.checkpoints)
+          .find((c) => c.def.id === markDef24.id)
+
+      const before = await asCandidate()
+      check(
+        before != null && before.state?.criterionMarks == null && before.state?.mark == null,
+        'BEFORE RELEASE the candidate gets the checkpoint but not the value — the redaction was already shared, IA just never used it',
+      )
+
+      const r = await repo.ia.releaseMark('dhahran', courseId, 'c15', target.studentId, 'u_adeyemi')
+      check(r.ok, 'the marker releases it')
+
+      const after = await asCandidate()
+      check(
+        after?.state?.recordStatus === 'released' &&
+          (after.state.criterionMarks != null || after.state.mark != null),
+        'and NOW the candidate sees the mark — one predicate on the read, and IA got it for free',
+      )
+
+      // The standing rule, without a single new check: setCriterionMark already
+      // refuses a locked state, and release is what locks it.
+      const stateNow = REQUIREMENT_STATES.find(
+        (st) => st.studentId === target.studentId && st.requirementDefId === markDef24.id,
+      )!
+      const held = stateNow.criterionMarks ? [...stateNow.criterionMarks] : null
+      await repo.ia.setCriterionMark('dhahran', courseId, 'c15', target.studentId, 0, 1, 'u_adeyemi')
+      check(
+        JSON.stringify(stateNow.criterionMarks ?? null) === JSON.stringify(held),
+        'A RELEASED MARK IS NOT EDITABLE IN PLACE — and no new check was needed, because releasing locks and locking was already refused',
+      )
+
+      // --- revoke, and it is editable again ---
+      await repo.ia.revokeMark('dhahran', courseId, 'c15', target.studentId, 'u_adeyemi')
+      check(
+        stateNow.recordStatus === 'marked' && stateNow.lockedAt == null,
+        'revoking returns it to marked and re-opens editing — the way back is recorded, never silent',
+      )
+      const trail = await repo.ia.listMarkEvents('dhahran', courseId, 'c15')
+      check(
+        trail.some((e) => e.kind === 'release') && trail.some((e) => e.kind === 'revoke'),
+        'and BOTH acts are on the trail — "they saw it and then it changed" is a question that gets asked',
+      )
+      const hidden = await asCandidate()
+      check(
+        hidden?.state?.criterionMarks == null && hidden?.state?.mark == null,
+        'the value goes back behind the redaction too — revoking is not cosmetic',
+      )
+    }
+
+    // --- the batch SKIPS, it does not refuse ---
+    if (blocked) {
+      const batch = await repo.ia.releaseCourse('dhahran', courseId, 'c15', 'u_adeyemi')
+      check(
+        batch.released > 0 && batch.skipped.length > 0,
+        `the batch released ${batch.released} and skipped ${batch.skipped.length} — refusing a whole class over two unjustified marks is how a button stops being used`,
+      )
+      check(
+        batch.skipped.every((sk) => sk.blockers.length > 0 && sk.name.length > 0),
+        'and every skipped candidate comes back NAMED, with the reason — "18 released, 2 skipped" with no reasons is a dead end',
+      )
+    }
+
+    // --- RELEASE IS NOT REQUIRED. Nothing downstream waits on it. ---
+    {
+      const unreleased24 = (await repo.ia.getMarksView('dhahran', courseId, 'c15'))!.rows.find(
+        (r) => r.releasedAt == null && r.total != null,
+      )
+      if (unreleased24) {
+        await repo.ia.setTypedIntoIbis('dhahran', courseId, 'c15', unreleased24.studentId, true, 'u_adeyemi')
+        const back = (await repo.ia.getMarksView('dhahran', courseId, 'c15'))!.rows.find(
+          (r) => r.studentId === unreleased24.studentId,
+        )
+        check(
+          back?.typed === true && back?.releasedAt == null,
+          'a mark reaches IBIS WITHOUT ever being released to the candidate — the two axes are independent, because a teacher may hand results back in class',
+        )
+      }
     }
   }
 

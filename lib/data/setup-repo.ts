@@ -145,6 +145,7 @@ export function makeSetupRepository(deps: {
         key: course.id + '.file', label: `${course.name} — ${t.component}`,
         lane: 'Internal assessment',
         order: order + 1, recordedBy: 'student', artifact: 'file',
+        producedBy: t.producedBy,
         // Off the template, exactly as `criteria` is below — which is what
         // makes a Language B oral ask for audio the day it is added, with
         // nobody editing a list of screens.

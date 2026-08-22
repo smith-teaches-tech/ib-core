@@ -55,6 +55,22 @@ export interface IaTemplate {
    * with nobody maintaining a list of screens. See lib/accepts.ts.
    */
   accepts: string[]
+  /**
+   * WHO MAKES THE ASSESSED ARTEFACT. Absent means 'student', which is true of
+   * nineteen of the school's thirty-one subject courses.
+   *
+   * 'teacher' is the oral families, and it is not a nicety: for Language B and
+   * ab initio the candidate submits NOTHING AT ALL — the teacher conducts the
+   * oral, records it, supplies the visual stimulus, and collects and retains
+   * the stimulus and the candidate's fifteen minutes of prep notes afterwards.
+   * A screen that says "no file uploaded" at a Language B student is not merely
+   * unhelpful, it is a false accusation about work they were never asked to do.
+   *
+   * Translated into `recordedBy` on the `.file` def at creation — see
+   * instantiateIaDefs — so nothing downstream needs a second field to consult.
+   * Researched 22 Aug 2026: claude/IB-IA-Artefacts-and-Templates-Research.md §3.
+   */
+  producedBy?: 'student' | 'teacher'
   /** Which guide these numbers came from — display it, so nobody trusts a stale rubric silently. */
   guide: string
   /** Unresolved [VERIFY] — shown as a flag wherever the rubric is shown. */
@@ -83,6 +99,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
     ],
     markMax: 40,
     accepts: AUDIO_ONLY,
+    producedBy: 'teacher',
     guide: 'Language A guide, 2019 · first assessment M21 · same criteria HL & SL',
     groups: [G1],
   },
@@ -98,6 +115,7 @@ export const IA_TEMPLATES: IaTemplate[] = [
     ],
     markMax: 30,
     accepts: AUDIO_ONLY,
+    producedBy: 'teacher',
     guide: 'Language B / ab initio guides, 2018 · first assessment M20 · marks identical HL & SL',
     groups: [G2],
   },

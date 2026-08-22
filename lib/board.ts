@@ -244,7 +244,11 @@ function checkpointsFor(
  */
 function waitingOn(checkpoints: Iterable<Checkpoint>): WaitingOn {
   const w: WaitingOn = { student: 0, staff: 0, coordinator: 0 }
-  for (const c of checkpoints) if (isOutstanding(c)) w[c.def.recordedBy] += 1
+  for (const c of checkpoints)
+    if (isOutstanding(c))
+      // A teacher-produced artefact is the teacher's turn however it is filed —
+      // the oral families' recordings are made by the person who marks them.
+      w[c.def.producedBy === 'teacher' ? 'staff' : c.def.recordedBy] += 1
   return w
 }
 

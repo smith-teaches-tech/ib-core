@@ -121,6 +121,72 @@ export async function returnWithNote(
   refresh()
 }
 
+/**
+ * RELEASE — the marker, or a coordinator riding an unlock. The same gate as
+ * entering the mark, and deliberately so: the person who decided the number is
+ * the person who decides the candidate may see it. Michael, 22 Aug: "batch
+ * release OR per student release. By teacher. Not a requirement."
+ *
+ * NOT REQUIRED means exactly that — nothing downstream waits on it. IBIS
+ * transcription rides `exportStatus`, so marks reach the IB whether or not a
+ * candidate ever saw them, and a teacher who hands results back in class can
+ * ignore this entirely.
+ *
+ * The refusal comes back as a LIST rather than a throw, because the batch
+ * below has to say which candidates it skipped and why.
+ */
+export async function releaseMark(courseId: string, cohortId: string, studentId: string) {
+  const session = await need('ia.manage')
+  await live(session.school.id, cohortId)
+  await courseInCohort(session.school.id, courseId, cohortId)
+  await allowWrite(session, courseId, cohortId, studentId)
+  const r = await repo.ia.releaseMark(
+    session.school.id, courseId, cohortId, studentId, session.user.id,
+  )
+  if (r.ok) refresh()
+  return r
+}
+
+/** The whole class. Releases what qualifies and reports what it skipped. */
+export async function releaseCourse(courseId: string, cohortId: string) {
+  const session = await need('ia.manage')
+  await live(session.school.id, cohortId)
+  await courseInCohort(session.school.id, courseId, cohortId)
+  // Course-wide, so it is checked course-wide: the designated marker of this
+  // course, or a coordinator's unlock. Not a per-candidate grant.
+  const marker = await repo.ia.isMarkerFor(
+    session.school.id, courseId, cohortId, session.user.id,
+  )
+  const unlock = await repo.ia.activeUnlock(session.school.id, courseId, session.user.id)
+  if (!marker && !unlock) {
+    throw new Error(
+      'Only the designated marker releases this course\u2019s marks. ' +
+        'A coordinator can unlock editing, with a reason, from the course page.',
+    )
+  }
+  const out = await repo.ia.releaseCourse(
+    session.school.id, courseId, cohortId, session.user.id,
+  )
+  refresh()
+  return out
+}
+
+/**
+ * REVOKE — the oversight capability, not the marker's. Taking a mark back off
+ * a candidate who has already read it is a different act from giving it to
+ * them, and `scores.revoke` is off in every preset by default. Same rule as
+ * TOK and the EE.
+ */
+export async function revokeMark(courseId: string, cohortId: string, studentId: string) {
+  const session = await need('scores.revoke')
+  await live(session.school.id, cohortId)
+  await courseInCohort(session.school.id, courseId, cohortId)
+  await repo.ia.revokeMark(
+    session.school.id, courseId, cohortId, studentId, session.user.id,
+  )
+  refresh()
+}
+
 export async function setTypedIntoIbis(
   courseId: string,
   cohortId: string,

@@ -168,6 +168,9 @@ export function studentOwedToIb(checkpoints: Checkpoint[]): Checkpoint[] {
     (c) =>
       c.def.exportTarget != null &&
       c.def.recordedBy === 'student' &&
+      // The teacher makes the recording. A Language B candidate submits nothing
+      // at all for their individual oral, so there is nothing here to owe.
+      c.def.producedBy !== 'teacher' &&
       c.display !== 'done' &&
       c.display !== 'future',
   )

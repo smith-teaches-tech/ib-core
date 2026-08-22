@@ -22,6 +22,7 @@ import type {
 import { iaTotal, templateOf } from '../templates'
 import { fileOf } from '../files'
 import { outstandingReturn, type ReturnEvent } from '../returns'
+import { releaseBlockers, type BatchRelease } from '../ia/marking'
 import { todayRiyadh } from './dates'
 
 /** How long a coordinator unlock lasts before it re-locks itself. */
@@ -165,6 +166,14 @@ export function makeIaRepository(deps: {
             mark: criteria.length === 0 ? (mark?.mark ?? null) : null,
             total: iaTotal(criteria, mark),
             comment: commentBody,
+            // A released mark is one whose state SAYS released — there is no
+            // second flag to keep in step with the status.
+            releasedAt: mark?.recordStatus === 'released' ? (mark.recordedAt ?? null) : null,
+            releaseBlockers: releaseBlockers({
+              total: iaTotal(criteria, mark),
+              comment: commentBody,
+              filed: file != null && file.recordStatus !== 'not_started',
+            }),
             fileDisplay:
               file == null || file.recordStatus === 'not_started'
                 ? 'not_started'
@@ -293,6 +302,100 @@ export function makeIaRepository(deps: {
         schoolId, cohortId, courseId, studentId, kind: 'transcribe',
         prev: wasTyped ? 'typed' : null, next: on ? 'typed' : null, byUserId: by,
       })
+    },
+
+    // ------------------------------------------- release
+
+    /**
+     * PUT THE MARK IN FRONT OF THE CANDIDATE.
+     *
+     * The blockers are checked HERE rather than in the action — TOK's pattern
+     * rather than the EE's — because a repository method that trusts its
+     * caller to have checked is one direct call away from releasing an
+     * unjustified mark. The action re-checks the CAPABILITY; the rules live
+     * with the write.
+     *
+     * `lockedAt` is what makes the standing rule true: setCriterionMark already
+     * refuses a locked state, so "a released mark is not editable in place"
+     * needs no new check anywhere. Revoking clears it.
+     */
+    async releaseMark(schoolId, courseId, cohortId, studentId, by) {
+      const markDef = defFor(schoolId, cohortId, courseId, '.mark')
+      if (!markDef) return { ok: false, blockers: [{ key: 'course', message: 'No such course.' }] }
+      const s = stateFor(schoolId, studentId, markDef.id)
+      const fileDef = defFor(schoolId, cohortId, courseId, '.file')
+      const fileState = fileDef ? stateFor(schoolId, studentId, fileDef.id) : null
+      const commentDef = defFor(schoolId, cohortId, courseId, '.comment')
+      const comment = commentDef
+        ? (stateFor(schoolId, studentId, commentDef.id)?.artifacts.find((a) => a.kind === 'text')
+            ?.body ?? null)
+        : null
+
+      const blockers = releaseBlockers({
+        total: iaTotal(markDef.criteria ?? [], s),
+        comment,
+        filed: fileState != null && fileState.recordStatus !== 'not_started',
+      })
+      if (blockers.length > 0 || !s) return { ok: false, blockers }
+      if (s.recordStatus === 'released') return { ok: true, blockers: [] }
+
+      s.recordStatus = 'released'
+      s.lockedAt = new Date(todayRiyadh() + 'T00:00:00.000Z').toISOString()
+      s.recordedBy = nameOf(by)
+      s.recordedAt = todayRiyadh()
+      logEvent({
+        schoolId, cohortId, courseId, studentId, kind: 'release',
+        prev: 'marked', next: 'released', byUserId: by,
+      })
+      return { ok: true, blockers: [] }
+    },
+
+    /** Take it back. Recorded, because "they saw it and then it changed" is a
+     *  question that gets asked, and the mark returns to editable. */
+    async revokeMark(schoolId, courseId, cohortId, studentId, by) {
+      const markDef = defFor(schoolId, cohortId, courseId, '.mark')
+      if (!markDef) return
+      const s = stateFor(schoolId, studentId, markDef.id)
+      if (!s || s.recordStatus !== 'released') return
+      // Back to what the marks themselves say — never a stored guess.
+      const criteria = markDef.criteria ?? []
+      const entered = (s.criterionMarks ?? []).filter((m) => m != null).length
+      s.recordStatus =
+        criteria.length === 0
+          ? s.mark == null ? 'not_started' : 'marked'
+          : entered === 0 ? 'not_started' : entered === criteria.length ? 'marked' : 'in_progress'
+      delete s.lockedAt
+      s.recordedBy = nameOf(by)
+      s.recordedAt = todayRiyadh()
+      logEvent({
+        schoolId, cohortId, courseId, studentId, kind: 'revoke',
+        prev: 'released', next: s.recordStatus, byUserId: by,
+      })
+    },
+
+    /**
+     * THE WHOLE CLASS AT ONCE — skipping, never failing.
+     *
+     * Same shape as setJobSubmitted: iterate the enrolled roster, release what
+     * qualifies, and report what did not and why. A class of twenty where two
+     * marks are unjustified releases eighteen; refusing all twenty over two is
+     * how a button stops being used.
+     */
+    async releaseCourse(schoolId, courseId, cohortId, by): Promise<BatchRelease> {
+      const view = await this.getMarksView(schoolId, courseId, cohortId)
+      if (!view) return { released: 0, skipped: [] }
+      const out: BatchRelease = { released: 0, skipped: [] }
+      for (const row of view.rows) {
+        if (row.releasedAt != null) continue
+        if (row.releaseBlockers.length > 0) {
+          out.skipped.push({ studentId: row.studentId, name: row.name, blockers: row.releaseBlockers })
+          continue
+        }
+        const r = await this.releaseMark(schoolId, courseId, cohortId, row.studentId, by)
+        if (r.ok) out.released += 1
+        else out.skipped.push({ studentId: row.studentId, name: row.name, blockers: r.blockers })
+      }
+      return out
     },
 
     // ------------------------------------------- authorization & the trail

@@ -9,6 +9,7 @@ import type { Course } from '../types'
 import type { IaCriterion } from '../templates'
 import type { FileView } from '../files'
 import type { ReturnView } from '../returns'
+import type { ReleaseBlock } from '../release'
 
 export interface IaMarksRow {
   studentId: string
@@ -46,6 +47,18 @@ export interface IaMarksRow {
   /** exportStatus === 'submitted' on the mark state: typed into IBIS. */
   typed: boolean
   locked: boolean
+  /**
+   * WHEN THE CANDIDATE WAS LET SEE IT, or null.
+   *
+   * Releasing is NOT required — a teacher may hand marks back in class, and
+   * nothing downstream waits on this: IBIS transcription rides `exportStatus`,
+   * a separate axis entirely. It only works the other way, as a lock: once
+   * released the mark is not editable in place, and the paper cannot be
+   * returned until it is revoked.
+   */
+  releasedAt: string | null
+  /** Why this row cannot be released yet. Empty when it can. */
+  releaseBlockers: ReleaseBlock[]
 }
 
 export interface IaMarksView {
@@ -71,6 +84,11 @@ export interface IaMarksView {
 
 export type MarkEventKind =
   | 'mark' | 'comment' | 'transcribe' | 'unlock' | 'relock'
+  // Putting the mark and its justification in front of the candidate, and
+  // taking it back. Both are recorded acts: a released mark cannot be edited
+  // in place, so the way to change one is to revoke it, and that is a fact
+  // somebody asks about later.
+  | 'release' | 'revoke'
   // Predicted grades share this trail rather than starting a second one: it is
   // the same course, the same audience, and the same question ("what changed
   // here, and who"). `pg` is a grade written; `pg_unlock` is a locked grade

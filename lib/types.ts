@@ -111,6 +111,27 @@ export interface RequirementDef {
   lane: Lane
   order: number
   recordedBy: 'student' | 'staff' | 'coordinator'
+  /**
+   * WHO MAKES THE ARTEFACT — a different question from who files it, and the
+   * two were one field until 22 Aug 2026.
+   *
+   * Absent means 'student', which is nineteen of the school's thirty-one
+   * subject courses. 'teacher' is the oral families: the teacher conducts the
+   * individual oral and makes the recording, and for Language B and ab initio
+   * the candidate submits NOTHING AT ALL. Telling those nine courses' students
+   * they have not uploaded their oral is a false accusation, which is the bug
+   * this field exists to stop.
+   *
+   * DELIBERATELY NOT `recordedBy: 'staff'`. That was tried first and the
+   * checkpoint refused it: `recordedBy` also carries "is this a hand-in with a
+   * date", so marking it staff made a teacher-produced DELIVERABLE look like
+   * teacher MARKING work, and tierOfStage — which needs every def in a stage to
+   * agree — collapsed the IA file due date for all thirty-one courses, not just
+   * the twelve. An oral has a date; a mark does not. Two axes, two fields.
+   *
+   * Research: claude/IB-IA-Artefacts-and-Templates-Research.md §3.
+   */
+  producedBy?: 'student' | 'teacher'
   artifact: 'file' | 'text' | 'link' | 'mark' | 'none'
   /**
    * WHAT THIS COMPONENT ACCEPTS — mime types, copied off the course template at

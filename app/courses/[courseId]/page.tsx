@@ -352,6 +352,7 @@ export default async function CoursePage({
               // the marker of the course, the coordinator tier, and whoever
               // builds the school packs.
               canDownload={isMarker || coordinatorReader || session.can('pack.school')}
+              canRevoke={session.can('scores.revoke')}
             />
             )}
             {screen === 'ia' && !wantedPaper && showSample && (
@@ -387,7 +388,9 @@ export default async function CoursePage({
           </p>
           <div className="note">
             Your internal assessment for this course — the file, the mark and the teacher comment —
-            shows on your own track on the home page. Marks are released by your teacher.
+            shows on your own track on the home page. Your teacher decides when a mark is shown to
+            you, and it arrives with their comment. Some teachers hand marks back in class instead,
+            so a mark you cannot see here is not a mark that has not been given.
           </div>
         </>
       )

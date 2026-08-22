@@ -484,7 +484,7 @@ function buildDefs(cohortId: string): RequirementDef[] {
   const subjectDefs: RequirementDef[] = COURSES.filter((c) => c.type === 'subject').flatMap((c) => {
     const t = templateOf(c.iaTemplateKey)
     return [
-      def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.file', label: `${c.name} — ${t.component}`, lane: 'Internal assessment', recordedBy: 'student', artifact: 'file', accepts: t.accepts, exportTarget: 'ecoursework' }),
+      def({ scope: { kind: 'course', courseId: c.id }, key: c.id + '.file', label: `${c.name} — ${t.component}`, lane: 'Internal assessment', recordedBy: 'student', producedBy: t.producedBy, artifact: 'file', accepts: t.accepts, exportTarget: 'ecoursework' }),
       def({
         scope: { kind: 'course', courseId: c.id }, key: c.id + '.mark', label: c.name + ' — mark',
         lane: 'Internal assessment', recordedBy: 'staff', artifact: 'mark',

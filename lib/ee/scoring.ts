@@ -21,6 +21,7 @@
 // costs no new storage — only this decision, written down.
 // ─────────────────────────────────────────────────────────────────────────────
 
+import type { ReleaseBlock } from '../release'
 import { EE_CRITERIA, EE_MARK_MAX, indicativeGrade } from './rubric'
 
 export interface MarkingGates {
@@ -73,10 +74,9 @@ export function summariseScore(marks: (number | null)[]): ScoreSummary {
   }
 }
 
-export interface ReleaseBlock {
-  key: string
-  message: string
-}
+// The shape moved to lib/release.ts on 22 Aug 2026 so IA could share it rather
+// than become a third variant. The RULES below stay EE's own.
+export type { ReleaseBlock } from '../release'
 
 /**
  * WHAT RELEASE REQUIRES, in one place, so the button and the server agree.

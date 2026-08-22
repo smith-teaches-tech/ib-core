@@ -34,6 +34,8 @@ import type {
   CohortSummary, CourseRow, IdentifierPreview, IdentifierRow, ImportPreview, ImportRow, PersonRow,
 } from '../setup/types'
 import type { IaMarksView, MarkEventRow, MarkUnlock, SampleRequest } from '../ia/types'
+import type { BatchRelease } from '../ia/marking'
+import type { ReleaseBlock } from '../release'
 import type { PgStudentView, PgView, ReportingPoint } from '../pg/types'
 import type { Deadline, RequirementDef } from '../types'
 import type { UploadBoardView } from '../export/types'
@@ -528,6 +530,24 @@ export interface IaRepository {
     schoolId: string, courseId: string, cohortId: string, studentId: string, on: boolean,
     by: string,
   ): Promise<void>
+
+  // ---- release ----
+  /**
+   * Show the candidate their mark and its justification. Refuses with the
+   * reasons rather than throwing, because a BATCH has to list them per
+   * candidate. The rules live in the repository, not the caller.
+   */
+  releaseMark(
+    schoolId: string, courseId: string, cohortId: string, studentId: string, by: string,
+  ): Promise<{ ok: boolean; blockers: ReleaseBlock[] }>
+  /** Take a released mark back. The mark becomes editable again. */
+  revokeMark(
+    schoolId: string, courseId: string, cohortId: string, studentId: string, by: string,
+  ): Promise<void>
+  /** The whole class: releases what qualifies, reports what it skipped. */
+  releaseCourse(
+    schoolId: string, courseId: string, cohortId: string, by: string,
+  ): Promise<BatchRelease>
 
   // ---- authorization & the audit trail ----
   /**
