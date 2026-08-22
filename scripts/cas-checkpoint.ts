@@ -54,7 +54,10 @@ import {
 import {
   MARK_EVENTS, TOK_BOUNDARIES, TOK_FILES, TOK_INTERACTION_LOGS, TOK_MARKS, TOK_TITLE_SETS,
 } from '../lib/data/fixtures'
-import { canRelease, promptDistribution, releaseBlockers as tokReleaseBlockers, summariseMarking } from '../lib/tok/marking'
+import {
+  canRelease, promptDistribution, releaseBlockers as tokReleaseBlockers, summariseMarking,
+  tokProcessSteps,
+} from '../lib/tok/marking'
 import { canSign, composeTeacherComment, signBlockers, signWarnings } from '../lib/tok/ppf'
 import { TOK_PPF } from '../lib/data/fixtures'
 import { iaTotal, templateOf } from '../lib/templates'
@@ -2577,32 +2580,41 @@ async function main() {
   })
   check(ppfStates.length > 0, `${ppfStates.length} TK/PPF entries exist to check`)
   check(
-    ppfStates.every((st) => {
-      const d = REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)!
-      const n = Number(d.key.slice(-1))
-      const log = TOK_INTERACTION_LOGS.find((l) => l.studentId === st.studentId && l.n === n)
-      return log != null && (interactionLine(n as 1 | 2 | 3, log.lineKey)?.held ?? false)
-    }),
-    'EVERY written-up interaction has a held teacher log behind it — nobody wrote up a meeting the teacher never recorded',
-  )
-  check(
     TOK_INTERACTION_LOGS.some((l) => l.lineKey === 'no_draft'),
-    'and the honest negative is exercised, not merely permitted — one candidate turned up to the third meeting without a draft',
+    'the honest negative is exercised, not merely permitted — one candidate turned up to the third meeting without a draft',
   )
 
-  check(interactionOpen(1, null, true).open === false, 'no log at all: the box is shut')
+  // ⚠ REVERSED 22 AUG. Until today the assertion here was the opposite: "EVERY
+  // written-up interaction has a held teacher log behind it". Michael: "TK/PPF
+  // should NOT be locked behind the teacher filling out the planning form…
+  // do not connect these."
+  //
+  // The TK/PPF is the CANDIDATE'S form and goes to the IB. The teacher's log is
+  // OURS, optional, never uploaded, and exists to corroborate that a meeting
+  // happened. Gating the first on the second made the school's optional note a
+  // precondition for the IB's required submission.
   check(
-    /tell your TOK teacher or IB coordinator/.test(interactionOpen(1, null, true).closedReason ?? ''),
-    'and it says who can fix it — the way through is to RECORD THE MEETING, never to override the gate',
+    interactionOpen(1, true).open === true,
+    'a candidate may write up interaction 1 with NO teacher log at all — the teacher’s note is corroboration, not a precondition',
   )
   check(
-    interactionOpen(2, { held: true }, false).open === false &&
-      interactionOpen(2, { held: true }, true).open === true,
-    'the chain holds too: interaction 2 waits for 1 to be written up',
+    interactionOpen(3, true).open === true,
+    'and interaction 3 likewise: the two records are of the same afternoon, not one record with two authors',
   )
   check(
-    interactionOpen(3, { held: false }, true).open === false,
-    'and a meeting recorded as NOT held opens nothing — there is nothing to write up',
+    interactionOpen(2, false).open === false &&
+      interactionOpen(2, true).open === true,
+    'the chain remains: interaction 2 waits for 1 to be written up, because the FORM is three boxes in order — that is its shape, not our policy',
+  )
+  const ungated = ppfStates.filter((st) => {
+    const d = REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)!
+    const n = Number(d.key.slice(-1))
+    const log = TOK_INTERACTION_LOGS.find((l) => l.studentId === st.studentId && l.n === n)
+    return log == null || !(interactionLine(n as 1 | 2 | 3, log.lineKey)?.held ?? false)
+  })
+  check(
+    ungated.length > 0,
+    'and the fixtures exercise it — a candidate has written up an interaction their teacher has not logged, which is now a legitimate state rather than an impossible one',
   )
 
   console.log('\n15i. The student screens — files, locks and the code that is not their job')
@@ -3436,6 +3448,36 @@ async function main() {
   check(
     nextStep(processSteps(holey!))!.key === processSteps(holey!).find((x) => !x.done)!.key,
     'and the next thing owed is the EARLIEST gap, not the latest — the dots are read left to right, so that is what they have to mean',
+  )
+
+
+  console.log('\n21. The TOK process — and what "done" counts')
+
+  const tokProcRows = (await repo.tok.getMarkingRoster('dhahran', 'c14', 'essay'))!
+  const tokProcRow = tokProcRows[0]
+  const tokSteps = tokProcessSteps(tokProcRow, 'essay')
+  check(
+    tokSteps.map((x) => x.key).join(',') === 'title,ppf1,ppf2,draft,ppf3,essay',
+    'the TOK essay process is title · three TK/PPF write-ups · the one draft · the essay — the draft before interaction 3, because that is the meeting where it gets read',
+  )
+  check(
+    tokProcessSteps(tokProcRows[0], 'exh').map((x) => x.key).join(',') === 'prompt,exh',
+    'and the exhibition has two steps, not a padded six — a module with a short process gets a short one',
+  )
+  // ⚠ WHAT "DONE" COUNTS. Michael, 22 Aug: "TOK teacher should KNOW if the
+  // TK/PPF is done… They don't go to IBIS. Only the TK/PPF does."
+  const noLog = tokProcRows.find((r) =>
+    r.ppf?.interactions.some((i) => i.entry != null && i.logged == null))
+  check(
+    tokSteps.filter((x) => x.key.startsWith('ppf')).every((x) => x.done),
+    'a candidate whose three TK/PPFs are written reads as done on all three — the CANDIDATE’S form is what counts',
+  )
+  check(
+    noLog == null ||
+      tokProcessSteps(noLog, 'essay')
+        .filter((x) => x.key.startsWith('ppf'))
+        .some((x) => x.done),
+    'and a write-up with NO teacher note behind it still counts as done — the note is corroboration, it is not the submission',
   )
 
   console.log('\n' + '='.repeat(60))

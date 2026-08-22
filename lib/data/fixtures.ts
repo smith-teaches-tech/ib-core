@@ -1694,8 +1694,16 @@ export const TOK_INTERACTION_LOGS: TokInteractionLog[] = pinned('ibTokLogs', () 
       return
     }
     if (s.cohortId !== 'c15') return
-    // September of DP2: the first round of meetings is under way. Everybody who
-    // has written one up necessarily had it logged; a third of the rest have
+    // September of DP2: the first round of meetings is under way.
+    //
+    // ⚠ THE COUPLING IS GONE (22 Aug). This used to log a meeting for everybody
+    // who had written one up, because the write-up was gated on the log and a
+    // write-up without one was an impossible state. It is a legitimate state
+    // now — the teacher's note is optional corroboration, not a precondition —
+    // so every fourth candidate who wrote one up has NO log against it. Their
+    // TK/PPF is still theirs, still counts, and still goes to the IB.
+    if (wrote(s.userId, 'c15', 1) && i % 4 === 1) return
+    // A third of the rest have
     // been seen and simply have not written it up yet — which is the state the
     // screen exists to make obvious.
     if (wrote(s.userId, 'c15', 1) || i % 3 === 0) log(s, 1, 'reviewed_titles', '2026-09-09')
@@ -1899,7 +1907,7 @@ function tokPpfView(schoolId: string, studentId: string): TokPpfView {
     const bodyOf = (k: number) => tokState(schoolId, studentId, `tok.ppf${k}`)?.artifacts
       .find((a) => a.kind === 'text')?.body ?? null
     const body = bodyOf(n)
-    const gate = interactionOpen(n, line ? { held: line.held } : null, n === 1 || bodyOf(n - 1) != null)
+    const gate = interactionOpen(n, n === 1 || bodyOf(n - 1) != null)
     return {
       n,
       logged: log && line

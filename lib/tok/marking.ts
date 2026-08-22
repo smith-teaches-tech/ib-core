@@ -67,3 +67,75 @@ export const bandLevel = (instrument: Instrument, mark: number | null | undefine
   bandFor(instrument, mark)?.level ?? ''
 
 export const isFlagged = (a: AuthorshipConcern | undefined): boolean => a != null && a !== 'none'
+
+// ---------------------------------------------------------------------------
+// THE PROCESS — what happens before there is anything to mark
+// ---------------------------------------------------------------------------
+
+/**
+ * TOK'S OWN PROCESS, the same idea as the EE's and deliberately not the same
+ * list — a module says what its steps are, because it is the only thing that
+ * knows.
+ *
+ * Michael, 22 Aug: *"I feel the TOK grading view needs a process as well. Title
+ * chosen, draft uploaded (google doc) and then final… And where teacher can see
+ * students response to TK/PPF and add their own."*
+ *
+ * THE ESSAY: six steps, interleaved for the same reason the EE's are — the
+ * third interaction is the one where the draft gets read, so the draft has to
+ * come before it. The exhibition has two, because that is all it has: choose a
+ * prompt, file the exhibition. A module with a short process gets a short one
+ * rather than a padded one.
+ *
+ * ⚠ THE INTERACTIONS ARE THE CANDIDATE'S WRITE-UPS, not the teacher's log. The
+ * TK/PPF is what goes to the IB and it is what "done" means here. The teacher's
+ * line is shown beside it as corroboration and counts for nothing — see
+ * `interactionOpen` for why they were decoupled.
+ */
+export type TokStepKey = 'title' | 'ppf1' | 'ppf2' | 'draft' | 'ppf3' | 'essay' | 'prompt' | 'exh'
+
+export interface TokStep {
+  key: TokStepKey
+  label: string
+  owner: 'student' | 'staff'
+  done: boolean
+  at: string | null
+}
+
+export function tokProcessSteps(
+  row: {
+    promptNumber: number | null
+    title: { number: number | null; text: string } | null
+    file: { submittedAt: string } | null
+    draftHref?: string | null
+    ppf?: { interactions: { n: number; entry: { submittedAt: string } | null }[] }
+  },
+  kind: 'exh' | 'essay',
+): TokStep[] {
+  const step = (
+    key: TokStepKey, label: string, owner: 'student' | 'staff', at: string | null, done?: boolean,
+  ): TokStep => ({ key, label, owner, done: done ?? at != null, at })
+
+  if (kind === 'exh') {
+    return [
+      step('prompt', 'IA prompt chosen', 'student', null, row.promptNumber != null),
+      step('exh', 'Exhibition filed', 'student', row.file?.submittedAt ?? null),
+    ]
+  }
+
+  const entry = (n: number) => row.ppf?.interactions.find((x) => x.n === n)?.entry ?? null
+  return [
+    step('title', 'Title chosen', 'student', null, row.title != null),
+    step('ppf1', 'TK/PPF 1', 'student', entry(1)?.submittedAt ?? null),
+    step('ppf2', 'TK/PPF 2', 'student', entry(2)?.submittedAt ?? null),
+    // THE ONE DRAFT the IB permits a teacher to comment on. A link, never a
+    // requirement def — Michael, 21 Aug: "only TOK teacher needs it."
+    step('draft', 'Draft link', 'student', null, Boolean(row.draftHref)),
+    step('ppf3', 'TK/PPF 3', 'student', entry(3)?.submittedAt ?? null),
+    step('essay', 'Essay filed', 'student', row.file?.submittedAt ?? null),
+  ]
+}
+
+export function tokNextStep(steps: TokStep[]): TokStep | null {
+  return steps.find((s) => !s.done) ?? null
+}

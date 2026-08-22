@@ -496,32 +496,39 @@ export interface TokStudentView {
 /**
  * WHEN A STUDENT MAY WRITE UP INTERACTION n.
  *
- * Two gates, and they answer different questions. The teacher's log answers
- * "did this meeting happen"; the chain answers "are you writing these in
- * order". A meeting the teacher recorded as NOT held opens nothing, because
- * there is nothing to write up.
+ * ⚠ THE TEACHER'S LOG IS NO LONGER A GATE — reversed 22 Aug, and this reverses
+ * a standing caution, so the reason is recorded rather than the change.
  *
- * If a teacher forgets to log one, the fix is TO LOG THE MEETING — not to
- * override the gate. Same rule the EE viva established on 20 Aug.
+ * Michael: *"TK/PPF should NOT be locked behind the teacher filling out the
+ * planning form or adding what was talked about… Even dates do not need to be
+ * the same… do not connect these… teacher notes, apparently, are optional and
+ * only serve to help authenticate that an interaction took place. They don't
+ * go to IBIS. Only the TK/PPF does."*
+ *
+ * That settles what the two things ARE, and they are not two halves of one
+ * record:
+ *
+ *   the TK/PPF        the candidate's, submitted to the IB, three dated boxes
+ *   the teacher's log OPTIONAL, ours, never uploaded — corroboration that an
+ *                     interaction took place, useful if authenticity is queried
+ *
+ * Gating the first on the second made the school's optional note a precondition
+ * for the IB's required form. A student whose teacher had not got round to
+ * typing a line could not write up a meeting they had actually attended — the
+ * system blocking the submission it exists to collect. The dates are
+ * independent for the same reason: they are two people's records of the same
+ * afternoon, not one record with two authors.
+ *
+ * WHAT REMAINS is the chain: write up interaction 1 before 2. The TK/PPF form
+ * itself is three boxes in chronological order, so that one is the form's shape
+ * rather than the school's policy. [DECISION] if that should go too.
  */
 export function interactionOpen(
   n: InteractionNumber,
-  logged: { held: boolean } | null,
   previousSubmitted: boolean,
 ): { open: boolean; closedReason?: string } {
   if (n > 1 && !previousSubmitted) {
     return { open: false, closedReason: `Write up interaction ${n - 1} first.` }
-  }
-  if (!logged) {
-    return {
-      open: false,
-      closedReason:
-        'Opens as soon as your teacher records this meeting. If it has happened and this is ' +
-        'still shut, tell your TOK teacher or IB coordinator — they can record it.',
-    }
-  }
-  if (!logged.held) {
-    return { open: false, closedReason: 'Your teacher recorded that this interaction did not take place.' }
   }
   return { open: true }
 }

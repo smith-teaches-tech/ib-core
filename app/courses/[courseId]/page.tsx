@@ -566,6 +566,16 @@ export default async function CoursePage({
             paperBase={`${baseHref}&screen=${tokScreen}&paper=`}
             listHref={`${baseHref}&screen=${tokScreen}`}
             canDownload={isMarker || coordinatorReader}
+            // Same rule as the EE roster: an explicit `&mode=` wins, and with
+            // none the candidate's own state chooses — a filed paper opens in
+            // grading, everything else in process.
+            mode={
+              wantedMode === 'grade' || wantedMode === 'process'
+                ? wantedMode
+                : markingRows.find((r) => r.studentId === wantedPaper)?.file
+                  ? 'grade'
+                  : 'process'
+            }
             canMark={!readOnly && isMarker}
             canRelease={!readOnly && (isMarker || session.can('tok.manage'))}
             canRevoke={!readOnly && session.can('scores.revoke')}

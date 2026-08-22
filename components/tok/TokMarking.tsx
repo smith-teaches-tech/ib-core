@@ -20,7 +20,10 @@ import type {
 } from '@/lib/tok/types'
 import { AUTHORSHIP_LABELS, AUTHORSHIP_ORDER } from '@/lib/tok/types'
 import { promptLabel } from '@/lib/tok/prompts'
-import { isFlagged, promptDistribution, releaseBlockers, summariseMarking } from '@/lib/tok/marking'
+import {
+  isFlagged, promptDistribution, releaseBlockers, summariseMarking, tokNextStep, tokProcessSteps,
+  type TokStep,
+} from '@/lib/tok/marking'
 import {
   draftTeacherComment, logInteraction, releaseTokMark, revokeTokMark, saveTeacherComment,
   saveTokMark, saveTokProse, signPpf, unsignPpf,
@@ -32,7 +35,7 @@ import { PDF_ONLY } from '@/lib/accepts'
 
 export default function TokMarking({
   rows, instrument, kind, canMark, canRelease, canRevoke, canUnlock, readOnlyReason,
-  paperFor, paperBase, listHref, canDownload = false,
+  paperFor, paperBase, listHref, canDownload = false, mode = 'process',
 }: {
   rows: TokMarkingRow[]
   instrument: Instrument
@@ -56,6 +59,12 @@ export default function TokMarking({
   paperBase?: string
   listHref?: string
   canDownload?: boolean
+  /**
+   * PROCESS or GRADING, the same pair the EE roster uses. TOK's process is its
+   * own — title, the three TK/PPF write-ups, the one draft, the essay — because
+   * a module says what its steps are.
+   */
+  mode?: 'process' | 'grade'
 }) {
   const [open, setOpen] = useState<string | null>(null)
   const t = summariseMarking(rows)
@@ -63,7 +72,32 @@ export default function TokMarking({
 
   const paperRow = paperFor ? rows.find((r) => r.studentId === paperFor) : null
   if (paperFor && paperBase && listHref) {
+    const steps = paperRow ? tokProcessSteps(paperRow, kind) : []
+    const doneCount = steps.filter((x) => x.done).length
     return (
+      <>
+        <nav className="modeseg">
+          <a className={mode === 'process' ? 'on' : ''} href={`${paperBase}${paperFor}&mode=process`}>
+            Process <span className="cnt">{doneCount}/{steps.length}</span>
+          </a>
+          <a
+            className={`${mode === 'grade' ? 'on' : ''}${paperRow?.file ? '' : ' shut'}`}
+            href={`${paperBase}${paperFor}&mode=grade`}
+          >
+            Grading <span className="cnt">{paperRow?.mark != null ? paperRow.mark : '—'}</span>
+          </a>
+        </nav>
+        {mode === 'process' && paperRow ? (
+          <TokProcess
+            row={paperRow}
+            kind={kind}
+            steps={steps}
+            canWrite={canMark}
+            canUnlock={canUnlock ?? false}
+            listHref={listHref}
+            gradeHref={`${paperBase}${paperFor}&mode=grade`}
+          />
+        ) : (
       <PaperReader
         title={kind === 'exh' ? 'Exhibition' : 'Essay on a prescribed title'}
         criteria={[]}
@@ -141,6 +175,8 @@ export default function TokMarking({
           readOnlyReason ? <div className="note gold">{readOnlyReason}</div> : undefined
         }
       />
+        )}
+      </>
     )
   }
 
@@ -192,7 +228,7 @@ export default function TokMarking({
               <tr>
                 <th>Candidate</th>
                 <th>{kind === 'exh' ? 'Prompt' : 'Title'}</th>
-                <th>Filed</th>
+                <th>Process</th>
                 <th>Mark</th>
                 <th style={{ textAlign: 'right' }}>Status</th>
               </tr>
@@ -238,6 +274,8 @@ function Row({
 }) {
   const router = useRouter()
   const href = paperBase ? paperBase + row.studentId : null
+  const steps = tokProcessSteps(row, kind)
+  const rowNext = tokNextStep(steps)
   return (
     <>
       {/* THE WHOLE ROW IS THE DOOR — the same rule as the EE roster, and it
@@ -275,18 +313,23 @@ function Row({
                 </span>
               : <span className="mut">— not chosen —</span>}
         </td>
+        {/* THE PROCESS, AS DOTS — the same column the EE roster has, counting
+            THIS module's steps. On the essay screen the middle three are the
+            candidate's TK/PPF write-ups, which is what the TOK teacher needs to
+            know is done: that is the part that goes to the IB. */}
         <td>
-          {href ? (
-            <a className="candlink" href={href}>
-              {row.file
-                ? <span className="mut">{row.file.submittedAt}</span>
-                : <span className="pill grey">not filed</span>}
-            </a>
-          ) : row.file ? (
-            <span className="mut">{row.file.submittedAt}</span>
-          ) : (
-            <span className="pill grey">not filed</span>
-          )}
+          <div className="eesteps">
+            {steps.map((st) => (
+              <i
+                key={st.key}
+                className={`eedot ${st.done ? 'done' : 'not_started'}${st.key === rowNext?.key ? ' next' : ''}`}
+                title={st.done ? `${st.label} — in${st.at ? ' ' + st.at : ''}` : `${st.label} — not in`}
+              />
+            ))}
+          </div>
+          <div className="mut eenext">
+            {rowNext ? `waiting on them · ${rowNext.label.toLowerCase()}` : 'everything in'}
+          </div>
         </td>
         <td>
           {row.mark != null
@@ -400,8 +443,20 @@ function Drawer({
         )}
       </div>
 
+      {/* THE PLANNING FORM LIVES IN PROCESS MODE. It was here, under the band
+          ladder, which put the candidate's TK/PPF — the thing that shows the
+          essay is theirs — below the mark it is meant to inform. What stays on
+          the grading side is a one-line state, because a marker does want to
+          know whether the form is done before releasing. */}
       {kind === 'essay' && row.ppf && (
-        <PpfBlock row={row} ppf={row.ppf} canWrite={canMark} canUnlock={canUnlock} />
+        <div className="row" style={{ marginBottom: 10 }}>
+          <span className={row.ppf.written === 3 ? 'pill ok' : 'pill gold'}>
+            TK/PPF {row.ppf.written}/3
+          </span>
+          {row.ppf.signedAt
+            ? <span className="pill ok">🔒 form signed {row.ppf.signedAt}</span>
+            : <span className="pill grey">form not signed</span>}
+        </div>
       )}
 
       <div className="eecrit">
@@ -565,7 +620,149 @@ function Drawer({
  * so the year's small acts become the form rather than twenty-four blank boxes
  * in March.
  */
-function PpfBlock({
+/**
+ * TOK PROCESS MODE — everything before there is a mark.
+ *
+ * Michael, 22 Aug: *"the TOK grading view needs a process as well. Title
+ * chosen, draft uploaded (google doc) and then final… And where teacher can see
+ * students response to TK/PPF and add their own."*
+ *
+ * WHAT MOVED HERE: the whole TK/PPF block. It was in the grading pane, under
+ * the band ladder, which put the candidate's planning form — the thing that
+ * proves the essay is theirs — below the mark it is meant to inform.
+ *
+ * WHAT THE TEACHER NEEDS TO KNOW is whether the TK/PPF is DONE, because that is
+ * what goes to the IB. So the dots and the steps count the candidate's three
+ * write-ups, never the teacher's notes. The teacher's line sits beside each
+ * write-up as optional corroboration and counts for nothing.
+ */
+function TokProcess({
+  row, kind, steps, canWrite, canUnlock, gradeHref,
+}: {
+  row: TokMarkingRow
+  kind: 'exh' | 'essay'
+  steps: TokStep[]
+  canWrite: boolean
+  canUnlock: boolean
+  listHref: string
+  gradeHref: string
+}) {
+  const next = tokNextStep(steps)
+  const chosen = kind === 'exh'
+    ? (row.promptNumber != null ? promptLabel(row.promptNumber) : null)
+    : (row.title ? `${row.title.number ? row.title.number + '. ' : ''}${row.title.text}` : null)
+
+  return (
+    <>
+      {chosen ? (
+        <div className="note" style={{ marginBottom: 14 }}>
+          <b>{kind === 'exh' ? 'Prompt' : 'Title'}</b>
+          <div style={{ marginTop: 4 }}>{chosen}</div>
+        </div>
+      ) : (
+        <div className="note warn" style={{ marginBottom: 14 }}>
+          {kind === 'exh'
+            ? 'No IA prompt chosen yet — the exhibition is about a prompt, so nothing else can start.'
+            : 'No title chosen yet — from the six posted, or one typed if none are posted.'}
+        </div>
+      )}
+
+      <div className="panel">
+        <div className="panel-h">
+          <h2>The process</h2>
+          <span className="spacer" />
+          <span className="mut" style={{ fontSize: 11.5 }}>
+            {steps.filter((x) => x.done).length} of {steps.length} in
+            {next ? ` · next: ${next.label.toLowerCase()}` : ' · everything in'}
+          </span>
+        </div>
+        <div className="panel-b">
+          <div className="eespine">
+            {steps.map((st) => (
+              <div
+                key={st.key}
+                className={`eestep ${st.done ? 'done' : st.key === next?.key ? 'now' : ''}`}
+              >
+                <div className="eestep-h">
+                  <b>{st.label}</b>
+                  {st.done
+                    ? <span className="pill ok">in{st.at ? ` ${st.at}` : ''}</span>
+                    : <span className="pill grey">waiting on the candidate</span>}
+                </div>
+                <div className="eestep-b">
+                  {st.key === 'draft' && (
+                    row.draftHref
+                      ? <div className="eelinkrow"><a href={row.draftHref} target="_blank" rel="noreferrer">Working draft ↗</a></div>
+                      : <div className="eeowed">
+                          No draft link yet. &ldquo;The teacher is permitted to provide oral or written
+                          comments on your draft, but will not mark or edit your draft.&rdquo; — TK/PPF, 2022
+                        </div>
+                  )}
+                  {(st.key === 'essay' || st.key === 'exh') && (
+                    row.file
+                      ? <div className="eelinkrow">
+                          <FileChip
+                            file={{
+                              ref: row.file.ref ?? {
+                                id: 'tok_' + row.studentId, name: row.file.fileName,
+                                mime: 'application/pdf', bytes: 0, key: '',
+                                addedAt: row.file.submittedAt,
+                              },
+                              addedAt: row.file.submittedAt,
+                              addedBy: row.studentName,
+                              supersededAt: null,
+                            }}
+                            canDownload
+                          />
+                          <span className="mut" style={{ fontSize: 11.5 }}>
+                            {row.file.declaredWords.toLocaleString()} words
+                          </span>
+                          {row.file.locked && <span className="pill ok">🔒 locked</span>}
+                        </div>
+                      : <div className="eeowed">Not filed. There is nothing to mark until it is.</div>
+                  )}
+                  {st.key.startsWith('ppf') && row.ppf && (
+                    <InteractionRow
+                      studentId={row.studentId}
+                      slot={row.ppf.interactions.find((x) => String(x.n) === st.key.slice(-1))!}
+                      canWrite={canWrite && row.ppf.signedAt == null}
+                    />
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+        {row.file && (
+          <div className="panel-b" style={{ borderTop: '1px solid var(--line)', paddingTop: 12 }}>
+            <a className="btn pri" href={gradeHref}>
+              Read and mark the {kind === 'exh' ? 'exhibition' : 'essay'} ›
+            </a>
+          </div>
+        )}
+      </div>
+
+      {/* THE TEACHER'S HALF OF THE FORM — the comment and the signature. It
+          belongs to the process, not to the mark: it is signed "I confirm that
+          my comments above are accurate", which is a statement about the three
+          interactions above it. */}
+      {kind === 'essay' && row.ppf && (
+        <div className="panel">
+          <div className="panel-h">
+            <h2>Your comment on the form</h2>
+            <span className="spacer" />
+            <span className="tag ib">this goes to the IB</span>
+          </div>
+          <div className="panel-b">
+            <PpfComment row={row} ppf={row.ppf} canWrite={canWrite} canUnlock={canUnlock} />
+          </div>
+        </div>
+      )}
+    </>
+  )
+}
+
+function PpfComment({
   row, ppf, canWrite, canUnlock,
 }: {
   row: TokMarkingRow
@@ -582,32 +779,13 @@ function PpfBlock({
   const warnings = signWarnings(ppf)
   const blocked = !canSign({ ...ppf, comment })
 
+  // THE DRAFT AND THE THREE INTERACTIONS MOVED OUT on 22 Aug — they are steps
+  // of the process now, each on the spine where it happens. What is left is
+  // the teacher's half of the official form: one comment box and the signature
+  // that freezes it.
   return (
     <>
       <div className="eework">
-        <span className="caps">The one draft</span>
-        {row.draftHref ? (
-          <div className="eelinkrow">
-            <a href={row.draftHref} target="_blank" rel="noreferrer">Working draft ↗</a>
-          </div>
-        ) : (
-          <p className="mut" style={{ margin: '4px 0 0', fontSize: 12.5 }}>No draft link yet.</p>
-        )}
-        <p className="mut" style={{ fontSize: 11.5, margin: '6px 0 0' }}>
-          &ldquo;The teacher is permitted to provide oral or written comments on your draft, but will
-          not mark or edit your draft.&rdquo; — TK/PPF, 2022
-        </p>
-      </div>
-
-      <div className="eework">
-        <span className="caps">Planning form — three interactions</span>
-        {ppf.interactions.map((i) => (
-          <InteractionRow key={i.n} studentId={row.studentId} slot={i} canWrite={canWrite && !signed} />
-        ))}
-      </div>
-
-      <div className="eework">
-        <span className="caps">Your comment on the form</span>
         {signed ? (
           <>
             <div className="eerpf">{ppf.comment}</div>
@@ -741,20 +919,30 @@ function InteractionRow({
           </>
         ) : (
           <span className="mut" style={{ fontSize: 12.5 }}>
-            {slot.logged ? `${slot.logged.heldOn} · ${slot.logged.label}` : 'not recorded'}
+            {slot.logged ? `${slot.logged.heldOn} · ${slot.logged.label}` : 'no note — optional'}
           </span>
         )}
       </div>
 
+      {/* THE CANDIDATE'S WRITE-UP IS THE POINT. It is the TK/PPF, it is what
+          goes to the IB, and since 22 Aug it does not wait for anything of
+          ours — the teacher's line above is optional corroboration that the
+          meeting happened, and it is never uploaded. */}
       {slot.entry ? (
-        <div className="eerpf">{slot.entry.body}</div>
-      ) : slot.logged ? (
-        <p className="mut" style={{ fontSize: 11.5, margin: '6px 0 0 18px' }}>
-          Logged. Their box opened when you recorded this; they have not written it up yet.
-        </p>
+        <>
+          <div className="eerpf">{slot.entry.body}</div>
+          <p className="mut" style={{ fontSize: 11.5, margin: '4px 0 0 18px' }}>
+            {slot.entry.words} words · submitted {slot.entry.submittedAt}
+            {slot.logged
+              ? ''
+              : ' · you have not logged this meeting — optional, and only ever corroboration'}
+          </p>
+        </>
       ) : (
         <p className="mut" style={{ fontSize: 11.5, margin: '6px 0 0 18px' }}>
-          Recording this is what opens the student&rsquo;s box.
+          {slot.open
+            ? 'Open to them — not written up yet.'
+            : slot.closedReason ?? 'Not written up yet.'}
         </p>
       )}
       {message && <div className="note warn" style={{ marginTop: 6 }}>{message}</div>}
