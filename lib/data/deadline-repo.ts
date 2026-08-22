@@ -173,6 +173,12 @@ export function makeDeadlineRepository(deps: {
         if (stage.tier === 'none') continue
 
         if (viewer.hasDeadlinesSet) {
+          // THE SECTION SHOWS WHAT IS YOURS TO FILL. A coordinator sees the
+          // programme's dates; a TOK teacher's exhibition prompt is on the TOK
+          // teacher's list, not hers. She can still set one from the add form —
+          // she may set anything — but her Due Date Centre is not a list of
+          // other people's pacing decisions waiting to be made for them.
+          if (stage.tier !== 'programme') continue
           // One row per stage that has NO date anywhere. A stage dated on
           // twenty-five of twenty-six courses is not listed as a gap: partial
           // coverage is a judgement, and judging it is how a list becomes a nag.

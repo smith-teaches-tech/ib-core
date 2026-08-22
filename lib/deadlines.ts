@@ -254,8 +254,25 @@ const isPgStage = (stage: string) => stage.startsWith('pg.')
  * the programme's EE calendar set at the planning meeting.
  */
 const TEACHER_MILESTONES: Record<string, ReadonlySet<string>> = {
-  'TOK': new Set(['title', 'prompt', 'exh']),
+  'TOK': new Set(['title', 'prompt', 'exh', 'ppf1', 'ppf2', 'ppf3']),
   'Internal assessment': new Set(['proposal', 'draft']),
+}
+
+/**
+ * EVIDENCE INSIDE A DATED WHOLE — not deliverables of their own.
+ *
+ * Michael, 22 Aug: *"Coordinator sets CAS outcomes? No... should just be an
+ * overall due date for CAS complete."* Exactly right, and it is the one place
+ * "the student does the work" over-generated: a CAS learning outcome is not
+ * handed in on a Tuesday. It accumulates across two years, and the thing the
+ * school actually asks for by a date is the whole portfolio.
+ *
+ * So CAS has ONE date — `complete`, 1 April — and the seven outcomes plus the
+ * project carry none. A module says which of its stages are dates, because it
+ * is the only thing that knows.
+ */
+const NOT_A_DEADLINE: Record<string, ReadonlySet<string>> = {
+  'CAS': new Set(['lo1', 'lo2', 'lo3', 'lo4', 'lo5', 'lo6', 'lo7', 'project']),
 }
 
 /** The defs a stage covers, in one cohort's worth of definitions. */
@@ -287,6 +304,7 @@ export function tierOfStage(stage: string, defs: RequirementDef[]): DeadlineTier
   if (hits.length === 0) return 'none'
   if (!hits.every(studentMaySee)) return 'none'
   const lane = hits[0].lane
+  if (NOT_A_DEADLINE[lane]?.has(stage)) return 'none'
   return TEACHER_MILESTONES[lane]?.has(stage) ? 'course' : 'programme'
 }
 

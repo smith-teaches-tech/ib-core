@@ -1186,6 +1186,12 @@ async function main() {
     'module milestones are the teacher\u2019s \u2014 they never leave one classroom',
   )
   check(
+    ['lo1','lo2','lo3','lo4','lo5','lo6','lo7','project'].every(
+      (k) => tierOfStage(k, c15Defs) === 'none',
+    ) && tierOfStage('complete', c15Defs) === 'programme',
+    'CAS HAS ONE DATE \u2014 the portfolio complete. An outcome is evidence inside it, not something handed in on a Tuesday',
+  )
+  check(
     tierOfStage('draft', c15Defs) === 'programme',
     "and 'draft' is read WITH ITS LANE: the EE draft is on the programme's EE calendar, not a teacher's",
   )
@@ -1271,8 +1277,12 @@ async function main() {
     userId: 'u_haddad', hasDeadlinesSet: true,
   })
   check(
-    unsetCoord.length > 0 && unsetCoord.every((u) => u.tier !== 'none'),
-    `the coordinator is offered ${unsetCoord.length} datable stages with no date \u2014 and no undatable ones`,
+    unsetCoord.length > 0 && unsetCoord.every((u) => u.tier === 'programme'),
+    `the coordinator's list is ${unsetCoord.length} PROGRAMME dates with none set \u2014 not a list of other people's pacing decisions`,
+  )
+  check(
+    !unsetCoord.some((u) => u.lane === 'CAS'),
+    'and not one CAS row \u2014 the only CAS date is the portfolio, and it is set',
   )
   check(
     !unsetCoord.some((u) => DEADLINES.some((d) => d.cohortId === 'c15' && d.requirementKey === u.key)),
@@ -1286,8 +1296,8 @@ async function main() {
     'a teacher is offered ONLY their own module milestones \u2014 an empty row you cannot fill is an accusation',
   )
   check(
-    unsetTeacher.some((u) => u.key === 'prompt'),
-    'including the TOK prompt, which nobody has dated and nobody has to \u2014 Google Classroom is a legitimate answer',
+    unsetTeacher.some((u) => u.key === 'prompt') && unsetTeacher.some((u) => u.key === 'ppf1'),
+    'the prompt and the TK/PPF interactions among them \u2014 nobody has dated these and nobody has to; Google Classroom is a legitimate answer',
   )
   check(
     (await repo.deadlines.listUnset('dhahran', 'c15', { userId: 'u_silva', hasDeadlinesSet: false }))
