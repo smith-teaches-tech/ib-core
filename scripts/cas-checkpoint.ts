@@ -29,7 +29,7 @@ import { detachedStatesOf, stateOf } from '../lib/spine'
 import { LANE_SUMMARY } from '../lib/board'
 import { attestationLabel, eeCoordinatorId, supervisorFor } from '../lib/ee/supervision'
 import { casWindow } from '../lib/cas/window'
-import { EE_EARLY_FILED, EE_EARLY_NO_VIVA, EE_REGISTRATIONS } from '../lib/data/fixtures'
+import { EE_EARLY_FILED, EE_EARLY_NO_VIVA, EE_REGISTRATIONS, TOK_EARLY_EXH } from '../lib/data/fixtures'
 import { BAND_PROVENANCE, EE_CRITERIA, boundariesAreOfficial, indicativeGrade } from '../lib/ee/rubric'
 import { registrationComplete, subjectWarnings, validateRegistration } from '../lib/ee/registration'
 import { DP_SUBJECTS, isDpSubject, subjectForCourse } from '../lib/ee/subjects'
@@ -2206,9 +2206,21 @@ async function main() {
       'tok.essay', 'tok.essaymark']
       .includes(d.key)).map((d) => d.id),
   )
+  // THREE NAMED EARLY FILERS, and only the exhibition (22 Aug). The rule did
+  // not loosen: the essay is due 5 March and NOTHING is seeded for it, for
+  // anybody — six months out there is no honest way to have one filed.
   check(
-    REQUIREMENT_STATES.every((x) => !tokAhead.has(x.requirementDefId)),
-    'not one Class of 2027 state exists for TOK work still ahead of them — the exhibition is due in November and the essay in March',
+    REQUIREMENT_STATES.every(
+      (x) => !tokAhead.has(x.requirementDefId) || TOK_EARLY_EXH.includes(x.studentId),
+    ),
+    'the only Class of 2027 states for TOK work ahead belong to the three named early exhibition filers',
+  )
+  const essayAhead = new Set(
+    tokDefs15.filter((d) => ['tok.essay', 'tok.essaymark'].includes(d.key)).map((d) => d.id),
+  )
+  check(
+    REQUIREMENT_STATES.every((x) => !essayAhead.has(x.requirementDefId)),
+    'and NOT ONE essay is seeded for them — it is due 5 March, so a filed one would be a fixture lying about the calendar',
   )
   const tokBoard = (await repo.export.getUploadBoard('dhahran', 'c15'))!
   check(
@@ -2525,10 +2537,19 @@ async function main() {
   const seededKeys = new Set(
     tokStates15.map((st) => REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)!.key),
   )
+  const notEarly = new Set(
+    tokStates15
+      .filter((st) => !TOK_EARLY_EXH.includes(st.studentId))
+      .map((st) => REQUIREMENT_DEFS.find((x) => x.id === st.requirementDefId)!.key),
+  )
   check(
     ['tok.exh', 'tok.exhmark', 'tok.ppf2', 'tok.ppf3', 'tok.ppfsign', 'tok.essay', 'tok.essaymark']
-      .every((k) => !seededKeys.has(k)),
-    'NOT ONE state exists for TOK work still ahead of the Class of 2027 — no exhibition, no marks, no sign-off, no essay',
+      .every((k) => !notEarly.has(k)),
+    'for everyone but the three early filers, NOT ONE state exists for TOK work still ahead — no exhibition, no marks, no sign-off, no essay',
+  )
+  check(
+    !seededKeys.has('tok.exhmark'),
+    'and not one of the three has been MARKED — they filed this week, which is the state a TOK teacher actually opens the screen in',
   )
   check(
     seededKeys.has('tok.title') && seededKeys.has('tok.prompt') && seededKeys.has('tok.ppf1'),
@@ -2585,7 +2606,9 @@ async function main() {
 
   console.log('\n15i. The student screens — files, locks and the code that is not their job')
 
-  const tokC15 = STUDENTS.find((x) => x.cohortId === 'c15' && x.schoolId === 'dhahran')!
+  const tokC15 = STUDENTS.find(
+    (x) => x.cohortId === 'c15' && x.schoolId === 'dhahran' && !TOK_EARLY_EXH.includes(x.userId),
+  )!
   const tokBefore = (await repo.tok.getStudentView('dhahran', tokC15.userId))!
   check(
     tokBefore.exhibition == null && tokBefore.essay == null && tokBefore.exhibitionMark == null,

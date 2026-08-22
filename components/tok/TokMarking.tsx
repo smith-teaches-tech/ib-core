@@ -26,9 +26,12 @@ import {
 } from '@/lib/tok/actions'
 import { INTERACTION_LINES, canSign, signWarnings } from '@/lib/tok/ppf'
 import FileChip from '../FileChip'
+import PaperReader from '../reader/PaperReader'
+import { PDF_ONLY } from '@/lib/accepts'
 
 export default function TokMarking({
   rows, instrument, kind, canMark, canRelease, canRevoke, canUnlock, readOnlyReason,
+  paperFor, paperBase, listHref, canDownload = false,
 }: {
   rows: TokMarkingRow[]
   instrument: Instrument
@@ -39,10 +42,106 @@ export default function TokMarking({
   /** `items.unlock` — reopening a signed TK/PPF. */
   canUnlock?: boolean
   readOnlyReason?: string
+  /**
+   * THE READER (IB-Reading-and-Marking-Papers.md §3). A student id renders the
+   * exhibition or essay with the band ladder beside it instead of the list.
+   *
+   * THE DRAWER IS GONE WHEN THIS IS WIRED, not duplicated: everything in it was
+   * marking, and marking belongs beside the paper. What replaced a row that
+   * expands in place is a row that opens — the same gesture the IA grid and the
+   * EE roster now use, so a teacher learns it once.
+   */
+  paperFor?: string | null
+  paperBase?: string
+  listHref?: string
+  canDownload?: boolean
 }) {
   const [open, setOpen] = useState<string | null>(null)
   const t = summariseMarking(rows)
   const dist = kind === 'exh' ? promptDistribution(rows) : []
+
+  const paperRow = paperFor ? rows.find((r) => r.studentId === paperFor) : null
+  if (paperFor && paperBase && listHref) {
+    return (
+      <PaperReader
+        title={kind === 'exh' ? 'Exhibition' : 'Essay on a prescribed title'}
+        criteria={[]}
+        markMax={null}
+        guide={null}
+        accepts={PDF_ONLY}
+        exportsToIb
+        candidates={rows.map((r) => ({
+          studentId: r.studentId,
+          name: r.studentName,
+          sessionNumber: r.sessionNumber,
+          file: r.file
+            ? {
+                ref: r.file.ref ?? {
+                  id: 'tok_' + r.studentId, name: r.file.fileName,
+                  mime: 'application/pdf', bytes: 0, key: '',
+                  addedAt: r.file.submittedAt,
+                },
+                addedAt: r.file.submittedAt,
+                addedBy: r.studentName,
+                supersededAt: null,
+              }
+            : null,
+          criterionMarks: [],
+          mark: r.mark,
+          total: r.mark,
+          comment: r.prose?.comment ?? null,
+          locked: r.releasedAt != null,
+        }))}
+        currentId={paperFor}
+        hrefFor={(id) => paperBase + id}
+        closeHref={listHref}
+        editable={canMark}
+        canDownload={canDownload}
+        paneWidth="wide"
+        pane={
+          paperRow ? (
+            <div className="panel rdpane">
+              <div className="panel-h">
+                <h2>{kind === 'exh' ? 'Exhibition' : 'Essay'}</h2>
+                <span className="pill grey">/{instrument.max}</span>
+                {/* THE IB MARKS THE ESSAY. This number is the school's
+                    prediction, and — with the EE score — it is what the
+                    predicted bonus point comes from. The pill says so; the
+                    screen does not lecture about it. */}
+                {kind === 'essay' && (
+                  <span
+                    className="pill gold"
+                    title="The IB marks this essay. This is the school’s predicted mark, and it feeds the bonus point."
+                  >
+                    predicted
+                  </span>
+                )}
+                <span className="spacer" />
+                <span className="mut" style={{ fontSize: 11.5 }}>
+                  one holistic judgement · no criteria
+                </span>
+              </div>
+              <div className="panel-b">
+                <Drawer
+                  row={paperRow}
+                  kind={kind}
+                  instrument={instrument}
+                  canMark={canMark}
+                  canRelease={canRelease}
+                  canRevoke={canRevoke}
+                  canUnlock={canUnlock ?? false}
+                  inReader
+                />
+              </div>
+            </div>
+          ) : undefined
+        }
+        footer={
+          readOnlyReason ? <div className="note gold">{readOnlyReason}</div> : undefined
+        }
+      />
+    )
+  }
 
   return (
     <>
@@ -106,6 +205,7 @@ export default function TokMarking({
                   instrument={instrument}
                   open={open === r.studentId}
                   onToggle={() => setOpen(open === r.studentId ? null : r.studentId)}
+                  paperBase={paperBase}
                   canMark={canMark}
                   canRelease={canRelease}
                   canRevoke={canRevoke}
@@ -121,7 +221,7 @@ export default function TokMarking({
 }
 
 function Row({
-  row, kind, instrument, open, onToggle, canMark, canRelease, canRevoke, canUnlock,
+  row, kind, instrument, open, onToggle, canMark, canRelease, canRevoke, canUnlock, paperBase,
 }: {
   row: TokMarkingRow
   kind: 'exh' | 'essay'
@@ -132,12 +232,25 @@ function Row({
   canRelease: boolean
   canRevoke: boolean
   canUnlock: boolean
+  /** Set once the reader is wired: the row OPENS rather than expands. */
+  paperBase?: string
 }) {
+  const href = paperBase ? paperBase + row.studentId : null
   return (
     <>
-      <tr onClick={onToggle} style={{ cursor: 'pointer' }}>
+      {/* WITH THE READER WIRED THE ROW IS A DOOR, not a disclosure triangle.
+          The drawer's whole content was marking, and marking belongs beside the
+          paper — so there is nothing left to expand into. */}
+      <tr onClick={href ? undefined : onToggle} style={{ cursor: 'pointer' }}>
         <td>
-          <b>{row.studentName}</b>
+          {href ? (
+            <a className="candlink" href={href} title={row.file ? `Read ${row.file.fileName}` : 'Open this candidate’s work'}>
+              <b>{row.studentName}</b>
+              <span className="filedoor-x">{row.file ? 'Read ›' : 'Open ›'}</span>
+            </a>
+          ) : (
+            <b>{row.studentName}</b>
+          )}
           {row.sessionNumber && <span className="mut"> · {row.sessionNumber}</span>}
           {isFlagged(row.prose?.authorship) && (
             <span className="pill warn" title={row.prose?.authorshipNote}>authorship</span>
@@ -155,9 +268,17 @@ function Row({
               : <span className="mut">— not chosen —</span>}
         </td>
         <td>
-          {row.file
-            ? <span className="mut">{row.file.submittedAt}</span>
-            : <span className="pill grey">not filed</span>}
+          {href ? (
+            <a className="candlink" href={href}>
+              {row.file
+                ? <span className="mut">{row.file.submittedAt}</span>
+                : <span className="pill grey">not filed</span>}
+            </a>
+          ) : row.file ? (
+            <span className="mut">{row.file.submittedAt}</span>
+          ) : (
+            <span className="pill grey">not filed</span>
+          )}
         </td>
         <td>
           {row.mark != null
@@ -179,7 +300,7 @@ function Row({
                 : <span className="pill grey">waiting</span>}
         </td>
       </tr>
-      {open && (
+      {open && !href && (
         <tr className="eedrawer">
           <td colSpan={5}>
             <Drawer
@@ -199,7 +320,7 @@ function Row({
 }
 
 function Drawer({
-  row, kind, instrument, canMark, canRelease, canRevoke, canUnlock,
+  row, kind, instrument, canMark, canRelease, canRevoke, canUnlock, inReader,
 }: {
   row: TokMarkingRow
   kind: 'exh' | 'essay'
@@ -208,6 +329,13 @@ function Drawer({
   canRelease: boolean
   canRevoke: boolean
   canUnlock: boolean
+  /**
+   * Rendered beside the paper rather than under a row. The file chip is
+   * suppressed — the paper is RIGHT THERE and its header already says the name,
+   * the size and who uploaded it. What stays is the module's own facts about
+   * the filing: the declared word count, the lock, and who reopened it.
+   */
+  inReader?: boolean
 }) {
   const [note, setNote] = useState(row.prose?.note ?? '')
   const [comment, setComment] = useState(row.prose?.comment ?? '')
@@ -240,9 +368,9 @@ function Drawer({
         {row.file ? (
           <div className="eelinkrow">
             {/* Same door as the IA grid and the EE roster: one chip, one
-                viewer. The exhibition and the essay are read here, beside the
-                band ladder they are marked against. */}
-            <FileChip
+                viewer. In the reader the paper is already open beside this, so
+                the chip would be a door to the room you are standing in. */}
+            {!inReader && <FileChip
               file={{
                 ref: row.file.ref ?? {
                   id: 'tok_' + row.studentId, name: row.file.fileName,
@@ -253,7 +381,7 @@ function Drawer({
                 supersededAt: null,
               }}
               canDownload
-            />
+            />}
             {row.file.locked && <span className="pill ok">🔒 locked</span>}
             <span className="mut" style={{ fontSize: 11.5 }}>
               {row.file.declaredWords.toLocaleString()} words · filed {row.file.submittedAt}

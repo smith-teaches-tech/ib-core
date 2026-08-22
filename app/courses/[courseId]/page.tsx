@@ -517,7 +517,10 @@ export default async function CoursePage({
           />
         )}
         {tokScreens}
-        {tokScreen === 'essay' && markingRows != null && (
+        {/* The title panel belongs to the LIST. In the reader the screen is one
+            paper, and a cohort-level panel beside it is noise — the same call
+            the IA grid makes about its unlock panel and its sample. */}
+        {tokScreen === 'essay' && markingRows != null && !wantedPaper && (
           <TokTitles
             cohortId={cohortId}
             cohortLabel={cohort?.label ?? ''}
@@ -538,6 +541,13 @@ export default async function CoursePage({
             rows={markingRows}
             kind={tokScreen}
             instrument={tokScreen === 'exh' ? EXHIBITION_INSTRUMENT : ESSAY_INSTRUMENT}
+            // The reader, on the same parameter as the IA grid and the EE
+            // roster. `screen` stays in the href because TOK has three of them
+            // and a paper belongs to one.
+            paperFor={wantedPaper ?? null}
+            paperBase={`${baseHref}&screen=${tokScreen}&paper=`}
+            listHref={`${baseHref}&screen=${tokScreen}`}
+            canDownload={isMarker || coordinatorReader}
             canMark={!readOnly && isMarker}
             canRelease={!readOnly && (isMarker || session.can('tok.manage'))}
             canRevoke={!readOnly && session.can('scores.revoke')}

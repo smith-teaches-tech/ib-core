@@ -764,11 +764,41 @@ const RQ_POOL: Record<string, { rq: string; title: string }[]> = {
  * thing: a filed PDF's declared word count and unlock trail, a draft link that
  * is deliberately not a checkpoint, and the teacher's record of a meeting.
  */
-export const TOK_FILES: TokFile[] = pinned('ibTokFiles', () =>
-  // Only the graduated year has filed anything. The Class of 2027's exhibition
-  // is due in November and the essay in March — seeding either would be the
-  // fabricated-state problem EE lost on 19 Aug.
-  STUDENTS.filter((s) => s.cohortId === 'c14').flatMap((s) => {
+/**
+ * THREE EARLY EXHIBITIONS in the Class of 2027 — and nothing else.
+ *
+ * Same argument as the two early EE finishers: a marking screen with nothing to
+ * mark cannot be looked at. The exhibition is due 20 November and this is
+ * September, so a handful filing early is what actually happens; a whole cohort
+ * would not be.
+ *
+ * THE ESSAY IS NOT SEEDED FOR c15, deliberately. It is due 5 March 2027 — six
+ * months out — and there is no honest way to have one filed. The essay screen
+ * is the same component with the other instrument, and the graduated year shows
+ * it fully populated (read-only), which is where to look at it.
+ *
+ * NOT MARKED. They have just filed, so the marker's screen shows three papers
+ * waiting — which is the state a TOK teacher actually opens it in, and the one
+ * where every control on it is live.
+ */
+export const TOK_EARLY_EXH: string[] = STUDENTS
+  .filter((s) => s.cohortId === 'c15')
+  .slice(0, 3)
+  .map((s) => s.userId)
+
+export const TOK_FILES: TokFile[] = pinned('ibTokFiles', () => [
+  ...TOK_EARLY_EXH.map((studentId) => {
+    const surname = (USERS.find((u) => u.id === studentId)?.name ?? studentId).split(',')[0]
+    return {
+      schoolId: 'dhahran', studentId, kind: 'exh' as const,
+      fileName: `${surname.toLowerCase()}-tok-exhibition.pdf`,
+      declaredWords: 900 + ((studentId.charCodeAt(studentId.length - 1) * 11) % 90),
+      submittedAt: '2026-11-12',
+      ref: fixtureRef(`${surname.toLowerCase()}-tok-exhibition.pdf`, '2026-11-12'),
+    }
+  }),
+  // The graduated year filed everything.
+  ...STUDENTS.filter((s) => s.cohortId === 'c14').flatMap((s) => {
     const surname = (USERS.find((u) => u.id === s.userId)?.name ?? s.userId).split(' ').pop()
     const jitter = s.userId.charCodeAt(s.userId.length - 1)
     return [
@@ -786,7 +816,7 @@ export const TOK_FILES: TokFile[] = pinned('ibTokFiles', () =>
       },
     ]
   }),
-)
+])
 
 export const TOK_DRAFTS: TokDraft[] = pinned('ibTokDrafts', () => [])
 
@@ -1425,7 +1455,14 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
           // NO DUE DATE ON THIS ONE, deliberately: the TOK teacher has not set
           // one, and an unset date is blank rather than invented. A handful
           // have chosen anyway; the exhibition itself is two months out.
-          if (r() < 0.3) {
+          //
+          // THE DRAW HAPPENS EITHER WAY. The three early filers always have a
+          // prompt — an exhibition is ABOUT a prompt, so one without the other
+          // would be a state no screen could produce — but skipping the draw
+          // for them would shift every lane seeded after this one off the
+          // shared RNG stream. Consume it, then decide.
+          const promptRoll = r()
+          if (TOK_EARLY_EXH.includes(s.userId) || promptRoll < 0.3) {
             put('submitted', '2026-09-08', {
               recordedBy: 'student',
               artifacts: textArtifact('Exhibition prompt chosen', String(1 + (spread % 35)), '2026-09-08'),
@@ -1435,6 +1472,22 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
         }
         if (stage === 'ppf1') {
           if (r() < 0.42) put('submitted', '2026-09-11', { recordedBy: 'student' })
+          continue
+        }
+        // The three early exhibitions. FILING IS WHAT LOCKS IT, exactly as the
+        // live path does it — so what the fixture produces is what
+        // `submitFile` would have produced.
+        if (stage === 'exh' && TOK_EARLY_EXH.includes(s.userId)) {
+          const at = '2026-11-12'
+          const surname = nameOf(s.userId).split(',')[0].toLowerCase()
+          put('submitted', at, {
+            exportStatus: 'ready_for_submission',
+            recordedBy: 'student',
+            lockedAt: `${at}T09:00:00.000Z`,
+            artifacts: ART(`${surname}-tok-exhibition.pdf`, nameOf(s.userId)).map((a) => ({
+              ...a, addedAt: at, file: { ...a.file!, addedAt: at },
+            })),
+          })
           continue
         }
         // Exhibition, exhibition mark, TK/PPF 2 and 3, the sign-off, the essay
