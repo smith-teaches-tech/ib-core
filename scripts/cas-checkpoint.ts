@@ -29,7 +29,7 @@ import { detachedStatesOf, stateOf } from '../lib/spine'
 import { LANE_SUMMARY } from '../lib/board'
 import { attestationLabel, eeCoordinatorId, supervisorFor } from '../lib/ee/supervision'
 import { casWindow } from '../lib/cas/window'
-import { EE_REGISTRATIONS } from '../lib/data/fixtures'
+import { EE_EARLY_FILED, EE_EARLY_NO_VIVA, EE_REGISTRATIONS } from '../lib/data/fixtures'
 import { BAND_PROVENANCE, EE_CRITERIA, boundariesAreOfficial, indicativeGrade } from '../lib/ee/rubric'
 import { registrationComplete, subjectWarnings, validateRegistration } from '../lib/ee/registration'
 import { DP_SUBJECTS, isDpSubject, subjectForCourse } from '../lib/ee/subjects'
@@ -1715,15 +1715,35 @@ async function main() {
 
   const aheadKeys = ['ee.draft', 'ee.r2', 'ee.final', 'ee.viva', 'ee.rpf', 'ee.attest', 'ee.score']
   const aheadIds = new Set(eeDefs15.filter((d) => aheadKeys.includes(d.key)).map((d) => d.id))
+  // TWO NAMED EARLY FINISHERS, and nobody else (22 Aug). The rule did not
+  // loosen — "no state for work no screen can produce" still holds, and these
+  // two ARE produced: filed, viva recorded, reflection in. Without them the EE
+  // marking screen has nothing to mark and cannot be looked at at all.
+  const earlyIds = new Set([EE_EARLY_FILED, EE_EARLY_NO_VIVA].filter(Boolean))
   check(
-    REQUIREMENT_STATES.every((s) => !aheadIds.has(s.requirementDefId)),
-    'NOT ONE Class of 2027 state exists for work still ahead of them — the board no longer reports EE progress nothing could produce',
+    REQUIREMENT_STATES.every(
+      (s) => !aheadIds.has(s.requirementDefId) || earlyIds.has(s.studentId),
+    ),
+    'the only Class of 2027 states for work still ahead belong to the two named early finishers — nobody else has EE progress the product could not produce',
+  )
+  check(
+    earlyIds.size === 2 &&
+      [...earlyIds].every((id) =>
+        EE_SUPERVISION.some((x) => x.studentId === id && x.supervisorId === 'u_farouk'),
+      ),
+    'and both are R. Farouk’s, because the screen they exist to make visible is the SUBJECT TEACHER’s',
+  )
+  check(
+    [...earlyIds].every((id) =>
+      registrationComplete(EE_REGISTRATIONS.find((r2) => r2.studentId === id)),
+    ),
+    'and both registered a subject — filing a finished essay for a subject nobody registered would be a different kind of lie',
   )
   const eeBoard15 = (await repo.export.getUploadBoard('dhahran', 'c15'))!
   check(
-    eeBoard15.cohortJobs.find((j) => j.key === 'ee.essay')!.ready === 0 &&
-      eeBoard15.cohortJobs.find((j) => j.key === 'ee.rpf')!.ready === 0,
-    'so the EE upload packs read zero ready — correct in August for an essay due 13 November',
+    eeBoard15.cohortJobs.find((j) => j.key === 'ee.essay')!.ready === 2 &&
+      eeBoard15.cohortJobs.find((j) => j.key === 'ee.rpf')!.ready === 1,
+    'the EE upload pack reads two essays and ONE reflection ready — the second finisher has had no viva, so their RPF cannot exist yet',
   )
   const eeBoard14 = (await repo.export.getUploadBoard('dhahran', 'c14'))!
   const essay14 = eeBoard14.cohortJobs.find((j) => j.key === 'ee.essay')!

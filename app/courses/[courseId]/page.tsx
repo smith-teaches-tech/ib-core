@@ -390,6 +390,13 @@ export default async function CoursePage({
             rows={rows}
             cohortLabel={cohort ? cohortTitle(cohort) : ''}
             cohortId={cohortId}
+            // THE READER, same parameter and same rule as the IA grid: the URL
+            // is the state, so the back button works and a link to an essay is
+            // a link to an essay.
+            paperFor={wantedPaper ?? null}
+            paperBase={`/courses/${course.id}?cohort=${cohortId}&paper=`}
+            listHref={`/courses/${course.id}?cohort=${cohortId}`}
+            canDownload={all || rows.some((r) => r.supervisor?.userId === user.id)}
             scope={all ? 'all' : 'mine'}
             canWrite={!readOnly}
             // Allocation is the coordinator's job; reopening a filed essay is

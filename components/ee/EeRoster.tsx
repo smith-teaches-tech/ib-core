@@ -11,7 +11,10 @@ import { subjectName } from '@/lib/ee/subjects'
 import { addSessionNote, assignSupervisor, recordSession, unlockFinal } from '@/lib/ee/actions'
 import type { EeAssignableStaff } from '@/lib/ee/types'
 import EeMarking from './EeMarking'
+import PaperReader from '../reader/PaperReader'
 import { summariseScore, supervisionHours } from '@/lib/ee/scoring'
+import { EE_MARK_MAX } from '@/lib/ee/rubric'
+import { PDF_ONLY } from '@/lib/accepts'
 import FileChip from '../FileChip'
 
 const SESSIONS: { stage: SessionStage; label: string }[] = [
@@ -22,6 +25,7 @@ const SESSIONS: { stage: SessionStage; label: string }[] = [
 
 export default function EeRoster({
   rows, cohortLabel, cohortId, scope, canWrite, canAllocate, canUnlock, canRevoke, staff, meId,
+  paperFor, paperBase, listHref, canDownload = false,
 }: {
   rows: EeRosterRow[]
   cohortLabel: string
@@ -36,6 +40,16 @@ export default function EeRoster({
   /** `items.unlock` — reopening a filed essay. */
   canUnlock: boolean
   staff: EeAssignableStaff[]
+  /**
+   * THE READER, same as the IA grid's (IB-Reading-and-Marking-Papers.md §3).
+   * A student id renders the essay with the marking pane beside it instead of
+   * the roster; null renders the roster. It comes off the URL, so the page owns
+   * it and this component never has to keep it in sync.
+   */
+  paperFor?: string | null
+  paperBase?: string
+  listHref?: string
+  canDownload?: boolean
 }) {
   const [open, setOpen] = useState<string | null>(null)
   const [mineOnly, setMineOnly] = useState(false)
@@ -47,6 +61,92 @@ export default function EeRoster({
   // Michael, 20 Aug: no theatre teacher means no theatre EE — a warning the EE
   // coordinator oversees, so it belongs at the top of their list, not buried.
   const needSupervisor = rows.filter((r) => r.unsupportedSubjects.length > 0)
+
+  /**
+   * THE ESSAY, WITH ITS MARKING BESIDE IT.
+   *
+   * Michael, 22 Aug: "Would be good to have a grading view for that as well
+   * (click student or file and it opens a grading view)."
+   *
+   * `EeMarking` MOVED here out of the roster drawer rather than being copied
+   * into it. It was always the right pane and always in the wrong place: a
+   * supervisor was marking five criteria against an essay they could not see.
+   * The drawer keeps what it is actually for — registration, supervisor,
+   * the three sessions, the notes.
+   *
+   * Nothing about EE's marking pane is generic, and it does not need to be.
+   * `PaperReader` takes a `pane`, so a module brings its own — which is why the
+   * expanding band descriptors and the two attestations survive the move
+   * untouched.
+   */
+  const paperRow = paperFor ? rows.find((r) => r.studentId === paperFor) : null
+  if (paperFor && paperBase && listHref) {
+    return (
+      <>
+        <h1>Extended Essay</h1>
+        <p className="sub">{cohortLabel} · reading and marking one essay</p>
+        <PaperReader
+          title="Extended essay"
+          criteria={[]}
+          markMax={null}
+          guide={null}
+          accepts={PDF_ONLY}
+          exportsToIb
+          candidates={rows.map((r) => {
+            const sc = summariseScore(r.marks)
+            return {
+              studentId: r.studentId,
+              name: r.studentName,
+              sessionNumber: r.sessionNumber,
+              file: r.final
+                ? {
+                    ref: r.final.ref ?? {
+                      id: 'ee_' + r.studentId, name: r.final.fileName,
+                      mime: 'application/pdf', bytes: 0, key: '',
+                      addedAt: r.final.submittedAt,
+                    },
+                    addedAt: r.final.submittedAt,
+                    addedBy: r.studentName,
+                    supersededAt: null,
+                  }
+                : null,
+              criterionMarks: r.marks,
+              mark: null,
+              // The strip's green chip means MARKED, so it has to mean marked —
+              // a partial score is not a mark, and `summariseScore` already
+              // refuses to total one.
+              total: sc.complete ? sc.total : null,
+              comment: r.scoring?.comment ?? null,
+              locked: r.scoring?.releasedAt != null,
+            }
+          })}
+          currentId={paperFor}
+          hrefFor={(id) => paperBase + id}
+          closeHref={listHref}
+          editable={canWrite}
+          canDownload={canDownload}
+          paneWidth="wide"
+          pane={
+            paperRow ? (
+              <div className="panel rdpane">
+                <div className="panel-h">
+                  <h2>Extended essay</h2>
+                  <span className="pill grey">/{EE_MARK_MAX}</span>
+                  <span className="spacer" />
+                  <span className="mut" style={{ fontSize: 11.5 }}>
+                    {paperRow.registration?.subjects.map(subjectName).join(' · ') ?? 'not registered'}
+                  </span>
+                </div>
+                <div className="panel-b">
+                  <EeMarking row={paperRow} canMark={canWrite} canRevoke={canRevoke} />
+                </div>
+              </div>
+            ) : undefined
+          }
+        />
+      </>
+    )
+  }
 
   return (
     <>
@@ -125,6 +225,7 @@ export default function EeRoster({
                   canUnlock={canUnlock}
                   canRevoke={canRevoke}
                   staff={staff}
+                  paperBase={paperBase}
                 />
               ))}
             </tbody>
@@ -136,7 +237,7 @@ export default function EeRoster({
 }
 
 function Row({
-  row, cohortId, open, onToggle, canWrite, canAllocate, canUnlock, canRevoke, staff,
+  row, cohortId, open, onToggle, canWrite, canAllocate, canUnlock, canRevoke, staff, paperBase,
 }: {
   row: EeRosterRow
   cohortId: string
@@ -147,12 +248,29 @@ function Row({
   canUnlock: boolean
   canRevoke: boolean
   staff: EeAssignableStaff[]
+  /** Where the candidate's name points — the reader. Absent = no reader. */
+  paperBase?: string
 }) {
   return (
     <>
       <tr onClick={onToggle} style={{ cursor: 'pointer' }}>
-        <td>
-          <b>{row.studentName}</b>
+        {/* THE NAME OPENS THE ESSAY, the rest of the row opens the supervision
+            drawer. Two destinations on one row is the thing that went wrong on
+            the IA grid, so the name is a real link with its own affordance
+            rather than a click target that looks identical to its neighbours. */}
+        <td onClick={(e) => e.stopPropagation()}>
+          {paperBase ? (
+            <a
+              className="candlink"
+              href={paperBase + row.studentId}
+              title={row.final ? `Read ${row.final.fileName}` : 'Open this candidate’s essay'}
+            >
+              <b>{row.studentName}</b>
+              <span className="filedoor-x">{row.final ? 'Read ›' : 'Open ›'}</span>
+            </a>
+          ) : (
+            <b>{row.studentName}</b>
+          )}
           {row.sessionNumber && <span className="mut"> · {row.sessionNumber}</span>}
         </td>
         <td>
@@ -250,7 +368,14 @@ function Row({
                 )
               })}
 
-              <EeMarking row={row} canMark={canWrite} canRevoke={canRevoke} />
+              {/* MARKING MOVED TO THE READER on 22 Aug — it belongs beside the
+                  essay, not underneath a list of meetings. What is left here is
+                  the supervision record, which is what this drawer is for. */}
+              {row.final && paperBase && (
+                <a className="btn sm pri" href={paperBase + row.studentId}>
+                  Read and mark the essay ›
+                </a>
+              )}
             </div>
           </td>
         </tr>
@@ -446,6 +571,16 @@ function Allocate({
   row: EeRosterRow
   cohortId: string
   staff: EeAssignableStaff[]
+  /**
+   * THE READER, same as the IA grid's (IB-Reading-and-Marking-Papers.md §3).
+   * A student id renders the essay with the marking pane beside it instead of
+   * the roster; null renders the roster. It comes off the URL, so the page owns
+   * it and this component never has to keep it in sync.
+   */
+  paperFor?: string | null
+  paperBase?: string
+  listHref?: string
+  canDownload?: boolean
 }) {
   const [pending, start] = useTransition()
   const current = row.supervisor?.acting ? '' : row.supervisor?.userId ?? ''

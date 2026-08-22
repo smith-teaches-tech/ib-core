@@ -72,6 +72,7 @@ export default function PaperReader({
   onScore,
   onComment,
   pane,
+  paneWidth,
   footer,
 }: {
   /** What the IB calls this component — "Scientific investigation". */
@@ -96,6 +97,13 @@ export default function PaperReader({
   onComment?: (studentId: string, text: string) => void
   /** Replaces the built-in marking pane — how EE and TOK bring their own. */
   pane?: React.ReactNode
+  /**
+   * 'wide' gives the pane an even split. The built-in criteria pane is a column
+   * of small buttons and wants the narrow default; EE's carries five expanding
+   * band descriptors and the reflection statement, and squeezing that into a
+   * third of the screen wraps every criterion label onto three lines.
+   */
+  paneWidth?: 'default' | 'wide'
   footer?: React.ReactNode
 }) {
   const i = Math.max(0, candidates.findIndex((c) => c.studentId === currentId))
@@ -192,7 +200,7 @@ export default function PaperReader({
         )}
       </div>
 
-      <div className="rdsplit">
+      <div className={`rdsplit${paneWidth === 'wide' ? ' wide' : ''}`}>
         {/* ---- the paper --------------------------------------------------- */}
         <div className="panel">
           <div className="rdhead">

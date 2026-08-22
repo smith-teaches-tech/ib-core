@@ -979,6 +979,60 @@ export const EE_REGISTRATIONS: EeRegistration[] = pinned('ibEeRegistrations', ()
  * (lib/ee/derive.ts). The Class of 2027 has had session 1 with most of its
  * supervisors; the graduated cohort has all three.
  */
+/**
+ * THE EE SUPERVISION CYCLE, hoisted so that three tables can agree about it.
+ *
+ * EE_SESSIONS, EE_FINALS and EE_SUPERVISION all need to know who supervises
+ * whom, and a pinned table that READS another must be declared after it — so
+ * the rule lives here, above all three, rather than being repeated and drifting.
+ */
+const C15_EE_ROSTER = STUDENTS.filter((s) => s.cohortId === 'c15').slice(0, 20)
+const EE_SUPERVISOR_CYCLE = ['u_adeyemi', 'u_silva', 'u_farouk'] as const
+
+function eeSupervisorOf(userId: string): string | null {
+  const i = C15_EE_ROSTER.findIndex((s) => s.userId === userId)
+  return i < 0 ? null : EE_SUPERVISOR_CYCLE[i % EE_SUPERVISOR_CYCLE.length]
+}
+
+/**
+ * TWO EARLY FINISHERS — and the reason is the same one the deadline fixtures
+ * give for putting a few dates in the past: *a demo where nothing is ever late
+ * cannot show what late looks like.*
+ *
+ * It is September of DP2 and the essay is due 13 November, so a COHORT of
+ * finished essays would be a fixture lying about the calendar. Two are not:
+ * every year a couple of candidates finish early, and without them the marking
+ * screen has nothing to mark and cannot be looked at at all — which is exactly
+ * what Michael found on 22 Aug ("No students in the dummy system have a full
+ * EE.. so I can't see how that works").
+ *
+ * They are R. FAROUK'S, deliberately, because the screen being demonstrated is
+ * the subject teacher's. And they are chosen only from candidates whose
+ * REGISTRATION IS COMPLETE — filing a finished essay for a subject nobody
+ * registered would be a different kind of lie.
+ *
+ * THREE STATES, not one, because a screen only ever drawn against a finished
+ * candidate hides everything its gates do:
+ *
+ *   EE_EARLY_FILED    final + viva + RPF  →  all five criteria open, releasable
+ *   EE_EARLY_NO_VIVA  final only          →  A–D open, E locked and says why
+ *   everyone else     outline at most     →  every criterion locked
+ */
+const eeEarly = C15_EE_ROSTER.filter(
+  (s) =>
+    eeSupervisorOf(s.userId) === 'u_farouk' &&
+    registrationComplete(EE_REGISTRATIONS.find((r2) => r2.studentId === s.userId)),
+).slice(0, 2)
+
+export const EE_EARLY_FILED: string | null = eeEarly[0]?.userId ?? null
+export const EE_EARLY_NO_VIVA: string | null = eeEarly[1]?.userId ?? null
+
+/** Their essays, filed ahead of the 13 November deadline. */
+const EE_EARLY_FILINGS: { studentId: string; at: string; words: number }[] = [
+  ...(EE_EARLY_FILED ? [{ studentId: EE_EARLY_FILED, at: '2026-10-30', words: 3842 }] : []),
+  ...(EE_EARLY_NO_VIVA ? [{ studentId: EE_EARLY_NO_VIVA, at: '2026-11-02', words: 3915 }] : []),
+]
+
 export const EE_SESSIONS: EeSession[] = pinned('ibEeSessions', () => {
   const out: EeSession[] = []
   const r = rng(5027)
@@ -993,6 +1047,26 @@ export const EE_SESSIONS: EeSession[] = pinned('ibEeSessions', () => {
           schoolId: s.schoolId, studentId: s.userId, stage,
           heldOn: dates[stage], recordedBy: 'u_adeyemi', recordedByName: 'H. Adeyemi',
           recordedAt: dates[stage],
+        })
+      }
+      continue
+    }
+    // THE EARLY FINISHERS have had all three, which is what makes their
+    // reflection statement open and their marking screen live. The viva is
+    // deliberately withheld from the second one — `ee.rpf` opensAfter
+    // `ee.viva`, so no viva means no RPF, which means criterion E stays shut.
+    // That is the gate, drawn.
+    if (s.userId === EE_EARLY_FILED || s.userId === EE_EARLY_NO_VIVA) {
+      const stages: SessionStage[] =
+        s.userId === EE_EARLY_FILED ? ['r1', 'r2', 'viva'] : ['r1', 'r2']
+      const held: Record<string, string> = {
+        r1: '2026-09-08', r2: '2026-10-14', viva: '2026-11-05',
+      }
+      for (const stage of stages) {
+        out.push({
+          schoolId: s.schoolId, studentId: s.userId, stage,
+          heldOn: held[stage], recordedBy: 'u_farouk', recordedByName: 'R. Farouk',
+          recordedAt: held[stage],
         })
       }
       continue
@@ -1018,15 +1092,30 @@ export const EE_SESSIONS: EeSession[] = pinned('ibEeSessions', () => {
  * due 13 November and not one of them has, which is why their upload pack
  * correctly reads zero ready.
  */
-export const EE_FINALS: EeFinal[] = pinned('ibEeFinals', () =>
-  STUDENTS.filter((s) => s.cohortId === 'c14').map((s) => ({
+export const EE_FINALS: EeFinal[] = pinned('ibEeFinals', () => [
+  ...STUDENTS.filter((s) => s.cohortId === 'c14').map((s) => ({
     schoolId: s.schoolId,
     studentId: s.userId,
     fileName: `${s.personalCode ?? 'no-code'}_EE.pdf`,
     declaredWords: 3600 + ((s.userId.charCodeAt(s.userId.length - 1) * 37) % 380),
     submittedAt: '2025-11-14',
+    ref: fixtureRef(`${s.personalCode ?? 'no-code'}_EE.pdf`, '2025-11-14'),
   })),
-)
+  // The two early finishers. NO personal code in the name: codes arrive in
+  // January and this is October — which is the whole reason the filename is
+  // generated at export rather than typed by a student (lib/export/naming.ts).
+  ...EE_EARLY_FILINGS.map((f) => ({
+    schoolId: 'dhahran',
+    studentId: f.studentId,
+    fileName: `${nameOf(f.studentId).split(',')[0].toLowerCase()}-extended-essay.pdf`,
+    declaredWords: f.words,
+    submittedAt: f.at,
+    ref: fixtureRef(
+      `${nameOf(f.studentId).split(',')[0].toLowerCase()}-extended-essay.pdf`,
+      f.at,
+    ),
+  })),
+])
 
 /** The supervisor's scoring record — everything around the marks. */
 export const EE_SCORING: EeScoring[] = pinned('ibEeScoring', () =>
@@ -1187,7 +1276,50 @@ export const REQUIREMENT_STATES: RequirementState[] = pinned('ibRequirementState
         // r1, r2 and viva are DERIVED from EE_SESSIONS — see lib/ee/derive.ts.
         // Seeding them here as well would store a derived value, which is the
         // one thing spine invariant #2 forbids.
-        // draft, final, rpf, attest, score: genuinely still ahead.
+
+        // THE TWO EARLY FINISHERS, and nobody else. For the cohort, draft,
+        // final, rpf, attest and score are genuinely still ahead and stay
+        // empty — the rule EE established on 19 Aug.
+        const early = EE_EARLY_FILINGS.find((f) => f.studentId === s.userId)
+        if (early && stage === 'final') {
+          // FILING IS WHAT LOCKS IT. Same rule as the live path, so what the
+          // fixture produces is what `submitFinal` would have produced.
+          put('submitted', early.at, {
+            exportStatus: 'ready_for_submission',
+            recordedBy: 'student',
+            lockedAt: `${early.at}T09:00:00.000Z`,
+            artifacts: ART(
+              `${nameOf(s.userId).split(',')[0].toLowerCase()}-extended-essay.pdf`,
+              nameOf(s.userId),
+            ).map((a) => ({
+              ...a, addedAt: early.at, file: { ...a.file!, addedAt: early.at },
+            })),
+          })
+          continue
+        }
+        // The RPF only for the one whose viva has been held — `ee.rpf`
+        // opensAfter `ee.viva`, and a reflection statement written before the
+        // conversation it reflects on would be a state no screen could produce.
+        if (early && stage === 'rpf' && s.userId === EE_EARLY_FILED) {
+          put('submitted', '2026-11-08', {
+            exportStatus: 'ready_for_submission',
+            recordedBy: 'student',
+            lockedAt: '2026-11-08T09:00:00.000Z',
+            artifacts: [{
+              id: `art_rpf_${s.userId}`, kind: 'text', label: 'Reflection statement',
+              body:
+                'I chose the question because I thought the answer was obvious, and the first three '
+                + 'weeks were spent finding out it was not. What changed the essay was reading the '
+                + 'method sections rather than the conclusions — two of my sources had measured '
+                + 'different things and called them the same name, and once I saw that I had to '
+                + 'rewrite the comparison at the centre of the argument. The viva made me say out '
+                + 'loud that my conclusion is narrower than my introduction promised, which is true, '
+                + 'and I would rather defend the narrow one.',
+              addedAt: '2026-11-08',
+            }],
+          })
+          continue
+        }
         continue
       }
 
@@ -1527,13 +1659,14 @@ export const EE_SUPERVISION: EeSupervision[] = pinned('ibEeSupervision', () => {
   // Two of Farouk's three are candidates he does NOT teach Biology — which is
   // the case that matters: supervision is a relationship, not an enrolment, and
   // it is why `teachesStudent` alone is the wrong gate on a student's record.
-  const SUPERVISORS = ['u_adeyemi', 'u_silva', 'u_farouk']
-  c15.slice(0, 20).forEach((st, i) => {
+  c15.slice(0, 20).forEach((st) => {
     rows.push({
       schoolId: 'dhahran',
       cohortId: 'c15',
       studentId: st.userId,
-      supervisorId: SUPERVISORS[i % SUPERVISORS.length],
+      // The cycle is hoisted (see `eeSupervisorOf`) because EE_SESSIONS and
+      // EE_FINALS need the same answer and are declared before this table.
+      supervisorId: eeSupervisorOf(st.userId)!,
       assignedBy: 'u_msmith',
       assignedAt: '2025-10-06',
       endedAt: null,
